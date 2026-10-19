@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/*
+ * Brand tokens lifted from the dplus site so the status pages a client's
+ * customer lands on look like De Sign Plus, not like a generic error page.
+ * Keep these in sync with dplus/src/app/globals.css.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-card: var(--card);
+  --color-coal-grey: var(--coal-grey);
+  --color-dsp-red: var(--dsp-red);
+  --color-dsp-blue: var(--dsp-blue);
+  --color-dsp-green: var(--dsp-green);
+  --color-dsp-yellow: var(--dsp-yellow);
+  --font-sarlotte: var(--font-sarlotte);
+  --radius-lg: var(--radius);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.99 0.0025 90);
+  --foreground: oklch(0.18 0.005 226);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.96 0.002 226);
+  --muted-foreground: oklch(0.48 0.005 226);
+  --border: oklch(0.91 0.003 226);
+  --coal-grey: oklch(0.94 0.003 226);
+  --dsp-red: oklch(0.6679 0.183 23.45);
+  --dsp-blue: oklch(0.6 0.1354 212.43);
+  --dsp-green: oklch(0.6 0.2054 133.1);
+  --dsp-yellow: oklch(0.7 0.1502 81.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: oklch(0.18 0.005 226);
+    --foreground: oklch(0.98 0.002 226);
+    --card: oklch(0.22 0.005 226);
+    --muted: oklch(0.26 0.005 226);
+    --muted-foreground: oklch(0.72 0.005 226);
+    --border: oklch(0.32 0.005 226);
+    --coal-grey: oklch(0.26 0.005 226);
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-raleway), ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
