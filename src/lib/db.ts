@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { attachDatabasePool } from "@vercel/functions";
-import { env, required } from "@/lib/env";
+import { required } from "@/lib/env";
 
 declare global {
   var _qrPool: Pool | undefined;
