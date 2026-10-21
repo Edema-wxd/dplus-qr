@@ -45,12 +45,40 @@ reliability for a feature, reliability wins. Everything below follows from that.
 
 **Database**
 
-- Raw SQL through the Neon pool. No ORM.
+- Raw SQL through `pg` (`src/lib/db.ts`). No ORM.
+- **Two connection strings, and the difference matters.** `DATABASE_URL` is
+  pooled (PgBouncer) and is what the app queries through. `DATABASE_URL_UNPOOLED`
+  is direct and is required for migrations, `pg_dump`, logical replication and
+  anything using session state. Over a pooled connection those fail in ways
+  that never mention pooling — a `search_path` that does not outlive its own
+  statement, or `prepared statement "s0" already exists`. `scripts/migrate.ts`
+  refuses to run against a `-pooler` host.
+- Both are Neon-managed: `neon env pull` writes them. Never hand-edit.
 - Every change is a new numbered file in `db/migrations/`, additive only. Never
   edit a migration that has run; the runner's checksum check will stop you.
 - Every query touching client data filters by the session's user id.
 - `qr_codes.user_id` is `on delete restrict` on purpose. Accounts are suspended
   and codes are paused; neither is deleted.
+
+**Auth**
+
+- Accounts are **Neon Managed Better Auth**, not next-auth. They live in the
+  `neon_auth` schema of the same branch, so auth state branches with the data.
+- Neon Auth sends its own verification, password-reset and OTP email. Login
+  needs no mailer. Resend is for admin alerts and abuse reports only.
+- `qr_users` is a **profile** table, not the account record. Its `id` equals
+  `neon_auth."user".id`. There is no database trigger joining them —
+  `ensureProfile()` in `src/lib/profile.ts` is the seam, called on sign-up and
+  on every authenticated page load so it also repairs a missed row.
+- Deliberately no cross-schema foreign key to `neon_auth."user"`: that table
+  belongs to a managed service that may reshape it.
+- `proxy.ts` guards pages. A proxy matcher protects pages, not data — check the
+  session again inside any Route Handler or Server Action that reads or writes.
+- Never give the matcher a catch-all: it would redirect CSS and JS for
+  signed-out visitors, so the sign-in page could not load. The redirect path
+  `/{code}` must never be in it.
+- Production needs custom SMTP and `neon neon-auth domain add <origin>` for
+  each deployed origin. Localhost is pre-approved.
 
 **Security**
 
@@ -75,6 +103,9 @@ differs from older training data. What has already bitten this repo:
     shell, streamed detail.
   - A route touching no request API is evaluated at build time — use
     `await connection()` to stop that (see `src/app/health/route.ts`).
+  - A page whose whole content is per-request, with no useful static shell to
+    stream around (an authenticated account page), sets
+    `export const instant = false` instead of wrapping everything in Suspense.
 
 ## Commands
 
@@ -90,7 +121,19 @@ npm run seed:codes           # test account + codes, prints scannable QRs
 ```
 
 Scripts read `.env.local` via `tsx --env-file`. A missing file is a silent empty
-env, so the runner checks for `DATABASE_URL` and says so.
+env, so the runner checks for the connection string and says so.
+
+`tsx` compiles scripts to CJS, so **no top-level `await`** — wrap script bodies
+in `async function main()` as the existing scripts do.
+
+Neon infrastructure lives in `neon.ts` (Postgres, Auth, the `assets` bucket):
+
+```bash
+neon config plan      # dry-run diff
+neon deploy           # apply, and pull env vars into .env.local
+neon env pull         # refresh Neon-managed env vars
+neon neon-auth status
+```
 
 ## Working process
 

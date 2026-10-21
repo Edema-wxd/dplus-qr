@@ -12,7 +12,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { Pool } from "@neondatabase/serverless";
+import { Pool } from "pg";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "db", "migrations");
 
@@ -47,12 +47,27 @@ async function load(): Promise<Migration[]> {
 async function main(): Promise<void> {
   const statusOnly = process.argv.includes("--status");
 
-  const connectionString = process.env.DATABASE_URL;
+  // Migrations MUST use the direct (unpooled) connection. Over PgBouncer in
+  // transaction mode, DDL and session state fail in ways that never mention
+  // pooling: a search_path that does not outlive its own statement, or a
+  // "prepared statement already exists" from a reused backend.
+  const connectionString =
+    process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+
   if (!connectionString) {
     console.error(
-      "DATABASE_URL is not set.\n" +
-        "Add it to .env.local (see .env.example) and re-run.\n" +
+      "DATABASE_URL_UNPOOLED is not set.\n" +
+        "Run `neon env pull`, or see .env.example.\n" +
         "Scripts are run with `tsx --env-file=.env.local`, so a missing file is a silent empty env."
+    );
+    process.exit(1);
+  }
+
+  if (!process.env.DATABASE_URL_UNPOOLED && connectionString.includes("-pooler")) {
+    console.error(
+      "Refusing to migrate over a pooled connection.\n" +
+        "DATABASE_URL points at a -pooler host and DATABASE_URL_UNPOOLED is unset.\n" +
+        "Run `neon env pull` to get the direct connection string."
     );
     process.exit(1);
   }

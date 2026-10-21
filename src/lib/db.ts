@@ -1,4 +1,5 @@
-import { Pool } from "@neondatabase/serverless";
+import { Pool } from "pg";
+import { attachDatabasePool } from "@vercel/functions";
 import { env } from "@/lib/env";
 
 declare global {
@@ -6,17 +7,40 @@ declare global {
 }
 
 /**
- * Neon pool. Reused across hot reloads in development so a long dev session
- * does not exhaust connections.
+ * Postgres pool.
+ *
+ * `pg` rather than `@neondatabase/serverless` on Neon's own advice for Vercel:
+ * with Fluid compute the process is long-lived, so a real pool is reused across
+ * requests, and `attachDatabasePool` lets Vercel drain it before the instance
+ * is frozen or shut down. It is also the portable choice -- the same driver
+ * works unchanged on a Node server or a VPS, which keeps decision 3 open.
+ *
+ * This is the POOLED connection (PgBouncer, `-pooler` host). Migrations and
+ * anything needing session state use the direct URL instead -- see
+ * scripts/migrate.ts.
  */
 export function db(): Pool {
   if (global._qrPool) return global._qrPool;
 
-  const pool = new Pool({ connectionString: env().DATABASE_URL });
+  const pool = new Pool({
+    connectionString: env().DATABASE_URL,
+    // The redirect path must fail fast rather than hang: a scanner waiting on a
+    // connection is worse than a status page.
+    connectionTimeoutMillis: 5_000,
+    // Neon scales to zero, so idle connections are dropped server-side anyway.
+    idleTimeoutMillis: 30_000,
+    max: 10,
+  });
 
-  if (env().NODE_ENV !== "production") {
-    global._qrPool = pool;
-  }
+  pool.on("error", (error) => {
+    // An idle client erroring must never take the process down.
+    console.error("[db] idle client error", error);
+  });
+
+  // No-op off Vercel, so this stays safe on any host.
+  attachDatabasePool(pool);
+
+  global._qrPool = pool;
   return pool;
 }
 

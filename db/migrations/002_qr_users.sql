@@ -1,38 +1,39 @@
--- 002: client accounts.
--- Deliberately separate from the dplus `admin_users` table: this platform owns
--- its own Neon project, and De Sign Plus staff auth stays untouched.
-
-create extension if not exists pgcrypto;
+-- 002: client profiles.
+--
+-- Accounts themselves live in `neon_auth."user"`, owned by Neon Managed Better
+-- Auth: credentials, email verification, password reset, sessions and the
+-- `role` / `banned` columns are all theirs. This table holds only what the QR
+-- platform adds on top, keyed by the same uuid.
+--
+-- Rewritten (21 Oct 2026) when Neon Auth replaced the planned self-managed
+-- next-auth setup. Safe to edit rather than supersede: no migration in this
+-- directory had been applied to any database at that point.
+--
+-- Deliberately NOT a foreign key to neon_auth."user". That table belongs to a
+-- managed service which may rename or reshape it, and a cross-schema FK would
+-- make our migrations hostage to that. Referential integrity we do control --
+-- qr_codes -> qr_users -- is enforced below and in 005.
 
 create table qr_users (
-  id                      uuid         primary key default gen_random_uuid(),
+  -- Equal to neon_auth."user".id. Not generated here.
+  id                      uuid         primary key,
+
+  -- Denormalised from neon_auth for admin search and for naming the business
+  -- on a paused page without a cross-schema join on the redirect path.
+  -- Kept in step by ensureProfile(); neon_auth remains the source of truth.
   email                   text         not null,
-  password_hash           text         not null,
   name                    text         not null,
-  role                    text         not null default 'client',
-  email_verified_at       timestamptz,
+
   paystack_customer_code  text,
+
+  -- Platform-level suspension, distinct from Neon Auth's `banned`: this stops
+  -- codes serving, it does not stop the person logging in to fix their billing.
   suspended_at            timestamptz,
+
   created_at              timestamptz  not null default now(),
-  updated_at              timestamptz  not null default now(),
-  constraint qr_users_role_check check (role in ('client', 'admin'))
+  updated_at              timestamptz  not null default now()
 );
 
--- Case-insensitive uniqueness: emails are always stored lowercased, but the
--- index guards against a code path that forgets.
-create unique index qr_users_email_key on qr_users (lower(email));
-
-create table qr_user_tokens (
-  id          bigserial    primary key,
-  user_id     uuid         not null references qr_users (id) on delete cascade,
-  purpose     text         not null,
-  token_hash  text         not null,
-  expires_at  timestamptz  not null,
-  used_at     timestamptz,
-  created_at  timestamptz  not null default now(),
-  constraint qr_user_tokens_purpose_check check (purpose in ('verify_email', 'password_reset'))
-);
-
--- Only the hash is stored, so lookup is by hash.
-create unique index qr_user_tokens_hash_key on qr_user_tokens (token_hash);
-create index qr_user_tokens_user_idx on qr_user_tokens (user_id, purpose);
+-- Admin search. Not unique: uniqueness is Neon Auth's to enforce, and a copy
+-- that rejected a mid-change duplicate would break the account, not protect it.
+create index qr_users_email_idx on qr_users (lower(email));

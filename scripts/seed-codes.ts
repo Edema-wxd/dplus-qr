@@ -10,11 +10,15 @@
  *
  * Refuses to run against a production DATABASE_URL.
  */
-import { Pool } from "@neondatabase/serverless";
+import { Pool } from "pg";
 import QRCode from "qrcode";
 import { generateCode } from "../src/lib/short-code";
 
 const BASE_URL = process.env.QR_BASE_URL ?? "http://localhost:3000";
+
+/** Fixed so the seed is idempotent. Not real accounts; see below. */
+const SEED_USER_ID = "00000000-0000-4000-8000-000000000001";
+const LAPSED_USER_ID = "00000000-0000-4000-8000-000000000002";
 
 const SEEDS = [
   { name: "Active — Google", url: "https://www.google.com", status: "active" },
@@ -24,7 +28,8 @@ const SEEDS = [
 ] as const;
 
 async function main(): Promise<void> {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString =
+    process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
   if (!connectionString) {
     console.error("DATABASE_URL is not set. See .env.example.");
     process.exit(1);
@@ -47,13 +52,18 @@ async function main(): Promise<void> {
     );
     const planId = planRows[0].id;
 
-    // Account. Password hash is a placeholder: Phase 1 owns real auth, and this
-    // account is not meant to be logged into.
+    // Profile rows only. Real accounts live in neon_auth, created by Neon
+    // Managed Better Auth -- these two exist so the redirect path can be
+    // exercised without signing anyone up, and they cannot be logged into.
+    //
+    // Fixed uuids rather than generated ones, so re-running the seed updates
+    // the same rows instead of accumulating new businesses.
     const { rows: userRows } = await pool.query<{ id: string }>(
-      `insert into qr_users (email, password_hash, name, email_verified_at)
-       values ('seed@example.test', 'not-a-usable-hash', 'Seed Test Business', now())
-       on conflict (lower(email)) do update set name = excluded.name
-       returning id`
+      `insert into qr_users (id, email, name)
+       values ($1, 'seed@example.test', 'Seed Test Business')
+       on conflict (id) do update set name = excluded.name
+       returning id`,
+      [SEED_USER_ID]
     );
     const userId = userRows[0].id;
 
@@ -69,10 +79,11 @@ async function main(): Promise<void> {
     // A second account whose grace period has already expired, to prove the
     // lapse path without waiting.
     const { rows: lapsedRows } = await pool.query<{ id: string }>(
-      `insert into qr_users (email, password_hash, name, email_verified_at)
-       values ('lapsed@example.test', 'not-a-usable-hash', 'Lapsed Test Business', now())
-       on conflict (lower(email)) do update set name = excluded.name
-       returning id`
+      `insert into qr_users (id, email, name)
+       values ($1, 'lapsed@example.test', 'Lapsed Test Business')
+       on conflict (id) do update set name = excluded.name
+       returning id`,
+      [LAPSED_USER_ID]
     );
     const lapsedUserId = lapsedRows[0].id;
 
@@ -83,6 +94,11 @@ async function main(): Promise<void> {
        do update set status = 'past_due', grace_until = excluded.grace_until`,
       [lapsedUserId, planId]
     );
+
+    // Remove this seed's previous codes so repeated runs do not pile up.
+    await pool.query("delete from qr_codes where user_id = any($1::uuid[])", [
+      [SEED_USER_ID, LAPSED_USER_ID],
+    ]);
 
     console.log(`\nSeeded codes (base ${BASE_URL}):\n`);
 

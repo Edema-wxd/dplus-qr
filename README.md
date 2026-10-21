@@ -10,11 +10,16 @@ A printed code points at this host and never changes. Only its destination does.
 
 ```bash
 npm install
-cp .env.example .env.local     # fill in DATABASE_URL at minimum
+neon deploy                    # provisions Postgres, Auth and the bucket, and
+                               # writes their env vars into .env.local
+# then add NEON_AUTH_COOKIE_SECRET yourself: openssl rand -base64 32
 npm run db:migrate
 npm run seed:codes             # prints scannable test codes in the terminal
 npm run dev
 ```
+
+Neon services are declared in `neon.ts`. `neon config plan` shows a dry-run diff
+before `neon deploy` applies it.
 
 `npm test` and `npm run build` need no database or network.
 
@@ -38,6 +43,10 @@ Nothing in step 5 can delay or break step 4.
 | `src/app/[code]/route.ts` | The redirect. The one path that must never break |
 | `src/app/(status)/` | Paused, blocked, not-found and report pages |
 | `src/app/health/` | Uptime check: 200 while the database answers |
+| `src/app/(app)/` | Sign-up, sign-in and the protected account page |
+| `src/app/api/auth/` | Same-origin proxy to Neon Managed Better Auth |
+| `src/proxy.ts` | Route protection (Next 16's replacement for middleware) |
+| `neon.ts` | Neon services as code: Postgres, Auth, the `assets` bucket |
 | `src/lib/` | Everything the redirect path is allowed to import |
 | `db/migrations/` | Numbered, additive SQL. The schema's source of truth |
 | `scripts/` | Migration runner and seed |

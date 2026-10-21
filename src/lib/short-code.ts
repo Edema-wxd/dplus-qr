@@ -32,6 +32,7 @@ export const RESERVED_CODES: ReadonlySet<string> = new Set([
   "reset",
   "account",
   "app",
+  "auth",
   "admin",
   "api",
   "billing",

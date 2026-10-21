@@ -29,7 +29,7 @@ the nodemailer instruction is not just unnecessary but a regression.
 | --- | --- | --- |
 | 1 | Where the code lives | Standalone `dplus-qr` repo and app, not inside `dplus` |
 | 2 | Database | New Neon project, modern Postgres. All PG10 rules dropped |
-| 3 | Hosting | Deferred. Nothing host-specific; cron logic behind protected endpoints |
+| 3 | Hosting | **Vercel for the demo** (21 Oct 2026). Still nothing host-specific; cron logic behind protected endpoints |
 | 4 | Client accounts | Own `qr_users` table and auth. `dplus`'s `admin_users` untouched |
 | 5 | Dashboard home | **`qr.de-signplus.com`** hosts redirects *and* login and dashboard. `de-signplus.com/qr` is a marketing page that links across |
 | 6 | Redirect isolation | Route-group isolation in one deploy, enforced by a test |
@@ -53,6 +53,65 @@ service, and `dplus` needs almost no changes — just a `/qr` page linking here.
 It also means short codes share a URL namespace with application routes, which
 is why decision 11 exists and why `RESERVED_CODES` must be extended whenever a
 route is added.
+
+## Amendments, 21 October 2026
+
+**Hosting: demo on Vercel.** Decision 3 is partly settled — the first demo runs
+on Vercel, with the custom domain deferred. Consequences:
+
+- The in-process cache tier is near-useless between serverless invocations, so
+  Redis becomes the cache that actually carries the demo. The three-tier design
+  in `src/lib/cache.ts` already degrades correctly, but a demo without Redis
+  means every scan reaches Postgres.
+- `after()` is natively supported on Vercel, so scan recording needs no change.
+- Cron jobs can use `vercel.json` crons rather than protected endpoints plus an
+  external scheduler.
+
+**`qr.de-signplus.com` DNS: deferred.** This is safe only while nothing is
+printed. A demo deployment serves codes on a `*.vercel.app` URL, and
+`QR_BASE_URL` must match it or the generated QR images will point somewhere
+that does not resolve.
+
+> **Do not print or distribute any code generated against a `*.vercel.app`
+> base URL.** The host inside a printed code can never change, so a demo code
+> is a demo code forever. Production codes wait for the real subdomain.
+
+**Auth: Neon Managed Better Auth.** Provisioning Neon's `auth` service replaces
+the next-auth plan in decision 4 and in both reference documents. Accounts live
+in the `neon_auth` schema of the same branch, so auth state branches with the
+data, and the service sends its own verification and password-reset email.
+
+`neon_auth."user"` turned out to carry `id uuid`, `email`, `name`,
+`emailVerified`, `role` and `banned` — the same uuid type migration `002` used
+for `qr_users.id`, which made the reconciliation clean:
+
+- `qr_users` became a **profile** table keyed by `neon_auth."user".id`. It keeps
+  `paystack_customer_code`, a platform-level `suspended_at`, and a denormalised
+  `email`/`name` so a paused page can name the business without a cross-schema
+  join on the redirect path.
+- Dropped: `password_hash`, `email_verified_at`, `role`, and the whole
+  `qr_user_tokens` table. Neon Auth owns credentials, verification and reset.
+- **No foreign key to `neon_auth."user"`.** That table belongs to a managed
+  service that may rename or reshape it, and a cross-schema FK would make our
+  migrations hostage to it. `ensureProfile()` is the seam instead.
+- Migration `002` was rewritten rather than superseded, because no migration had
+  been applied to any database at that point. Everything from `003` on was
+  unaffected: the `qr_users(id)` foreign keys still resolve.
+
+**Consequences for the plan:** Phase 1's "sign-up, email verification, login,
+password reset, with rate limits" is largely delivered by the managed service
+rather than built. Still outstanding for Phase 1: custom SMTP (shared SMTP is
+development-only, and verification *links* require custom SMTP), trusted-domain
+registration per deployed origin, and rate limiting on the auth routes.
+
+**Resend is no longer an auth dependency.** It stays for admin alerts, abuse
+reports and billing email.
+
+**Driver: `pg`, not `@neondatabase/serverless`.** Neon's own guidance for Vercel
+is `node-postgres` with Fluid compute plus `attachDatabasePool` from
+`@vercel/functions`, which also happens to be the portable choice — the same
+driver runs unchanged on a Node server or VPS. The serverless driver was removed.
+Migrations use `DATABASE_URL_UNPOOLED`; the runner refuses a `-pooler` host.
 
 ## Still open
 
