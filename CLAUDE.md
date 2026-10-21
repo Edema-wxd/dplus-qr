@@ -107,6 +107,47 @@ differs from older training data. What has already bitten this repo:
     stream around (an authenticated account page), sets
     `export const instant = false` instead of wrapping everything in Suspense.
 
+## The build must need no secrets
+
+`next build` collects route configuration, which evaluates route modules. Any
+client constructed at module scope therefore runs during the build — and a
+build has no reason to hold credentials. This broke the first Vercel deploy:
+`createNeonAuth` at module scope called `env()`, which validates the whole
+contract, so a route that needed only the auth URL failed on `DATABASE_URL`.
+
+Two rules follow, and `next build` under an empty environment is the test:
+
+- **Construct service clients lazily.** `src/lib/auth/server.ts` builds on first
+  use behind a Proxy; the handler route and `proxy.ts` defer to it per request
+  rather than destructuring at module scope.
+- **Nothing is mandatory in the `env()` schema.** Mark it optional and call
+  `required("NAME")` at the point of use, so a module only ever fails on a
+  variable it actually asked for.
+
+```bash
+env -i PATH="$PATH" HOME="$HOME" npx next build   # must pass
+```
+
+## Deploying to Vercel
+
+Project `francis-woods-projects/dplus-qr`, linked to the GitHub repo, so a push
+to `main` deploys. Env vars are set in the project (production and preview).
+
+- **`.env` values can be quoted, and piping them elsewhere strips nothing.**
+  `neon deploy` writes `DATABASE_URL="postgres://…"` with quotes because the
+  value contains `?` and `&`. Local loaders strip them; `vercel env add` does
+  not, so the stored value kept its quotes and `pg` resolved the host as
+  `base`, reporting `ENOTFOUND base`. Strip surrounding quotes before handing a
+  value to another tool.
+- **Geolocation is free here.** `src/lib/geo.ts` reads `x-vercel-ip-country`,
+  which Vercel populates, so scans record a country with no MaxMind licence and
+  no 60MB database at startup. On a host that does not supply it the field goes
+  back to null, which is why the lookup stays behind that interface.
+- Register each deployed origin with Managed Auth, or sign-in fails with
+  `invalid domain`: `neon neon-auth domain add https://<origin>`.
+- Deployment Protection blocks a phone from scanning. A demo URL people will
+  actually scan has to be reachable without a Vercel login.
+
 ## Commands
 
 ```bash

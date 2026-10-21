@@ -1,4 +1,5 @@
 import { createNeonAuth } from "@neondatabase/auth/next/server";
+import type { NeonAuth } from "@neondatabase/auth/next/server";
 import { required } from "@/lib/env";
 
 /**
@@ -9,10 +10,33 @@ import { required } from "@/lib/env";
  * auth state branches with the database. It also sends its own verification and
  * reset email, so none of that needs Resend.
  *
- * `required()` rather than `!` so a missing variable names itself instead of
- * failing later as an opaque fetch error.
+ * Built on first use rather than at module load. The SDK's documented pattern
+ * constructs it at module scope, but Next collects route configuration during
+ * the build, which evaluates this module -- and a build has no reason to hold
+ * auth secrets. Constructing eagerly made `next build` fail on Vercel, where
+ * `--env` values are runtime-only.
  */
-export const auth = createNeonAuth({
-  baseUrl: required("NEON_AUTH_BASE_URL"),
-  cookies: { secret: required("NEON_AUTH_COOKIE_SECRET") },
+let instance: NeonAuth | null = null;
+
+function neonAuth(): NeonAuth {
+  if (!instance) {
+    instance = createNeonAuth({
+      baseUrl: required("NEON_AUTH_BASE_URL"),
+      cookies: { secret: required("NEON_AUTH_COOKIE_SECRET") },
+    });
+  }
+  return instance;
+}
+
+/**
+ * Stands in for the auth instance so call sites read normally
+ * (`auth.getSession()`, `auth.signUp.email(...)`), while construction still
+ * waits for the first request.
+ */
+export const auth = new Proxy({} as NeonAuth, {
+  get(_target, property, receiver) {
+    const real = neonAuth();
+    const value = Reflect.get(real as object, property, receiver);
+    return typeof value === "function" ? value.bind(real) : value;
+  },
 });

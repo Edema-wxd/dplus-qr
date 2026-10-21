@@ -10,7 +10,13 @@ import { z } from "zod";
  */
 const schema = z.object({
   // Neon-managed. Pooled (PgBouncer) connection for application queries.
-  DATABASE_URL: z.string().min(1),
+  //
+  // Optional in the schema, required at the point of use via `required()`.
+  // env() validates the whole contract at once, so marking anything mandatory
+  // here makes an unrelated module fail on a variable it never asked for --
+  // which is exactly how the first Vercel build broke, on a route that only
+  // needed the auth URL.
+  DATABASE_URL: z.string().min(1).optional(),
 
   // Neon-managed. Direct connection, required for migrations, dumps and
   // anything relying on session state. Pooled connections break those in ways

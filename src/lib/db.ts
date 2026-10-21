@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { attachDatabasePool } from "@vercel/functions";
-import { env } from "@/lib/env";
+import { env, required } from "@/lib/env";
 
 declare global {
   var _qrPool: Pool | undefined;
@@ -23,7 +23,7 @@ export function db(): Pool {
   if (global._qrPool) return global._qrPool;
 
   const pool = new Pool({
-    connectionString: env().DATABASE_URL,
+    connectionString: required("DATABASE_URL"),
     // The redirect path must fail fast rather than hang: a scanner waiting on a
     // connection is worse than a status page.
     connectionTimeoutMillis: 5_000,

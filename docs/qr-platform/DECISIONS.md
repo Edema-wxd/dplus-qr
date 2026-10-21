@@ -113,6 +113,27 @@ is `node-postgres` with Fluid compute plus `attachDatabasePool` from
 driver runs unchanged on a Node server or VPS. The serverless driver was removed.
 Migrations use `DATABASE_URL_UNPOOLED`; the runner refuses a `-pooler` host.
 
+## Demo deployment, 21 October 2026
+
+Live at **https://dplus-qr.vercel.app** (Vercel project
+`francis-woods-projects/dplus-qr`, linked to the GitHub repo). Same Neon
+`production` branch as local, so codes seeded locally resolve on the deployment.
+
+Verified there: all five redirect decisions, scan recording through `after()`,
+every status page, and the full auth lifecycle including a signed-out `/account`
+being denied and a wrong password refused.
+
+**Geolocation is settled for as long as this runs on Vercel.** Scans record
+`country` from `x-vercel-ip-country` — confirmed returning `NG` — so decision 10
+needs no MaxMind licence while the demo lives here. The interface stays because
+a move to cPanel or a VPS would lose the header.
+
+**Deployment Protection is still on** (`ssoProtection:
+all_except_custom_domains`), so the `vercel.app` URL needs a Vercel login and a
+phone cannot scan it. Note the exemption: a custom domain attached later is
+public automatically, so `qr.de-signplus.com` would work without touching this
+setting.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
