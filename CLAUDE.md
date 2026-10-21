@@ -145,8 +145,17 @@ to `main` deploys. Env vars are set in the project (production and preview).
   back to null, which is why the lookup stays behind that interface.
 - Register each deployed origin with Managed Auth, or sign-in fails with
   `invalid domain`: `neon neon-auth domain add https://<origin>`.
-- Deployment Protection blocks a phone from scanning. A demo URL people will
-  actually scan has to be reachable without a Vercel login.
+- **Deployment Protection does not cover the production domain.** With
+  `ssoProtection: all_except_custom_domains`, the per-deployment URLs
+  (`dplus-<hash>-<team>.vercel.app`) redirect to `vercel.com/sso-api`, while
+  `dplus-qr.vercel.app` is served to anyone. Verify which URL you are testing
+  before concluding the app is private: automated access to a per-deployment
+  URL needs `x-vercel-protection-bypass`, and `vercel curl` generates that
+  token on demand (it does not forward arbitrary curl flags, so use plain curl
+  with the header when you need to inspect responses).
+- Rotating credentials: `neon api -X POST
+  /projects/{id}/branches/{branch}/roles/{role}/reset_password`, then
+  `neon env pull`, then `npm run env:sync`, then redeploy.
 
 ## Commands
 
