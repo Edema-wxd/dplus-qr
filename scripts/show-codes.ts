@@ -23,8 +23,10 @@ type Row = {
 };
 
 async function main(): Promise<void> {
+  // Pooled: this only ever runs read-only SELECTs. The direct connection is
+  // for migrations, dumps and session state, not ordinary queries.
   const connectionString =
-    process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+    process.env.DATABASE_URL ?? process.env.DATABASE_URL_UNPOOLED;
   if (!connectionString) {
     console.error("DATABASE_URL is not set. See .env.example.");
     process.exit(1);

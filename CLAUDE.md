@@ -157,6 +157,26 @@ to `main` deploys. Env vars are set in the project (production and preview).
   /projects/{id}/branches/{branch}/roles/{role}/reset_password`, then
   `neon env pull`, then `npm run env:sync`, then redeploy.
 
+## Running a local demo
+
+```bash
+npx next dev -H 0.0.0.0 -p 3100          # -H so a phone on the WiFi can reach it
+npm run codes -- --base http://<lan-ip>:3100   # scannable QR images
+```
+
+- **Pick a port nobody else is on.** Two dev servers can both "succeed" on one
+  port — one binding IPv4, the other IPv6 — and macOS resolves `localhost` to
+  IPv6 first, so `curl localhost:3000` silently hits the other project while
+  `127.0.0.1:3000` hits yours. Check with
+  `lsof -nP -iTCP:<port> -sTCP:LISTEN`.
+- Add each dev origin to `allowedDevOrigins` in `next.config.ts`, or Next blocks
+  HMR for it, and register it with Managed Auth
+  (`neon neon-auth domain add http://<lan-ip>:<port>`) or sign-in returns
+  `invalid domain`.
+- **Status-page redirects use a relative `Location`.** Never rebuild them from
+  `request.nextUrl.origin`: bound to `0.0.0.0` that emits
+  `http://0.0.0.0:3100/paused`, which no phone can follow.
+
 ## Commands
 
 ```bash

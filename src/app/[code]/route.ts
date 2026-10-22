@@ -36,7 +36,7 @@ export async function GET(
   // Cheapest possible rejection: anything not 7 base-58 characters is noise
   // (a crawler, a typo, a probe) and gets the not-found page without a query.
   if (!isValidCodeFormat(code)) {
-    return notFound(request);
+    return notFound();
   }
 
   // A lookup failure must not reach the scanner as a crash. The database being
@@ -47,7 +47,7 @@ export async function GET(
     ({ destination } = await lookupDestination(code));
   } catch (error) {
     console.error("[redirect] lookup failed", error);
-    return statusRedirect(request, "/unavailable");
+    return statusRedirect("/unavailable");
   }
 
   const decision = decide(destination);
@@ -72,21 +72,31 @@ export async function GET(
 
   switch (decision.kind) {
     case "paused":
-      return statusRedirect(request, `/paused?code=${code}`);
+      return statusRedirect(`/paused?code=${code}`);
     case "blocked":
-      return statusRedirect(request, `/blocked?code=${code}`);
+      return statusRedirect(`/blocked?code=${code}`);
     default:
-      return notFound(request);
+      return notFound();
   }
 }
 
-function statusRedirect(request: NextRequest, path: string) {
+/**
+ * Status pages are redirected to with a RELATIVE Location, which the client
+ * resolves against the URL it actually requested.
+ *
+ * An absolute URL built from `request.nextUrl.origin` is wrong whenever the
+ * origin the server sees differs from the one the scanner used: bound to
+ * 0.0.0.0 it emitted `http://0.0.0.0:3000/paused`, which no phone can follow,
+ * and behind a proxy that rewrites the host it would send scanners to an
+ * internal address. A relative Location cannot be wrong this way.
+ */
+function statusRedirect(path: string) {
   return new Response(null, {
     status: 302,
-    headers: { ...NO_STORE, Location: new URL(path, request.nextUrl.origin).toString() },
+    headers: { ...NO_STORE, Location: path },
   });
 }
 
-function notFound(request: NextRequest) {
-  return statusRedirect(request, "/not-found-code");
+function notFound() {
+  return statusRedirect("/not-found-code");
 }
