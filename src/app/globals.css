@@ -54,3 +54,54 @@ body {
   font-family: var(--font-raleway), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/*
+ * The loading mark. Four squares of the QR motif light in clockwise order, so
+ * the glyph reads as a code being read rather than as a generic spinner.
+ *
+ * Deliberately CSS-only: loading.tsx renders as a Suspense fallback while the
+ * page is still streaming, so the animation has to run before any JavaScript
+ * has loaded or hydrated. Only opacity and transform are animated, both of
+ * which the compositor handles without laying the page out again.
+ */
+@keyframes qr-module {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.7);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* The reduced-motion substitute: the whole mark cross-fades, nothing travels. */
+@keyframes qr-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.qr-module {
+  /* An SVG element's transform-origin is the user-space origin by default, so
+     a scale would throw the square across the glyph without these two. */
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: qr-module 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-module {
+    animation: none;
+    opacity: 1;
+  }
+
+  .qr-mark-animated {
+    animation: qr-breathe 2.4s ease-in-out infinite;
+  }
+}
