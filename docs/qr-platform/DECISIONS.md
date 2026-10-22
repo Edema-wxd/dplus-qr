@@ -128,11 +128,23 @@ being denied and a wrong password refused.
 needs no MaxMind licence while the demo lives here. The interface stays because
 a move to cPanel or a VPS would lose the header.
 
-**Deployment Protection is still on** (`ssoProtection:
-all_except_custom_domains`), so the `vercel.app` URL needs a Vercel login and a
-phone cannot scan it. Note the exemption: a custom domain attached later is
-public automatically, so `qr.de-signplus.com` would work without touching this
-setting.
+**The demo is public, deliberately** (decided 22 Oct 2026). Deployment
+Protection is set to `all_except_custom_domains`, which protects the
+per-deployment URLs (`dplus-<hash>-<team>.vercel.app` → `vercel.com/sso-api`)
+but **not** the production domain. `dplus-qr.vercel.app` is served to anyone, so
+a phone can scan it today — and sign-up is open to anyone with the link.
+
+Acceptable while the database holds only seed codes and throwaway test
+accounts. Revisit before anything real goes in: either switch `ssoProtection`
+to cover all deployments, or add password protection.
+
+`npm run codes -- --base https://dplus-qr.vercel.app` prints the current codes
+as scannable QR images without changing them.
+
+**Still no Redis.** `/health` reports `redis: degraded` because the Upstash
+credentials in `dplus/.env.local` are empty. Every scan therefore reaches
+Postgres: on serverless the in-process cache tier rarely survives between
+invocations. Fine for a demo, wrong for production.
 
 ## Still open
 

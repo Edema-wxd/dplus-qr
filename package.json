@@ -12,7 +12,8 @@
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "db:migrate:status": "tsx --env-file=.env.local scripts/migrate.ts --status",
     "seed:codes": "tsx --env-file=.env.local scripts/seed-codes.ts",
-    "env:sync": "tsx scripts/sync-vercel-env.ts"
+    "env:sync": "tsx scripts/sync-vercel-env.ts",
+    "codes": "tsx --env-file=.env.local scripts/show-codes.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1154.0",

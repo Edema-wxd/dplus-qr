@@ -21,7 +21,17 @@ npm run dev
 Neon services are declared in `neon.ts`. `neon config plan` shows a dry-run diff
 before `neon deploy` applies it.
 
-`npm test` and `npm run build` need no database or network.
+`npm test` and `npm run build` need no database or network — the build is
+verified to pass under an empty environment, because Next evaluates route
+modules while collecting configuration and a build has no business holding
+secrets.
+
+The demo runs at **https://dplus-qr.vercel.app**. To scan the current codes with
+a phone:
+
+```bash
+npm run codes -- --base https://dplus-qr.vercel.app
+```
 
 ## How a scan works
 
@@ -49,7 +59,7 @@ Nothing in step 5 can delay or break step 4.
 | `neon.ts` | Neon services as code: Postgres, Auth, the `assets` bucket |
 | `src/lib/` | Everything the redirect path is allowed to import |
 | `db/migrations/` | Numbered, additive SQL. The schema's source of truth |
-| `scripts/` | Migration runner and seed |
+| `scripts/` | Migration runner, seed, code viewer, Vercel env sync |
 | `docs/qr-platform/` | Design documents. `DECISIONS.md` is authoritative |
 
 ## Documentation
