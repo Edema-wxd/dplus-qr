@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  if (!base.startsWith("https://qr.de-signplus.com")) {
+  if (!base.startsWith("https://qriateplus.com")) {
     console.warn(
       `\n  Note: these codes encode ${base}.\n` +
         "  A printed code can never change host, so do not print anything\n" +

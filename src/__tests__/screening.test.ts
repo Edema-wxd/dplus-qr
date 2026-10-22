@@ -32,8 +32,20 @@ describe("screenUrl", () => {
     expect(screenUrl("https://www.tinyurl.com/abc").ok).toBe(false);
   });
 
-  it("rejects a code pointing at the redirect host itself", () => {
-    expect(screenUrl("https://qr.de-signplus.com/Ab3kQ9x").ok).toBe(false);
+  it.each([
+    ["the current redirect host", "https://qriateplus.com/Ab3kQ9x"],
+    ["www of the redirect host", "https://www.qriateplus.com/Ab3kQ9x"],
+    ["a retired redirect host", "https://qr.de-signplus.com/Ab3kQ9x"],
+    ["the demo host", "https://dplus-qr.vercel.app/Ab3kQ9x"],
+  ])("rejects a code pointing at %s", (_label, url) => {
+    // Chaining codes would loop and would let a second hop escape screening.
+    // Retired hosts stay refused because codes printed against them still
+    // resolve.
+    expect(screenUrl(url).ok).toBe(false);
+  });
+
+  it("still accepts an unrelated host on the same registrar", () => {
+    expect(screenUrl("https://de-signplus.com/products").ok).toBe(true);
   });
 
   it("rejects a host with no public domain", () => {

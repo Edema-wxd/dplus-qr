@@ -27,7 +27,7 @@ const schema = z.object({
 
   // Public base of the redirect host. This string is baked into printed codes,
   // so it can never change once a code has been printed.
-  QR_BASE_URL: z.string().url().default("https://qr.de-signplus.com"),
+  QR_BASE_URL: z.string().url().default("https://qriateplus.com"),
 
   // --- Neon Auth (Managed Better Auth) ---
   // Neon-managed base URL; the cookie secret is ours to generate and keep.

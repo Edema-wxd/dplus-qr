@@ -4,8 +4,8 @@ import { PRODUCT_NAME } from "@/lib/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: PRODUCT_NAME,
-  description: "Dynamic QR codes by De Sign Plus.",
+  title: { default: PRODUCT_NAME, template: `%s · ${PRODUCT_NAME}` },
+  description: "Dynamic QR codes you can re-point at any time. A De Sign Plus product.",
   // Status pages must never be indexed: they are transient states of someone
   // else's printed material.
   robots: { index: false, follow: false },

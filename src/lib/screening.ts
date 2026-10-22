@@ -28,6 +28,16 @@ const SHORTENER_HOSTS = new Set([
   "bl.ink",
 ]);
 
+/**
+ * Hosts this platform serves codes on. A printed code can never change host,
+ * so retired hosts stay listed forever.
+ */
+const OWN_HOSTS = new Set([
+  "qriateplus.com",
+  "qr.de-signplus.com",
+  "dplus-qr.vercel.app",
+]);
+
 export type ScreenResult =
   | { ok: true; normalised: string }
   | { ok: false; reason: string };
@@ -76,9 +86,12 @@ export function screenUrl(input: string): ScreenResult {
     };
   }
 
-  // A code pointing at this host would loop, or chain one code to another.
-  if (host === "qr.de-signplus.com") {
-    return { ok: false, reason: "A code cannot point at another De Sign Plus code." };
+  // A code pointing at a host we serve codes on would loop, or chain one code
+  // to another and defeat screening. Every host that has ever served codes
+  // belongs here, not just the current one: codes printed against an older
+  // host keep resolving for years.
+  if (OWN_HOSTS.has(host) || OWN_HOSTS.has(host.replace(/^www\./, ""))) {
+    return { ok: false, reason: "A code cannot point at another code." };
   }
 
   return { ok: true, normalised: url.toString() };

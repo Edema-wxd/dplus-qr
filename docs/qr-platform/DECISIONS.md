@@ -42,7 +42,7 @@ the nodemailer instruction is not just unnecessary but a regression.
 | 13 | Redirect rate limit | **300/min/IP**, and a limited request is still redirected; only the scan record is dropped |
 | 14 | Status page styling | Tailwind plus the De Sign Plus tokens, Sarlotte and logos |
 | 15 | Email | Resend, reusing the verified De Sign Plus domain |
-| 16 | Product name | **Still open.** Placeholder lives in `src/lib/brand.ts` |
+| 16 | Product name | **QRiate+** (wordmark: QR capitalised, raised plus). Decided 22 Oct 2026 |
 
 ### Decision 5 changes the shape of the project
 
@@ -146,11 +146,60 @@ credentials in `dplus/.env.local` are empty. Every scan therefore reaches
 Postgres: on serverless the in-process cache tier rarely survives between
 invocations. Fine for a demo, wrong for production.
 
+## Redirect host changed to qriateplus.com, 22 October 2026
+
+**This supersedes `qr.de-signplus.com` everywhere**, including the Locked
+Decisions table in HANDOVER.md and the Domains table in INFRASTRUCTURE.md.
+
+| | |
+| --- | --- |
+| Host inside printed codes | `qriateplus.com` (apex) |
+| Code URL | `https://qriateplus.com/Ab3kQ9x` — 30 characters |
+| Scope | The whole platform: redirects, sign-up, login, dashboard |
+| `de-signplus.com/qr` | Marketing page linking across |
+| DNS | Cloudflare, proxied, with existing MX (`mymangomail`) left alone |
+
+Changing this was free only because **nothing has been printed yet**. It is now
+the most irreversible decision in the project: every code printed from here on
+resolves against this host for as long as the printed material exists.
+
+Why it is better than the subdomain it replaces:
+
+- 30 encoded characters against 34 for `qr.de-signplus.com/Ab3kQ9x`, so fewer
+  QR modules and a code that still scans at 2cm on packaging.
+- Reputation isolation, which INFRASTRUCTURE.md already named as the reason to
+  prefer a separate short domain: abuse of a client's code lands here, not on
+  the De Sign Plus brand.
+
+**Code consequences already applied:** `screenUrl()` refuses destinations
+pointing at any host this platform has served codes on — current, demo and
+retired — because codes printed against a retired host keep resolving, and a
+chained code would escape screening on its second hop. `QR_BASE_URL` defaults
+to the new host, and `show-codes` warns when asked to render against anything
+else.
+
+**Product name: QRiate+**, taken from the supplied wordmark — "QR" capitalised,
+"iate" lowercase, a four-square QR motif in cyan and a raised plus in green.
+`PRODUCT_NAME` in `src/lib/brand.ts` is the plain-text form, and the landing
+page derives the styled wordmark from it rather than retyping it. The palette
+read off the logo sits beside the existing De Sign Plus tokens, which is why
+the two brands work together. QRiate+ now leads on this domain, with De Sign
+Plus credited as the parent.
+
+**The logo file itself is not in the repo.** It was shared as an image in
+conversation, which I cannot write to disk. Drop the vector at
+`public/brand/qriate-wordmark.svg` and the landing page can use it in place of
+the text wordmark.
+
+**Still required, and mine to hand over rather than do:** the Cloudflare DNS
+record. Vercel offers a Domain Connect flow that applies it in your account.
+Note that Vercel's recommended record carries `disableProxy: true`, which
+conflicts with keeping the orange cloud on — see the handover notes.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
 
-- Product name (decision 16)
 - Plan names, naira prices, code limits, annual discount
 - Free trial, and whether codes go live during one
 - Grace period after a failed renewal (7 days proposed)

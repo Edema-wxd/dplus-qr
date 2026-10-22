@@ -1,12 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="QR">
-  <rect width="32" height="32" rx="6" fill="#111417"/>
-  <g fill="#fff">
-    <path d="M6 6h8v8H6V6zm2 2v4h4V8H8z"/>
-    <path d="M18 6h8v8h-8V6zm2 2v4h4V8h-4z"/>
-    <path d="M6 18h8v8H6v-8zm2 2v4h4v-4H8z"/>
-    <rect x="18" y="18" width="3" height="3"/>
-    <rect x="23" y="18" width="3" height="3"/>
-    <rect x="18" y="23" width="3" height="3"/>
-    <rect x="23" y="23" width="3" height="3"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="QRiate+">
+  <!-- Derived from the wordmark: the four-square QR motif plus the raised plus. -->
+  <rect width="32" height="32" rx="7" fill="#1A1A1A"/>
+  <g fill="#5BC5E8">
+    <rect x="7" y="7" width="7" height="7" rx="1.8"/>
+    <rect x="17" y="7" width="7" height="7" rx="1.8"/>
+    <rect x="7" y="17" width="7" height="7" rx="1.8"/>
+  </g>
+  <g fill="#7DC242">
+    <rect x="19.6" y="17" width="2.8" height="7" rx="1"/>
+    <rect x="17" y="19.6" width="8" height="2.8" rx="1"/>
   </g>
 </svg>
