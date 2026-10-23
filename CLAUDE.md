@@ -74,12 +74,24 @@ reliability for a feature, reliability wins. Everything below follows from that.
   in the `env()` contract and login still needs no mailer in this process.
   Verification *links* require this custom SMTP; Neon's shared sender is
   development-only.
-- **The verified Resend domain is `mail.qriateplus.com`, not the apex.** Mail
-  sends from `noreply@mail.qriateplus.com`; a `from` on the bare
-  `qriateplus.com` is rejected with 403, because Resend verifies the exact
-  domain whose DNS records were added. A 403 means app mail logs and carries on
-  while auth mail never arrives, so a sender change needs the matching DNS
-  records added at resend.com/domains first.
+- **Senders are grouped by subject, never typed at a call site.** `MAIL_GROUPS`
+  in `src/lib/email.ts` owns three identities and `sendEmail` requires one:
+  `onboarding@` (auth, verification, reset, OTP, welcome), `plans@` (billing)
+  and `support@` (complaints, abuse reports). There is deliberately no
+  `EMAIL_FROM` env var — an override would let one deployment send billing mail
+  from the onboarding address. Reputation accrues per address, so the split is
+  what stops a bounced invoice run dragging down password resets.
+- **Two mail domains, and mixing them loses mail.** `mail.qriateplus.com` is
+  verified in Resend and publishes SPF/DKIM but **no MX**: it sends, and
+  anything addressed to it is rejected with no notice to the sender. So every
+  `Reply-To`, every `mailto:` in the UI and every internal alert recipient
+  lives on the apex `qriateplus.com`, which has MX. `SENDING_DOMAIN` and
+  `INBOX_DOMAIN` in `src/lib/brand.ts` name the two, and
+  `src/__tests__/email-groups.test.ts` fails if a `Reply-To` lands on the
+  send-only one.
+- **A `from` on the bare apex is rejected with 403.** Resend verifies the exact
+  domain whose DNS records were added, which is the `mail.` subdomain. A 403
+  means app mail logs and carries on while auth mail never arrives.
 - `qr_users` is a **profile** table, not the account record. Its `id` equals
   `neon_auth."user".id`. There is no database trigger joining them —
   `ensureProfile()` in `src/lib/profile.ts` is the seam, called on sign-up and

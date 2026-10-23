@@ -41,7 +41,7 @@ the nodemailer instruction is not just unnecessary but a regression.
 | 12 | Short code | 7 characters, base-58 without `0 O I l` — confirmed |
 | 13 | Redirect rate limit | **300/min/IP**, and a limited request is still redirected; only the scan record is dropped |
 | 14 | Status page styling | Tailwind plus the De Sign Plus tokens, Sarlotte and logos |
-| 15 | Email | Resend for everything — app mail over the API, Neon Auth mail over Resend SMTP. Sender `noreply@mail.qriateplus.com`: the verified domain is the `mail.` subdomain, not the apex. Confirmed 23 Oct 2026 |
+| 15 | Email | Resend for everything — app mail over the API, Neon Auth mail over Resend SMTP. Senders grouped by subject: `onboarding@`, `plans@`, `support@` on `mail.qriateplus.com` (send-only, no MX); every reply-to and inbox on the apex. Confirmed 23 Oct 2026 |
 | 16 | Product name | **QRiate+** (wordmark: QR capitalised, raised plus). Decided 22 Oct 2026 |
 
 ### Decision 5 changes the shape of the project
@@ -112,10 +112,31 @@ everything — verification, password reset and OTP from the managed service, an
 admin alerts, abuse reports and billing email from this app over the API — but
 the app code still imports no mailer on the login path.
 
-Outstanding: the sending domain. The Resend account is registered to
-`hello@qriateplus.com`, and as of 23 Oct 2026 neither `qriateplus.com` nor
-`de-signplus.com` is verified there, so every send is rejected with 403. DNS
-verification is a prerequisite for Phase 1 acceptance, not a detail.
+**Senders are grouped by subject.** `onboarding@` carries auth and getting
+started (and is the sender on Neon Auth's SMTP), `plans@` carries billing,
+`support@` carries complaints and abuse reports. `MAIL_GROUPS` in
+`src/lib/email.ts` is the only place an address appears, and `sendEmail`
+requires a group, so a call site cannot invent a sender. There is no
+`EMAIL_FROM` env var for the same reason. The split buys per-address
+reputation: a bounced invoice run cannot drag verification mail down with it,
+and a user can mute billing without muting a password reset.
+
+**`mail.qriateplus.com` sends but does not receive.** It publishes SPF and DKIM
+for Resend and no MX, so mail addressed there is rejected and the sender is
+never told. Every `Reply-To`, every `mailto:` in the UI and every internal
+alert recipient therefore sits on the apex `qriateplus.com`, which has MX.
+`SENDING_DOMAIN` and `INBOX_DOMAIN` in `src/lib/brand.ts` name the two and a
+test fails if a reply-to crosses over.
+
+Outstanding: dedicated inboxes. All three groups currently reply to
+`hello@qriateplus.com`, the one mailbox confirmed to exist. Once `support@`,
+`plans@` and `onboarding@` exist on the apex, repoint
+`MAIL_GROUPS[...].replyTo`; the senders are already grouped that way.
+
+Settled: the sending domain. The Resend account is registered to
+`hello@qriateplus.com`, and `mail.qriateplus.com` was verified there on 23 Oct
+2026. The apex itself is not verified and does not need to be — it is the
+inbox side, not the sending side.
 
 **Driver: `pg`, not `@neondatabase/serverless`.** Neon's own guidance for Vercel
 is `node-postgres` with Fluid compute plus `attachDatabasePool` from

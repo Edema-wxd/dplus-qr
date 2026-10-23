@@ -60,11 +60,16 @@ const schema = z.object({
   // service, not by us: `neon neon-auth config email-provider get`. It is not
   // an env var here, and login still needs no mailer in this process.
   //
-  // Sending requires the EMAIL_FROM domain to be verified at
-  // resend.com/domains. Until it is, Resend rejects the send with a 403 and
-  // `sendEmail` logs it rather than failing the caller.
+  // There is deliberately no EMAIL_FROM. Sender addresses are grouped by what
+  // the message is about -- onboarding, plans, support -- in `MAIL_GROUPS` in
+  // `src/lib/email.ts`, and every send names a group. A single env override
+  // would let one deployment send billing mail from the onboarding address,
+  // which is the drift the grouping exists to prevent.
+  //
+  // Sending requires the group's domain to be verified at resend.com/domains.
+  // Until it is, Resend rejects the send with a 403 and `sendEmail` logs it
+  // rather than failing the caller.
   RESEND_API_KEY: z.string().min(1).optional(),
-  EMAIL_FROM: z.string().default("QRiate+ <noreply@mail.qriateplus.com>"),
 
   PAYSTACK_SECRET_KEY: z.string().min(1).optional(),
 

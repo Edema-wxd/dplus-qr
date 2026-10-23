@@ -14,7 +14,31 @@ export const PRODUCT_NAME_SPOKEN = "QRiate Plus";
 /** The parent business. QRiate+ is a De Sign Plus product. */
 export const COMPANY_NAME = "De Sign Plus";
 export const MAIN_SITE = "https://de-signplus.com";
-export const SUPPORT_EMAIL = "hello@de-signplus.com";
+
+/**
+ * Two mail domains, and the difference decides whether a reply is lost.
+ *
+ * `SENDING_DOMAIN` is the subdomain verified in Resend. It is send-only: it
+ * publishes SPF/DKIM but no MX, so a message addressed to anything there is
+ * rejected and the sender never learns why. Only ever a `From`.
+ *
+ * `INBOX_DOMAIN` is the apex, whose MX points at the real mailbox provider.
+ * Anything a human is invited to write to -- a `Reply-To`, a `mailto:` in the
+ * UI, the recipient of an internal alert -- has to live here.
+ */
+export const SENDING_DOMAIN = "mail.qriateplus.com";
+export const INBOX_DOMAIN = "qriateplus.com";
+
+/**
+ * Where a user's reply or complaint actually lands, and where `notifyAdmin`
+ * delivers. Kept on the apex for the reason above.
+ *
+ * This is the one mailbox confirmed to exist -- the Resend account is
+ * registered to it. Once `support@`, `plans@` and `onboarding@` exist on
+ * INBOX_DOMAIN, point `MAIL_GROUPS[...].replyTo` in `email.ts` at them; the
+ * senders are already grouped that way.
+ */
+export const SUPPORT_EMAIL = `hello@${INBOX_DOMAIN}`;
 
 /** Canonical host for printed codes. Never changes once anything is printed. */
 export const CODE_HOST = "qriateplus.com";
