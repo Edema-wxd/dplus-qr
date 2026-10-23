@@ -197,3 +197,58 @@ body {
     transform: translateY(10px);
   }
 }
+
+/*
+ * The dashboard.
+ *
+ * An Operate surface, so the world is held to four things — type, palette,
+ * density and one signature move — and supplies none of the layout or the
+ * controls. It inherits the landing page's tokens and reassigns the two
+ * materials by job: ink is the shell, paper is the work area. A dense table is
+ * read for minutes rather than seconds, so the long surface is the light one.
+ */
+.dash {
+  --paper: oklch(0.985 0.004 85);
+  --paper-ink: oklch(0.17 0.006 226);
+  --paper-soft: oklch(0.44 0.006 226);
+  --paper-rule: oklch(0.89 0.004 85);
+  --paper-raised: oklch(0.965 0.004 85);
+  --field: oklch(0.165 0.006 226);
+  --field-ink: oklch(0.97 0.002 226);
+  --field-soft: oklch(0.74 0.006 226);
+  --field-rule: oklch(0.31 0.008 226);
+  --live-ink: oklch(0.52 0.16 133);
+  --pin-ink: oklch(0.5 0.13 243);
+  --pending-ink: oklch(0.58 0.13 70);
+  --struck-ink: oklch(0.55 0.2 25);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  background: var(--paper);
+  color: var(--paper-ink);
+  --qr-ground: transparent;
+  --qr-ink: var(--paper-ink);
+}
+
+.dash ::selection {
+  background: var(--pin-ink);
+  color: var(--paper);
+}
+
+/* One focus treatment across the whole surface, including the browser's own. */
+.dash :focus-visible {
+  outline: 2px solid var(--pin-ink);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.dash-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row is a link; the whole row reacts, not just the text in it. */
+.dash-row {
+  transition: background-color 120ms var(--ease-out);
+}
+.dash-row:hover {
+  background: var(--paper-raised);
+}

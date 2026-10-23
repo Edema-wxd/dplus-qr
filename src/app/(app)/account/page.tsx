@@ -40,11 +40,6 @@ export default async function AccountPage() {
           value={user.emailVerified ? "Yes" : "Not yet — check your inbox"}
         />
         <Row label="Plan" value={profile.paystackCustomerCode ? "Subscribed" : "No plan yet"} />
-        <Row
-          label="Profile row"
-          value={`qr_users.id = ${profile.id}`}
-          mono
-        />
       </dl>
 
       <form action={signOutAction} className="mt-8">
@@ -59,19 +54,11 @@ export default async function AccountPage() {
   );
 }
 
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex flex-col gap-0.5">
       <dt className="text-muted-foreground text-xs uppercase tracking-wide">{label}</dt>
-      <dd className={mono ? "font-mono text-xs break-all" : ""}>{value}</dd>
+      <dd>{value}</dd>
     </div>
   );
 }

@@ -56,7 +56,48 @@ export async function ensureProfile(user: {
     [user.id, user.email, user.name?.trim() || user.email]
   );
 
+  // Same reasoning as the profile row itself: repairing on every authenticated
+  // load means an account that signed up before the free plan existed, or whose
+  // grant failed once, is fixed the next time its owner opens a page.
+  await ensureFreeSubscription(user.id);
+
   return toProfile(rows[0]);
+}
+
+/**
+ * Give an account the free plan, but only if it has no subscription at all.
+ *
+ * **This is the one place outside the Paystack webhook that writes
+ * `qr_subscriptions.status`, and migration 004 says that is the webhook's job.**
+ * The exception is deliberate and narrow, because without it the dashboard
+ * would hand users codes that scan to the paused page: `qr_codes`' lookup
+ * treats "no subscription" as "not entitled".
+ *
+ * Two things keep it safe:
+ *
+ * - `where not exists (...)` means it grants only to an account with **no**
+ *   subscription row of any status. It can never resurrect a cancelled
+ *   Paystack subscription, never contend with the partial unique index on
+ *   `(user_id) where status in ('active','past_due')`, and never overwrite a
+ *   status the webhook owns.
+ * - It can only ever select the `free` plan, which has `amount_kobo = 0` and
+ *   no `paystack_plan_code`.
+ *
+ * Phase 3 removes this. When checkout exists, free accounts either migrate to
+ * a paid plan or lapse through the normal grace path like everyone else.
+ */
+export async function ensureFreeSubscription(userId: string): Promise<void> {
+  await query(
+    `insert into qr_subscriptions (user_id, plan_id, status)
+     select $1, p.id, 'active'
+     from qr_plans p
+     where p.slug = 'free'
+       and p.is_active
+       and not exists (
+         select 1 from qr_subscriptions where user_id = $1
+       )`,
+    [userId]
+  );
 }
 
 export async function getProfile(userId: string): Promise<Profile | null> {
