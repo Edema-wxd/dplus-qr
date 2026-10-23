@@ -93,6 +93,10 @@ sign-ups open to the public only after Phase 3, when abuse controls are in place
       `qr_destination_history`, `qr_scans`, `qr_scan_daily`,
       `qr_payment_events`, `qr_abuse_reports`, `qr_users`
 - [ ] `client` role in next-auth; middleware guarding the dashboard and admin
+- [x] `mail.qriateplus.com` verified in Resend, and Neon Auth's custom SMTP
+      pointed at it on the `production` branch — 23 Oct 2026. Inspect with
+      `neon neon-auth config email-provider get`; a new branch does not inherit
+      it, so re-run the `update` there.
 - [ ] Sign-up, email verification (Resend), login, password reset, rate limits
 - [ ] Redirect host routing with a `/health` route
 - [ ] Staging app with its own database

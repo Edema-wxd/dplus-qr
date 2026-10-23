@@ -52,10 +52,19 @@ const schema = z.object({
   // still recorded but `ip_hash` is null, so unique counts are unavailable.
   SCAN_IP_SALT: z.string().min(16).optional(),
 
-  // Resend is for admin alerts and abuse reports only. Neon Auth sends its own
-  // verification, password-reset and OTP emails, so login needs no mailer here.
+  // Every outbound message leaves through Resend. This key is the API path --
+  // admin alerts, abuse reports and anything else this app sends itself.
+  //
+  // Neon Auth's verification, password-reset and OTP email goes through the
+  // same Resend account over SMTP, but that credential is held by the managed
+  // service, not by us: `neon neon-auth config email-provider get`. It is not
+  // an env var here, and login still needs no mailer in this process.
+  //
+  // Sending requires the EMAIL_FROM domain to be verified at
+  // resend.com/domains. Until it is, Resend rejects the send with a 403 and
+  // `sendEmail` logs it rather than failing the caller.
   RESEND_API_KEY: z.string().min(1).optional(),
-  EMAIL_FROM: z.string().default("De Sign Plus <noreply@de-signplus.com>"),
+  EMAIL_FROM: z.string().default("QRiate+ <noreply@mail.qriateplus.com>"),
 
   PAYSTACK_SECRET_KEY: z.string().min(1).optional(),
 

@@ -64,8 +64,22 @@ reliability for a feature, reliability wins. Everything below follows from that.
 
 - Accounts are **Neon Managed Better Auth**, not next-auth. They live in the
   `neon_auth` schema of the same branch, so auth state branches with the data.
-- Neon Auth sends its own verification, password-reset and OTP email. Login
-  needs no mailer. Resend is for admin alerts and abuse reports only.
+- **All mail goes through Resend, by two paths.** This app's own messages
+  (admin alerts, abuse reports) use the Resend API via `src/lib/email.ts` and
+  `RESEND_API_KEY`. Neon Auth's verification, password-reset and OTP mail goes
+  through the same Resend account over SMTP — `smtp.resend.com:587`, username
+  `resend`, password the API key — configured once per branch with
+  `neon neon-auth config email-provider update --type standard`. That
+  credential lives in the managed service, not in `.env.local`, so it is not
+  in the `env()` contract and login still needs no mailer in this process.
+  Verification *links* require this custom SMTP; Neon's shared sender is
+  development-only.
+- **The verified Resend domain is `mail.qriateplus.com`, not the apex.** Mail
+  sends from `noreply@mail.qriateplus.com`; a `from` on the bare
+  `qriateplus.com` is rejected with 403, because Resend verifies the exact
+  domain whose DNS records were added. A 403 means app mail logs and carries on
+  while auth mail never arrives, so a sender change needs the matching DNS
+  records added at resend.com/domains first.
 - `qr_users` is a **profile** table, not the account record. Its `id` equals
   `neon_auth."user".id`. There is no database trigger joining them —
   `ensureProfile()` in `src/lib/profile.ts` is the seam, called on sign-up and

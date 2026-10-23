@@ -41,7 +41,7 @@ the nodemailer instruction is not just unnecessary but a regression.
 | 12 | Short code | 7 characters, base-58 without `0 O I l` — confirmed |
 | 13 | Redirect rate limit | **300/min/IP**, and a limited request is still redirected; only the scan record is dropped |
 | 14 | Status page styling | Tailwind plus the De Sign Plus tokens, Sarlotte and logos |
-| 15 | Email | Resend, reusing the verified De Sign Plus domain |
+| 15 | Email | Resend for everything — app mail over the API, Neon Auth mail over Resend SMTP. Sender `noreply@mail.qriateplus.com`: the verified domain is the `mail.` subdomain, not the apex. Confirmed 23 Oct 2026 |
 | 16 | Product name | **QRiate+** (wordmark: QR capitalised, raised plus). Decided 22 Oct 2026 |
 
 ### Decision 5 changes the shape of the project
@@ -104,8 +104,18 @@ rather than built. Still outstanding for Phase 1: custom SMTP (shared SMTP is
 development-only, and verification *links* require custom SMTP), trusted-domain
 registration per deployed origin, and rate limiting on the auth routes.
 
-**Resend is no longer an auth dependency.** It stays for admin alerts, abuse
-reports and billing email.
+**Resend carries auth mail again, as SMTP rather than as a dependency.** The
+custom SMTP that Phase 1 needs is Resend's: `smtp.resend.com:587`, username
+`resend`, password the Resend API key, set with `neon neon-auth config
+email-provider update --type standard`. One Resend account therefore sends
+everything — verification, password reset and OTP from the managed service, and
+admin alerts, abuse reports and billing email from this app over the API — but
+the app code still imports no mailer on the login path.
+
+Outstanding: the sending domain. The Resend account is registered to
+`hello@qriateplus.com`, and as of 23 Oct 2026 neither `qriateplus.com` nor
+`de-signplus.com` is verified there, so every send is rejected with 403. DNS
+verification is a prerequisite for Phase 1 acceptance, not a detail.
 
 **Driver: `pg`, not `@neondatabase/serverless`.** Neon's own guidance for Vercel
 is `node-postgres` with Fluid compute plus `attachDatabasePool` from
