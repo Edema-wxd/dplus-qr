@@ -1,0 +1,701 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-22T00:00:00.000Z",
+  "title": "Design System: QRiate+",
+  "extensions": {
+    "colorMeta": {
+      "pin": {
+        "role": "primary",
+        "displayName": "Pin Cyan",
+        "canonical": "oklch(0.8 0.1 220)",
+        "note": "Field-tuned. Pins, the headline's second clause, the primary action, focus ring, selection.",
+        "tonalRamp": [
+          "oklch(0.15 0.1 220)",
+          "oklch(0.26 0.1 220)",
+          "oklch(0.37 0.1 220)",
+          "oklch(0.48 0.1 220)",
+          "oklch(0.58 0.1 220)",
+          "oklch(0.69 0.1 220)",
+          "oklch(0.8 0.1 220)",
+          "oklch(0.95 0.05 220)"
+        ]
+      },
+      "pin-ink": {
+        "role": "primary",
+        "displayName": "Pin Cyan on Paper",
+        "canonical": "oklch(0.58 0.12 220)",
+        "note": "Paper-safe counterpart of pin.",
+        "tonalRamp": [
+          "oklch(0.15 0.12 220)",
+          "oklch(0.26 0.12 220)",
+          "oklch(0.37 0.12 220)",
+          "oklch(0.47 0.12 220)",
+          "oklch(0.58 0.12 220)",
+          "oklch(0.69 0.1 220)",
+          "oklch(0.82 0.08 220)",
+          "oklch(0.95 0.04 220)"
+        ]
+      },
+      "live": {
+        "role": "secondary",
+        "displayName": "Live Green",
+        "canonical": "oklch(0.8 0.19 133)",
+        "note": "Reserved. The one live destination row, its LIVE pill, and the raised plus inside the supplied wordmark vector (which holds its green on both grounds).",
+        "tonalRamp": [
+          "oklch(0.15 0.19 133)",
+          "oklch(0.26 0.19 133)",
+          "oklch(0.37 0.19 133)",
+          "oklch(0.48 0.19 133)",
+          "oklch(0.58 0.19 133)",
+          "oklch(0.69 0.19 133)",
+          "oklch(0.8 0.19 133)",
+          "oklch(0.95 0.09 133)"
+        ]
+      },
+      "live-ink": {
+        "role": "secondary",
+        "displayName": "Live Green on Paper",
+        "canonical": "oklch(0.52 0.16 133)",
+        "note": "Paper-safe counterpart. Defined and correct, but currently drawn on no surface: the typographic wordmark plus it served was retired when the real vector shipped.",
+        "tonalRamp": [
+          "oklch(0.15 0.16 133)",
+          "oklch(0.26 0.16 133)",
+          "oklch(0.37 0.16 133)",
+          "oklch(0.52 0.16 133)",
+          "oklch(0.63 0.16 133)",
+          "oklch(0.74 0.16 133)",
+          "oklch(0.85 0.12 133)",
+          "oklch(0.95 0.07 133)"
+        ]
+      },
+      "pending": {
+        "role": "tertiary",
+        "displayName": "Pending Amber",
+        "canonical": "oklch(0.83 0.15 81)",
+        "note": "Pending state only. Paper counterpart is pending-ink.",
+        "tonalRamp": [
+          "oklch(0.15 0.15 81)",
+          "oklch(0.26 0.15 81)",
+          "oklch(0.37 0.15 81)",
+          "oklch(0.49 0.15 81)",
+          "oklch(0.6 0.15 81)",
+          "oklch(0.72 0.15 81)",
+          "oklch(0.83 0.15 81)",
+          "oklch(0.95 0.08 81)"
+        ]
+      },
+      "pending-ink": {
+        "role": "tertiary",
+        "displayName": "Pending Amber on Paper",
+        "canonical": "oklch(0.65 0.14 72)",
+        "note": "The Paused state marker.",
+        "tonalRamp": [
+          "oklch(0.15 0.14 72)",
+          "oklch(0.26 0.14 72)",
+          "oklch(0.38 0.14 72)",
+          "oklch(0.49 0.14 72)",
+          "oklch(0.65 0.14 72)",
+          "oklch(0.76 0.13 72)",
+          "oklch(0.86 0.1 72)",
+          "oklch(0.95 0.05 72)"
+        ]
+      },
+      "struck": {
+        "role": "tertiary",
+        "displayName": "Struck Coral",
+        "canonical": "oklch(0.72 0.18 23)",
+        "note": "Struck/blocked and form error text.",
+        "tonalRamp": [
+          "oklch(0.15 0.18 23)",
+          "oklch(0.26 0.18 23)",
+          "oklch(0.37 0.18 23)",
+          "oklch(0.49 0.18 23)",
+          "oklch(0.6 0.18 23)",
+          "oklch(0.72 0.18 23)",
+          "oklch(0.84 0.13 23)",
+          "oklch(0.95 0.06 23)"
+        ]
+      },
+      "struck-ink": {
+        "role": "tertiary",
+        "displayName": "Struck Coral on Paper",
+        "canonical": "oklch(0.58 0.2 25)",
+        "note": "The Blocked state marker.",
+        "tonalRamp": [
+          "oklch(0.15 0.2 25)",
+          "oklch(0.26 0.2 25)",
+          "oklch(0.37 0.2 25)",
+          "oklch(0.47 0.2 25)",
+          "oklch(0.58 0.2 25)",
+          "oklch(0.7 0.18 25)",
+          "oklch(0.83 0.13 25)",
+          "oklch(0.95 0.06 25)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Specimen Paper",
+        "canonical": "oklch(0.985 0.004 85)",
+        "note": "The specimen panel ground. Fixed; does not invert.",
+        "tonalRamp": [
+          "oklch(0.17 0.004 85)",
+          "oklch(0.3 0.004 85)",
+          "oklch(0.44 0.004 85)",
+          "oklch(0.58 0.004 85)",
+          "oklch(0.72 0.004 85)",
+          "oklch(0.87 0.004 85)",
+          "oklch(0.94 0.004 85)",
+          "oklch(0.985 0.004 85)"
+        ]
+      },
+      "paper-ink": {
+        "role": "neutral",
+        "displayName": "Paper Ink",
+        "canonical": "oklch(0.17 0.006 226)",
+        "note": "Type on paper, the dark button ground on paper, and --qr-ink.",
+        "tonalRamp": [
+          "oklch(0.17 0.006 226)",
+          "oklch(0.29 0.006 226)",
+          "oklch(0.44 0.006 226)",
+          "oklch(0.56 0.006 226)",
+          "oklch(0.68 0.006 226)",
+          "oklch(0.8 0.006 226)",
+          "oklch(0.9 0.005 226)",
+          "oklch(0.97 0.004 226)"
+        ]
+      },
+      "paper-soft": {
+        "role": "neutral",
+        "displayName": "Paper Soft",
+        "canonical": "oklch(0.44 0.006 226)",
+        "note": "Captions, labels and secondary sentences on paper.",
+        "tonalRamp": [
+          "oklch(0.17 0.006 226)",
+          "oklch(0.3 0.006 226)",
+          "oklch(0.44 0.006 226)",
+          "oklch(0.56 0.006 226)",
+          "oklch(0.68 0.006 226)",
+          "oklch(0.8 0.006 226)",
+          "oklch(0.9 0.005 226)",
+          "oklch(0.97 0.004 226)"
+        ]
+      },
+      "paper-rule": {
+        "role": "neutral",
+        "displayName": "Paper Rule",
+        "canonical": "oklch(0.87 0.004 85)",
+        "note": "Every hairline drawn on paper.",
+        "tonalRamp": [
+          "oklch(0.17 0.004 85)",
+          "oklch(0.3 0.004 85)",
+          "oklch(0.44 0.004 85)",
+          "oklch(0.58 0.004 85)",
+          "oklch(0.72 0.004 85)",
+          "oklch(0.87 0.004 85)",
+          "oklch(0.93 0.004 85)",
+          "oklch(0.98 0.004 85)"
+        ]
+      },
+      "field": {
+        "role": "neutral",
+        "displayName": "Ink Field",
+        "canonical": "oklch(0.165 0.006 226)",
+        "note": "The page ground, and the text colour of light-on-dark buttons.",
+        "tonalRamp": [
+          "oklch(0.165 0.006 226)",
+          "oklch(0.28 0.006 226)",
+          "oklch(0.42 0.006 226)",
+          "oklch(0.55 0.006 226)",
+          "oklch(0.68 0.006 226)",
+          "oklch(0.8 0.006 226)",
+          "oklch(0.9 0.004 226)",
+          "oklch(0.97 0.002 226)"
+        ]
+      },
+      "field-raised": {
+        "role": "neutral",
+        "displayName": "Field Raised",
+        "canonical": "oklch(0.205 0.006 226)",
+        "note": "One tonal step above the field. Available for a raised ink surface.",
+        "tonalRamp": [
+          "oklch(0.165 0.006 226)",
+          "oklch(0.205 0.006 226)",
+          "oklch(0.31 0.006 226)",
+          "oklch(0.45 0.006 226)",
+          "oklch(0.6 0.006 226)",
+          "oklch(0.74 0.006 226)",
+          "oklch(0.87 0.004 226)",
+          "oklch(0.97 0.002 226)"
+        ]
+      },
+      "field-ink": {
+        "role": "neutral",
+        "displayName": "Field Ink",
+        "canonical": "oklch(0.97 0.002 226)",
+        "note": "Headlines on the field and the high-contrast button ground.",
+        "tonalRamp": [
+          "oklch(0.165 0.002 226)",
+          "oklch(0.28 0.002 226)",
+          "oklch(0.42 0.002 226)",
+          "oklch(0.55 0.002 226)",
+          "oklch(0.68 0.002 226)",
+          "oklch(0.8 0.002 226)",
+          "oklch(0.9 0.002 226)",
+          "oklch(0.97 0.002 226)"
+        ]
+      },
+      "field-soft": {
+        "role": "neutral",
+        "displayName": "Field Soft",
+        "canonical": "oklch(0.74 0.006 226)",
+        "note": "Ledes and first-level recession on ink.",
+        "tonalRamp": [
+          "oklch(0.165 0.006 226)",
+          "oklch(0.28 0.006 226)",
+          "oklch(0.42 0.006 226)",
+          "oklch(0.55 0.006 226)",
+          "oklch(0.66 0.006 226)",
+          "oklch(0.74 0.006 226)",
+          "oklch(0.87 0.004 226)",
+          "oklch(0.97 0.002 226)"
+        ]
+      },
+      "field-muted": {
+        "role": "neutral",
+        "displayName": "Field Muted",
+        "canonical": "oklch(0.66 0.006 226)",
+        "note": "Row notes, timestamps, footnotes — the second recession step.",
+        "tonalRamp": [
+          "oklch(0.165 0.006 226)",
+          "oklch(0.28 0.006 226)",
+          "oklch(0.42 0.006 226)",
+          "oklch(0.55 0.006 226)",
+          "oklch(0.66 0.006 226)",
+          "oklch(0.78 0.006 226)",
+          "oklch(0.89 0.004 226)",
+          "oklch(0.97 0.002 226)"
+        ]
+      },
+      "field-rule": {
+        "role": "neutral",
+        "displayName": "Field Rule",
+        "canonical": "oklch(0.31 0.008 226)",
+        "note": "Hairlines on ink. Row dividers draw it at 55% opacity.",
+        "tonalRamp": [
+          "oklch(0.165 0.008 226)",
+          "oklch(0.24 0.008 226)",
+          "oklch(0.31 0.008 226)",
+          "oklch(0.45 0.008 226)",
+          "oklch(0.6 0.008 226)",
+          "oklch(0.74 0.006 226)",
+          "oklch(0.87 0.004 226)",
+          "oklch(0.97 0.002 226)"
+        ]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "De Sign Plus Background (incumbent)",
+        "canonical": "oklch(0.99 0.0025 90)",
+        "note": "Incumbent :root layer. Inverts to oklch(0.18 0.005 226) under prefers-color-scheme: dark. Used by status, auth and account pages.",
+        "tonalRamp": [
+          "oklch(0.18 0.005 226)",
+          "oklch(0.26 0.005 226)",
+          "oklch(0.4 0.004 226)",
+          "oklch(0.55 0.004 226)",
+          "oklch(0.7 0.003 226)",
+          "oklch(0.85 0.003 226)",
+          "oklch(0.94 0.003 226)",
+          "oklch(0.99 0.0025 90)"
+        ]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "De Sign Plus Foreground (incumbent)",
+        "canonical": "oklch(0.18 0.005 226)",
+        "note": "Incumbent. Inverts to oklch(0.98 0.002 226) in dark.",
+        "tonalRamp": [
+          "oklch(0.18 0.005 226)",
+          "oklch(0.3 0.005 226)",
+          "oklch(0.44 0.005 226)",
+          "oklch(0.57 0.005 226)",
+          "oklch(0.7 0.004 226)",
+          "oklch(0.83 0.003 226)",
+          "oklch(0.92 0.003 226)",
+          "oklch(0.98 0.002 226)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "De Sign Plus Border (incumbent)",
+        "canonical": "oklch(0.91 0.003 226)",
+        "note": "Incumbent hairline. Inverts to oklch(0.32 0.005 226) in dark.",
+        "tonalRamp": [
+          "oklch(0.18 0.003 226)",
+          "oklch(0.32 0.005 226)",
+          "oklch(0.45 0.004 226)",
+          "oklch(0.58 0.004 226)",
+          "oklch(0.72 0.003 226)",
+          "oklch(0.83 0.003 226)",
+          "oklch(0.91 0.003 226)",
+          "oklch(0.97 0.002 226)"
+        ]
+      },
+      "dsp-yellow": {
+        "role": "tertiary",
+        "displayName": "DSP Yellow (incumbent)",
+        "canonical": "oklch(0.7 0.1502 81.14)",
+        "note": "The Paused status page's accent bar.",
+        "tonalRamp": [
+          "oklch(0.15 0.15 81)",
+          "oklch(0.27 0.15 81)",
+          "oklch(0.38 0.15 81)",
+          "oklch(0.5 0.15 81)",
+          "oklch(0.7 0.1502 81.14)",
+          "oklch(0.8 0.14 81)",
+          "oklch(0.89 0.1 81)",
+          "oklch(0.95 0.05 81)"
+        ]
+      },
+      "dsp-red": {
+        "role": "tertiary",
+        "displayName": "DSP Red (incumbent)",
+        "canonical": "oklch(0.6679 0.183 23.45)",
+        "note": "The Blocked status page's accent bar.",
+        "tonalRamp": [
+          "oklch(0.15 0.183 23)",
+          "oklch(0.27 0.183 23)",
+          "oklch(0.39 0.183 23)",
+          "oklch(0.52 0.183 23)",
+          "oklch(0.6679 0.183 23.45)",
+          "oklch(0.78 0.16 23)",
+          "oklch(0.88 0.11 23)",
+          "oklch(0.95 0.05 23)"
+        ]
+      },
+      "dsp-blue": {
+        "role": "tertiary",
+        "displayName": "DSP Blue (incumbent)",
+        "canonical": "oklch(0.6 0.1354 212.43)",
+        "note": "The Not-available status page's accent bar.",
+        "tonalRamp": [
+          "oklch(0.15 0.1354 212)",
+          "oklch(0.26 0.1354 212)",
+          "oklch(0.38 0.1354 212)",
+          "oklch(0.6 0.1354 212.43)",
+          "oklch(0.7 0.13 212)",
+          "oklch(0.8 0.11 212)",
+          "oklch(0.89 0.08 212)",
+          "oklch(0.95 0.04 212)"
+        ]
+      },
+      "dsp-green": {
+        "role": "tertiary",
+        "displayName": "DSP Green (incumbent, undrawn)",
+        "canonical": "oklch(0.6 0.2054 133.1)",
+        "note": "Tokenised but not currently used on any shipped surface.",
+        "tonalRamp": [
+          "oklch(0.15 0.2054 133)",
+          "oklch(0.26 0.2054 133)",
+          "oklch(0.38 0.2054 133)",
+          "oklch(0.6 0.2054 133.1)",
+          "oklch(0.7 0.19 133)",
+          "oklch(0.8 0.17 133)",
+          "oklch(0.89 0.12 133)",
+          "oklch(0.95 0.06 133)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The hero headline only. Sarlotte, hand-broken, second clause in pin cyan."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "One per section band, capped at 20-26ch. The closing band runs a wider variant at clamp(2.4rem, 5.4vw, 4rem)/0.98/-0.02em."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "State names and button faces. Buttons are set in Sarlotte. The wordmark is NOT a type role — it is a supplied vector asset."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Measured numbers set in Sarlotte with tabular numerals: module counts, the price anchor."
+      },
+      "lede": {
+        "displayName": "Lede",
+        "purpose": "The sentence under a headline and the leading term of a definition row. Max 42-46ch."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running copy at 52-58ch with text-wrap: pretty. Secondary copy drops to 14px and field-muted."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Every destination and every code URL. A destination is always monospace."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Column heads, specimen captions, LIVE pill, timestamps, the contract strip. Tracking 0.12em-0.22em."
+      }
+    },
+    "shadows": [
+      {
+        "name": "pin-contact",
+        "value": "0 1px 3px rgba(0,0,0,0.35)",
+        "purpose": "The four specimen pins only. Makes a pin a physical object sitting on paper; it is not an elevation step and must not be reused to lift a panel."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.23, 1, 0.32, 1)",
+        "purpose": "The system's only authored easing. Exponential ease-out for lp-rise and for button press transforms."
+      },
+      {
+        "name": "lp-rise",
+        "value": "animation: lp-rise 620ms var(--ease-out) both; @keyframes lp-rise { from { opacity: 0; transform: translateY(10px); } }",
+        "purpose": "The single page entrance. Wrapped in @media (prefers-reduced-motion: no-preference), so under reduced motion rows simply exist. Initial log rows stagger at 55ms; a newly pointed row animates alone."
+      },
+      {
+        "name": "press",
+        "value": "transform: scale(0.97); transition: transform 150ms var(--ease-out)",
+        "purpose": "Active state on buttons. 0.99 on the full-width action. There is no hover transform anywhere."
+      },
+      {
+        "name": "border-shift",
+        "value": "transition: border-color 150ms",
+        "purpose": "Input focus and quiet-button hover. The only colour transition in the system."
+      },
+      {
+        "name": "qr-module",
+        "value": "animation: qr-module 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite",
+        "purpose": "Incumbent loading mark: four QR squares light clockwise. CSS-only so it runs before hydration. Replaced by qr-breathe (opacity-only cross-fade) under reduced motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ],
+    "layers": [
+      {
+        "name": "incumbent",
+        "selector": ":root + @media (prefers-color-scheme: dark)",
+        "surfaces": "status pages, auth pages, account page, loading/error shells",
+        "behaviour": "Follows the system colour scheme. Unchanged by this build."
+      },
+      {
+        "name": "landing",
+        "selector": ".lp",
+        "surfaces": "src/app/page.tsx and src/app/_landing/*",
+        "behaviour": "Two-material palette, deliberately fixed against prefers-color-scheme. The paper/ink contrast is the composition, not a theme of it."
+      }
+    ],
+    "brandAssets": {
+      "wordmark": {
+        "ratio": "778:320",
+        "sizing": "Width only; height computed as round(width * 320 / 778) so the ratio cannot drift.",
+        "alt": "PRODUCT_NAME from src/lib/brand.ts",
+        "variants": [
+          {
+            "file": "/brand/qriate-wordmark.svg",
+            "ground": "light / paper",
+            "usage": "Specimen panel at 150px; social card at 230px."
+          },
+          {
+            "file": "/brand/qriate-wordmark-light.svg",
+            "ground": "dark / ink field",
+            "usage": "Sticky phone header at 112px; footer at 104px, 85% opacity.",
+            "derivation": "Every near-neutral fill (chroma < 25) taken to #FBFAF6; every chromatic fill preserved. A second file rather than a CSS filter, because inverting the letterforms would invert the brand accents too."
+          }
+        ],
+        "description": "\"QRiate\" with a long swash off the Q, a cyan four-square QR motif as the tittle of the i, the raised plus in green, an amber swash above the R and a coral swash below the Q — the page's four denotative accents, at their source.",
+        "note": "PRODUCT_NAME remains the authority for the plain-text name (titles, metadata, email, alt text). It is no longer the source of the mark."
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Account Action (primary)",
+      "kind": "button",
+      "refersTo": "action-primary",
+      "description": "The one full-width action, on the paper specimen panel: a Sarlotte face with a small uppercase sub-label on the same baseline.",
+      "html": "<a class=\"ds-action-primary\" href=\"#\"><span class=\"ds-action-primary__face\">Keep this code</span><span class=\"ds-action-primary__sub\">Create an account</span></a>",
+      "css": ".ds-action-primary { display: flex; flex-direction: row; align-items: baseline; justify-content: space-between; gap: 1rem; background: var(--pin, oklch(0.8 0.1 220)); color: var(--paper-ink, oklch(0.17 0.006 226)); padding: 1rem 1.25rem; border-radius: 0.625rem; text-decoration: none; transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1); } .ds-action-primary__face { font-family: Sarlotte, Georgia, serif; font-size: 1.5rem; line-height: 1; white-space: nowrap; } .ds-action-primary__sub { font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; opacity: 0.7; white-space: nowrap; } .ds-action-primary:active { transform: scale(0.99); } .ds-action-primary:focus-visible { outline: 2px solid var(--pin, oklch(0.8 0.1 220)); outline-offset: 3px; border-radius: 2px; }"
+    },
+    {
+      "name": "Ink Action",
+      "kind": "button",
+      "refersTo": "action-ink",
+      "description": "The high-contrast action on the ink field: light ground, field-coloured Sarlotte face.",
+      "html": "<a class=\"ds-action-ink\" href=\"#\">Create an account</a>",
+      "css": ".ds-action-ink { display: inline-block; background: var(--field-ink, oklch(0.97 0.002 226)); color: var(--field, oklch(0.165 0.006 226)); font-family: Sarlotte, Georgia, serif; font-size: 1.25rem; padding: 0.75rem 1.25rem; border: none; border-radius: 0.625rem; text-decoration: none; transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1); } .ds-action-ink:active { transform: scale(0.97); } .ds-action-ink:focus-visible { outline: 2px solid var(--pin, oklch(0.8 0.1 220)); outline-offset: 3px; border-radius: 2px; }"
+    },
+    {
+      "name": "Quiet Action",
+      "kind": "button",
+      "refersTo": "action-quiet",
+      "description": "The secondary action: hairline border only, Raleway, border darkens on hover. No fill, ever.",
+      "html": "<a class=\"ds-action-quiet\" href=\"#\">Sign in</a>",
+      "css": ".ds-action-quiet { display: inline-block; background: transparent; color: var(--field-ink, oklch(0.97 0.002 226)); font-size: 14px; padding: 0.75rem 1.25rem; border: 1px solid var(--field-rule, oklch(0.31 0.008 226)); border-radius: 0.625rem; text-decoration: none; transition: border-color 150ms; } .ds-action-quiet:hover { border-color: var(--field-ink, oklch(0.97 0.002 226)); } .ds-action-quiet:focus-visible { outline: 2px solid var(--pin, oklch(0.8 0.1 220)); outline-offset: 3px; }"
+    },
+    {
+      "name": "Destination Field",
+      "kind": "input",
+      "refersTo": "input-paper",
+      "description": "The specimen panel's one input, paired with a paper-ground submit. Help text is always present and is replaced in place by the error.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-field__label\" for=\"ds-dest\">Send it somewhere else</label><div class=\"ds-field__row\"><input class=\"ds-field__input\" id=\"ds-dest\" placeholder=\"your-site.com/anywhere\" inputmode=\"url\"><button class=\"ds-field__submit\" type=\"submit\">Point it</button></div><p class=\"ds-field__help\">A preview, here in your browser. Nothing is saved and no code is issued yet.</p></div>",
+      "css": ".ds-field { background: var(--paper, oklch(0.985 0.004 85)); color: var(--paper-ink, oklch(0.17 0.006 226)); border-top: 1px solid var(--paper-rule, oklch(0.87 0.004 85)); padding-top: 1.25rem; } .ds-field__label { display: block; font-size: 14px; color: var(--paper-soft, oklch(0.44 0.006 226)); } .ds-field__row { display: flex; gap: 0.5rem; margin-top: 0.5rem; } .ds-field__input { flex: 1; min-width: 0; background: #fff; color: var(--paper-ink, oklch(0.17 0.006 226)); border: 1px solid var(--paper-rule, oklch(0.87 0.004 85)); border-radius: 0.625rem; padding: 0.625rem 0.875rem; font-size: 15px; transition: border-color 150ms; } .ds-field__input::placeholder { color: var(--paper-soft, oklch(0.44 0.006 226)); } .ds-field__input:focus { border-color: var(--paper-ink, oklch(0.17 0.006 226)); outline: 2px solid var(--pin, oklch(0.8 0.1 220)); outline-offset: 3px; } .ds-field__submit { background: var(--paper-ink, oklch(0.17 0.006 226)); color: var(--paper, oklch(0.985 0.004 85)); font-family: Sarlotte, Georgia, serif; font-size: 1.125rem; border: none; border-radius: 0.625rem; padding: 0.625rem 1rem; transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1); } .ds-field__submit:active { transform: scale(0.97); } .ds-field__help { margin: 0.5rem 0 0; font-size: 12px; line-height: 1.6; color: var(--paper-soft, oklch(0.44 0.006 226)); } .ds-field__error { margin: 0.5rem 0 0; font-size: 14px; color: var(--struck-ink, oklch(0.58 0.2 25)); }"
+    },
+    {
+      "name": "Ledger Row",
+      "kind": "custom",
+      "refersTo": "ledger-row",
+      "description": "The system's replacement for the card. Hairline-ruled grid: tabular timestamp, monospace destination, note or LIVE pill. Only the live row is green.",
+      "html": "<ol class=\"ds-ledger\"><li class=\"ds-ledger__head\"><span>Destination history &middot; Ab3kQ9x</span><span>Illustrative</span></li><li class=\"ds-ledger__row\"><time class=\"ds-ledger__when\">Nov 2025</time><span class=\"ds-ledger__url\">shop.example.com/wholesale</span><span class=\"ds-ledger__note\">Moved onto the new shop</span></li><li class=\"ds-ledger__row ds-ledger__row--live\"><time class=\"ds-ledger__when\">Today</time><span class=\"ds-ledger__url\">example.com/wherever-you-need</span><span class=\"ds-ledger__note\"><span class=\"ds-pill-live\">Live</span></span></li></ol>",
+      "css": ".ds-ledger { list-style: none; margin: 0; padding: 0; background: var(--field, oklch(0.165 0.006 226)); } .ds-ledger__head { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: 0.625rem; border-bottom: 1px solid var(--field-rule, oklch(0.31 0.008 226)); font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em; color: var(--field-muted, oklch(0.66 0.006 226)); } .ds-ledger__row { display: grid; grid-template-columns: 7rem 1fr auto; align-items: baseline; column-gap: 1rem; padding: 0.875rem 0; border-bottom: 1px solid color-mix(in oklch, var(--field-rule, oklch(0.31 0.008 226)) 55%, transparent); } .ds-ledger__when { font-variant-numeric: tabular-nums; font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--field-muted, oklch(0.66 0.006 226)); } .ds-ledger__url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; color: var(--field-muted, oklch(0.66 0.006 226)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-ledger__row--live .ds-ledger__url { color: var(--live, oklch(0.8 0.19 133)); } .ds-ledger__note { font-size: 12px; text-align: right; color: var(--field-muted, oklch(0.66 0.006 226)); } .ds-pill-live { display: inline-block; border: 1px solid var(--live, oklch(0.8 0.19 133)); color: var(--live, oklch(0.8 0.19 133)); border-radius: 9999px; padding: 0.125rem 0.5rem; font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; }"
+    },
+    {
+      "name": "Definition List",
+      "kind": "custom",
+      "refersTo": "ledger-row",
+      "description": "The other card replacement. Tracked uppercase column head over a full-strength rule, then term/description pairs separated by 55% hairlines.",
+      "html": "<div class=\"ds-deflist\"><h3 class=\"ds-deflist__head\">Fixed, permanently</h3><dl><div class=\"ds-deflist__row\"><dt class=\"ds-deflist__term\">The symbol on the print</dt><dd class=\"ds-deflist__desc\">Generated once. Nothing in the product can redraw it.</dd></div><div class=\"ds-deflist__row\"><dt class=\"ds-deflist__term\">The host inside the code</dt><dd class=\"ds-deflist__desc\">qriateplus.com, permanently. The most irreversible decision we made.</dd></div></dl></div>",
+      "css": ".ds-deflist { background: var(--field, oklch(0.165 0.006 226)); color: var(--field-ink, oklch(0.97 0.002 226)); } .ds-deflist__head { margin: 0; padding-bottom: 0.625rem; border-bottom: 1px solid var(--field-rule, oklch(0.31 0.008 226)); font-size: 11px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.2em; color: var(--field-soft, oklch(0.74 0.006 226)); } .ds-deflist dl { margin: 0; } .ds-deflist__row { padding: 1rem 0; border-bottom: 1px solid color-mix(in oklch, var(--field-rule, oklch(0.31 0.008 226)) 55%, transparent); } .ds-deflist__term { font-size: 17px; } .ds-deflist__desc { margin: 0.25rem 0 0; max-width: 44ch; font-size: 14px; line-height: 1.625; text-wrap: pretty; color: var(--field-muted, oklch(0.66 0.006 226)); }"
+    },
+    {
+      "name": "Specimen Figure",
+      "kind": "card",
+      "refersTo": "specimen-caption",
+      "description": "A real QR symbol beside its module count in Sarlotte tabular, with a ruled caption carrying the URL in monospace and the encoded character count. Evidence, never decoration.",
+      "html": "<figure class=\"ds-figure\"><div class=\"ds-figure__body\"><svg class=\"ds-figure__qr\" viewBox=\"0 0 9 9\" shape-rendering=\"crispEdges\" role=\"img\" aria-label=\"Specimen symbol\"><rect width=\"9\" height=\"9\" fill=\"transparent\"/><g transform=\"translate(1 1)\"><path d=\"M0 0h3v1h-3zM4 0h1v1h-1zM6 0h1v1h-1zM0 1h1v1h-1zM2 1h1v1h-1zM5 1h1v1h-1zM0 2h3v1h-3zM4 2h2v1h-2zM1 4h1v1h-1zM3 4h3v1h-3zM0 5h2v1h-2zM4 5h1v1h-1zM6 5h1v1h-1zM2 6h2v1h-2zM5 6h2v1h-2z\" fill=\"var(--paper-ink, oklch(0.17 0.006 226))\"/></g></svg><div><p class=\"ds-figure__count\">25<span class=\"ds-figure__times\">&times;</span>25</p><p class=\"ds-figure__unit\">modules</p></div></div><figcaption class=\"ds-figure__caption\"><span class=\"ds-figure__label\">What we print</span><span class=\"ds-figure__url\">qriateplus.com/Ab3kQ9x</span><span class=\"ds-figure__chars\">30 characters encoded</span></figcaption></figure>",
+      "css": ".ds-figure { margin: 0; background: var(--paper, oklch(0.985 0.004 85)); color: var(--paper-ink, oklch(0.17 0.006 226)); } .ds-figure__body { display: flex; align-items: flex-end; gap: 1.25rem; } .ds-figure__qr { display: block; width: 132px; height: auto; flex-shrink: 0; } .ds-figure__count { margin: 0; font-family: Sarlotte, Georgia, serif; font-size: 2.6rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; } .ds-figure__times { padding: 0 0.25rem; font-size: 1.9rem; } .ds-figure__unit { margin: 0.25rem 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--paper-soft, oklch(0.44 0.006 226)); } .ds-figure__caption { display: block; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--paper-rule, oklch(0.87 0.004 85)); } .ds-figure__label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--paper-soft, oklch(0.44 0.006 226)); } .ds-figure__url { display: block; margin-top: 0.375rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; font-variant-numeric: tabular-nums; } .ds-figure__chars { display: block; margin-top: 0.125rem; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--paper-soft, oklch(0.44 0.006 226)); }"
+    },
+    {
+      "name": "Wordmark",
+      "kind": "custom",
+      "refersTo": "specimen-caption",
+      "description": "Two supplied vectors, one per ground, at a fixed 778:320 ratio. Sized by width only; alt text is always PRODUCT_NAME. Never re-set as type, never filtered.",
+      "html": "<div class=\"ds-wordmark-pair\"><div class=\"ds-wordmark-swatch ds-wordmark-swatch--paper\"><img class=\"ds-wordmark\" src=\"/brand/qriate-wordmark.svg\" alt=\"QRiate+\" width=\"150\" height=\"62\"></div><div class=\"ds-wordmark-swatch ds-wordmark-swatch--field\"><img class=\"ds-wordmark ds-wordmark--sm\" src=\"/brand/qriate-wordmark-light.svg\" alt=\"QRiate+\" width=\"112\" height=\"46\"></div></div>",
+      "css": ".ds-wordmark-pair { display: flex; flex-wrap: wrap; gap: 1px; } .ds-wordmark-swatch { display: flex; align-items: center; justify-content: center; padding: 1.5rem 2rem; } .ds-wordmark-swatch--paper { background: var(--paper, oklch(0.985 0.004 85)); } .ds-wordmark-swatch--field { background: var(--field, oklch(0.165 0.006 226)); } .ds-wordmark { display: block; width: 150px; height: auto; } .ds-wordmark--sm { width: 112px; }"
+    },
+    {
+      "name": "Pinned Specimen Panel",
+      "kind": "card",
+      "refersTo": "specimen-caption",
+      "description": "The signature surface: a paper panel with a real symbol tacked down by four cyan pins, the dark wordmark vector at 150px, a tracked caption and the code URL in monospace. The only component in the system carrying a shadow, and only on the pins.",
+      "html": "<div class=\"ds-specimen\"><div class=\"ds-specimen__top\"><img class=\"ds-specimen__mark\" src=\"/brand/qriate-wordmark.svg\" alt=\"QRiate+\" width=\"150\" height=\"62\"><span class=\"ds-specimen__meta\">Specimen &middot; 7 characters &middot; base-58</span></div><div class=\"ds-specimen__stage\"><div class=\"ds-specimen__held\"><svg class=\"ds-specimen__qr\" viewBox=\"0 0 9 9\" shape-rendering=\"crispEdges\" role=\"img\" aria-label=\"Specimen symbol\"><rect width=\"9\" height=\"9\" fill=\"transparent\"/><g transform=\"translate(1 1)\"><path d=\"M0 0h3v1h-3zM4 0h1v1h-1zM6 0h1v1h-1zM0 1h1v1h-1zM2 1h1v1h-1zM5 1h1v1h-1zM0 2h3v1h-3zM4 2h2v1h-2zM1 4h1v1h-1zM3 4h3v1h-3zM0 5h2v1h-2zM4 5h1v1h-1zM6 5h1v1h-1zM2 6h2v1h-2zM5 6h2v1h-2z\" fill=\"var(--paper-ink, oklch(0.17 0.006 226))\"/></g></svg><span class=\"ds-pin ds-pin--tl\"></span><span class=\"ds-pin ds-pin--tr\"></span><span class=\"ds-pin ds-pin--bl\"></span><span class=\"ds-pin ds-pin--br\"></span></div><p class=\"ds-specimen__caption\">This symbol never changes again</p><p class=\"ds-specimen__url\">qriateplus.com/Ab3kQ9x</p></div></div>",
+      "css": ".ds-specimen { background: var(--paper, oklch(0.985 0.004 85)); color: var(--paper-ink, oklch(0.17 0.006 226)); padding: 2.25rem 1.75rem 2rem; } .ds-specimen__top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; } .ds-specimen__mark { display: block; width: 150px; height: auto; } .ds-specimen__meta { font-size: 11px; text-transform: uppercase; letter-spacing: 0.22em; color: var(--paper-soft, oklch(0.44 0.006 226)); } .ds-specimen__stage { display: flex; flex-direction: column; align-items: center; padding: 1.75rem 0; } .ds-specimen__held { position: relative; } .ds-specimen__qr { display: block; width: 240px; height: auto; } .ds-pin { position: absolute; width: 12px; height: 12px; border-radius: 9999px; background: var(--pin, oklch(0.8 0.1 220)); box-shadow: 0 1px 3px rgba(0,0,0,0.35); } .ds-pin--tl { top: -8px; left: -8px; } .ds-pin--tr { top: -8px; right: -8px; } .ds-pin--bl { bottom: -8px; left: -8px; } .ds-pin--br { bottom: -8px; right: -8px; } .ds-specimen__caption { margin: 1.5rem 0 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.2em; color: var(--paper-soft, oklch(0.44 0.006 226)); } .ds-specimen__url { margin: 0.375rem 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "State Marker",
+      "kind": "chip",
+      "refersTo": "specimen-caption",
+      "description": "A 4px round bar in the paper-safe accent for a scan-side state, always aria-hidden, always beside the state named in Sarlotte.",
+      "html": "<dl class=\"ds-states\"><div class=\"ds-states__row\"><span class=\"ds-states__bar ds-states__bar--pending\" aria-hidden=\"true\"></span><dt class=\"ds-states__name\">Paused</dt><dd class=\"ds-states__copy\">Names the business, explains that the link is temporarily off, and offers a way through.</dd></div><div class=\"ds-states__row\"><span class=\"ds-states__bar ds-states__bar--struck\" aria-hidden=\"true\"></span><dt class=\"ds-states__name\">Blocked</dt><dd class=\"ds-states__copy\">For a destination that turned unsafe. The scanner is told plainly, and can report it.</dd></div></dl>",
+      "css": ".ds-states { margin: 0; background: var(--paper, oklch(0.985 0.004 85)); color: var(--paper-ink, oklch(0.17 0.006 226)); } .ds-states__row { display: grid; grid-template-columns: 3rem 13rem 1fr; align-items: baseline; column-gap: 2rem; padding: 1.25rem 0; border-bottom: 1px solid var(--paper-rule, oklch(0.87 0.004 85)); } .ds-states__bar { align-self: center; display: block; width: 40px; height: 4px; border-radius: 9999px; } .ds-states__bar--pending { background: var(--pending-ink, oklch(0.65 0.14 72)); } .ds-states__bar--struck { background: var(--struck-ink, oklch(0.58 0.2 25)); } .ds-states__name { font-family: Sarlotte, Georgia, serif; font-size: 1.5rem; line-height: 1; } .ds-states__copy { margin: 0; max-width: 56ch; font-size: 14px; line-height: 1.625; text-wrap: pretty; color: var(--paper-soft, oklch(0.44 0.006 226)); }"
+    },
+    {
+      "name": "Status Shell (incumbent)",
+      "kind": "card",
+      "refersTo": "specimen-caption",
+      "description": "The scan-side page frame, unchanged by this build: a dsp-coloured accent bar, a Sarlotte heading, muted body, and a bordered footer. Follows prefers-color-scheme.",
+      "html": "<main class=\"ds-status\"><span class=\"ds-status__bar\" aria-hidden=\"true\"></span><h1 class=\"ds-status__head\">This code is paused</h1><p class=\"ds-status__body\">The business that owns this code has paused it for now. Nothing is wrong with your phone or the print.</p><div class=\"ds-status__foot\"><span class=\"ds-status__ref\">Code reference: <span class=\"ds-status__mono\">Ab3kQ9x</span></span></div></main>",
+      "css": ".ds-status { display: block; max-width: 28rem; background: var(--background, oklch(0.99 0.0025 90)); color: var(--foreground, oklch(0.18 0.005 226)); padding: 3rem 1rem; } .ds-status__bar { display: block; width: 4rem; height: 6px; border-radius: 9999px; background: var(--dsp-yellow, oklch(0.7 0.1502 81.14)); } .ds-status__head { margin: 1.5rem 0 0; font-family: Sarlotte, Georgia, serif; font-size: 1.875rem; font-weight: 400; line-height: 1.25; } .ds-status__body { margin: 1rem 0 0; line-height: 1.625; color: var(--muted-foreground, oklch(0.48 0.005 226)); } .ds-status__foot { margin-top: 2.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border, oklch(0.91 0.003 226)); font-size: 12px; color: var(--muted-foreground, oklch(0.48 0.005 226)); } .ds-status__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Specimen Sheet and the Ledger",
+    "overview": "QRiate+ ships two materials and nothing between them. On the left is paper: a near-white specimen panel carrying one real QR symbol, tacked down with four cyan pins, captioned the way a type foundry captions a cut. On the right is ink: a near-black field carrying hairline-ruled ledger rows of destinations, dates in small caps, monospace URLs, one of them live in green. The seam between the two is hard and vertical, and the argument of the whole product lives in it — the paper never changes, the ledger always does.\n\nThe system is flat, ruled and measured. Depth comes from material and tone, not from shadow or glass. There are no cards: a three-card feature row was built and deliberately removed, and its job is done instead by ruled definition lists whose hairlines carry the structure. Figures are real — the module counts, the character counts and the symbols themselves are generated by the same library that produces downloadable artwork — so the type sets them in tabular numerals at display size and lets them stand as evidence rather than decoration.\n\nThis is an extension of an incumbent system, not a replacement. The De Sign Plus oklch tokens, --radius, Sarlotte and Raleway were already here and are unchanged; the status pages and the account/auth pages still use them and still follow prefers-color-scheme. The landing layer (.lp) is new, scoped to one surface, and deliberately fixed against the colour scheme: inverting a paper panel meeting an ink field would not darken the page, it would destroy the composition.",
+    "keyCharacteristics": [
+      "Two materials, one hard seam; paper for the specimen and the scan side, ink for the owner's side",
+      "Ruled, not boxed — hairlines and definition lists instead of cards",
+      "Colour as denotation: green means live, cyan means pinned, amber means pending, coral means struck",
+      "Real artefacts only: the QR symbols on screen are genuinely encoded and scan",
+      "One authored motion, from an already-visible default",
+      "Sarlotte for every heading, Raleway for every sentence, monospace for every destination"
+    ],
+    "rules": [
+      {
+        "name": "The One Live Row Rule",
+        "body": "Green denotes exactly one thing: the destination that is currently live, its LIVE pill, and the raised plus in the wordmark. If green appears twice in one list, the list is lying.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two-Tunings Rule",
+        "body": "Every accent ships twice. On the ink field use the base token; on paper use the -ink counterpart. Never put a field-tuned accent on paper — it goes faint and stops reading as a signal.",
+        "section": "colors"
+      },
+      {
+        "name": "The Fixed Material Rule",
+        "body": "The .lp layer does not respond to prefers-color-scheme. The paper/ink contrast is the composition, not a theme of it. Only the incumbent :root layer inverts.",
+        "section": "colors"
+      },
+      {
+        "name": "The Split-Fill Rule",
+        "body": "A brand asset that has to sit on both materials ships as two files, derived by fill class: near-neutral fills (chroma < 25) are re-stated for the new ground, chromatic fills are preserved untouched. Never by filter, invert() or a blend mode — those move the accents too, and the wordmark's cyan, green, amber and coral are the same four denotative colours the rest of the page depends on. Inverting them would make the mark disagree with its own system.",
+        "section": "colors"
+      },
+      {
+        "name": "The Two Voices Rule",
+        "body": "Sarlotte sets headings, numerals and button faces. Raleway sets every sentence. Nothing is set in a third face except a destination, which is monospace. No system display face substitutes for Sarlotte.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Figure Rule",
+        "body": "Any number a reader could compare down a column carries .lp-num (font-variant-numeric: tabular-nums, letter-spacing: 0.01em). Module counts, character counts, prices, dates.",
+        "section": "typography"
+      },
+      {
+        "name": "The Measured Column Rule",
+        "body": "Every text block declares a ch maximum — roughly 40–46ch for ledes, 52–58ch for body. No paragraph runs the width of the field.",
+        "section": "typography"
+      },
+      {
+        "name": "The Material Follows the Subject Rule",
+        "body": "A band takes paper when its subject is the scan side or the printed specimen; it takes ink when its subject is the code's owner. The page alternates by meaning, never for visual relief, and it closes on ink so it arrives somewhere.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat Field Rule",
+        "body": "Surfaces are flat at rest and flat on hover. If something needs to separate from its neighbour, rule it or change its material. No box-shadow is a legitimate way to build a container here.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do scope every new landing-family token and class under .lp, and leave the :root / prefers-color-scheme layer alone — status, auth and account pages depend on it inverting.",
+      "Do use the -ink accent variants on paper and the base accents on the ink field.",
+      "Do reserve green for the single live destination, its LIVE pill, and the wordmark's raised plus.",
+      "Do build containers from hairlines and material changes: ruled rows, definition lists, ruled figure captions.",
+      "Do set every comparable number with .lp-num and every destination in monospace.",
+      "Do keep each text block under a declared ch maximum (40–46ch for ledes, 52–58ch for body).",
+      "Do animate from an already-visible default, and wrap any new animation in @media (prefers-reduced-motion: no-preference) as lp-rise does.",
+      "Do render QR symbols from the real generator at error-correction Q with their 4-module quiet zone, using --qr-ground / --qr-ink so they inherit their material.",
+      "Do place the wordmark as one of the two supplied vectors — the dark file on light grounds, the light file on the ink field — sized by width only, with PRODUCT_NAME from src/lib/brand.ts as its alt text.",
+      "Do keep PRODUCT_NAME the authority for every plain-text form of the name: titles, metadata, email, alt text, anywhere a glyph has to survive being copied or read aloud. It is no longer the source of the mark itself.",
+      "Do derive a second-ground brand asset by splitting its fills — neutrals re-stated, chromatics preserved — and shipping it as its own file."
+    ],
+    "donts": [
+      "Don't put a card on the landing surface. A three-card feature row was built here and removed; rows and ruled lists do that job.",
+      "Don't add a box-shadow to build a container, a hover lift, or a resting elevation. The only shadow in the system is the 3px pin contact.",
+      "Don't use gradients, glass, blur panels (outside the mobile header's scroll scrim) or decorative tints.",
+      "Don't make the .lp layer respond to prefers-color-scheme.",
+      "Don't produce a light-ground brand asset with filter: invert(), brightness() or a blend mode, and don't re-set the wordmark as type. Both destroy the mark's accents.",
+      "Don't let an accent appear outside its denotation: amber only on pending, coral only on struck/blocked and form errors, cyan only on what can be moved.",
+      "Don't draw a fake or decorative QR symbol anywhere. Every symbol shown is genuinely encoded and scans.",
+      "Don't give the specimen symbol a key, a transform, or any render path reachable from the interaction. Its immobility is the product claim.",
+      "Don't set body copy in Sarlotte or headings in Raleway, and don't substitute a system display face for Sarlotte.",
+      "Don't invent prices, client names, logos, testimonials or counts to fill a layout. If a figure is undecided it renders as an em dash or as a sentence saying so."
+    ]
+  }
+}

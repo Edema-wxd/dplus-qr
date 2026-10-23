@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<style>
+@font-face{font-family:Sarlotte;src:url("file:///Users/mac/Documents/GitHub/dplus-qr/src/fonts/Sarlotte-Regular.otf");font-weight:400}
+@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;500;600&display=swap");
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1440px;height:900px;overflow:hidden}
+body{background:#20262B;color:#EDF1F0;font-family:Raleway,sans-serif;padding:34px 46px;display:flex;flex-direction:column;
+background-image:radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px);background-size:17px 17px}
+.top{display:flex;justify-content:space-between;align-items:flex-start}
+.mark{font-family:Sarlotte;font-size:32px;line-height:.9}
+.mark sup{color:#7DC242;font-size:19px;vertical-align:super}
+.plate{font-size:10px;letter-spacing:.21em;text-transform:uppercase;opacity:.42;text-align:right;line-height:1.9}
+h1{font-family:Sarlotte;font-size:70px;line-height:.96;letter-spacing:-.02em;margin-top:20px;max-width:24ch}
+h1 em{font-style:normal;color:#F5B335}
+.lede{font-size:16px;line-height:1.6;opacity:.6;max-width:56ch;margin-top:13px}
+.panel{flex:1;margin-top:22px;background:#171C20;border:1px solid rgba(255,255,255,.1);border-radius:5px;position:relative;
+box-shadow:inset 0 1px 0 rgba(255,255,255,.07);display:grid;grid-template-columns:1fr 1fr;overflow:hidden}
+.panel::before{content:"";position:absolute;left:50%;top:26px;bottom:26px;width:1px;background:rgba(255,255,255,.07)}
+.bank{padding:22px 26px}
+.bh{font-size:9px;letter-spacing:.22em;text-transform:uppercase;opacity:.38;padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,.09)}
+.bank.r .bh{text-align:right}
+.j{display:flex;align-items:center;gap:13px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.055)}
+.bank.r .j{flex-direction:row-reverse;text-align:right}
+.jack{width:17px;height:17px;border-radius:50%;background:#0C0F11;border:2.5px solid #3C464D;flex:none}
+.jack.on{border-color:#5BC5E8;background:#0E1B20;box-shadow:0 0 0 3px rgba(91,197,232,.14)}
+.jack.am{border-color:#F5B335;background:#1C150A;box-shadow:0 0 0 3px rgba(245,179,53,.14)}
+.jack.gr{border-color:#7DC242;background:#111B0C;box-shadow:0 0 0 3px rgba(125,194,66,.14)}
+.j b{font-size:14px;font-weight:500;display:block}
+.j i{font-style:normal;font-size:10px;letter-spacing:.14em;text-transform:uppercase;opacity:.36;display:block;margin-top:3px}
+.j span{font-family:ui-monospace,monospace;font-size:11px;opacity:.4;display:block;margin-top:3px}
+svg.cables{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.held{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:#20262B;border:1px solid #F5B335;border-radius:99px;padding:7px 15px;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#F5B335}
+.auth{margin-top:20px;display:flex;justify-content:space-between;align-items:center;gap:30px}
+.btn{display:inline-flex;align-items:baseline;gap:13px;background:#EDF1F0;color:#171C20;border-radius:4px;padding:15px 26px}
+.btn b{font-family:Sarlotte;font-size:24px;font-weight:400}
+.btn i{font-style:normal;font-size:10px;letter-spacing:.16em;text-transform:uppercase;opacity:.52}
+.fine{font-size:12px;opacity:.5;max-width:40ch;line-height:1.6}
+</style></head><body>
+<div class="top">
+  <div class="mark">QRiate<sup>+</sup></div>
+  <div class="plate">Patch panel · 1 code → 1 destination<br>Re-patchable without reprinting</div>
+</div>
+<h1>The print stays put. <em>You move the other end.</em></h1>
+<p class="lede">Every printed code is one jack on your panel. Pull the cable, put it somewhere else, and the label already on the shelf starts pointing there — in seconds, not a print run.</p>
+<div class="panel">
+  <svg class="cables" viewBox="0 0 1348 420" preserveAspectRatio="none">
+    <path d="M 196 72 C 500 72 760 118 1152 118" stroke="#5BC5E8" stroke-width="3" fill="none" opacity=".85"/>
+    <path d="M 196 150 C 520 150 800 258 1152 258" stroke="#7DC242" stroke-width="3" fill="none" opacity=".85"/>
+    <path d="M 196 228 C 540 228 820 338 1152 338" stroke="#5BC5E8" stroke-width="3" fill="none" opacity=".5"/>
+    <path d="M 196 306 C 480 306 660 230 700 206" stroke="#F5B335" stroke-width="3.5" fill="none"/>
+    <circle cx="700" cy="206" r="6" fill="#F5B335"/>
+    <path d="M 1152 196 l 26 0" stroke="#F5B335" stroke-width="3" stroke-dasharray="5 5" fill="none" opacity=".5"/>
+  </svg>
+  <div class="bank">
+    <div class="bh">Printed · already out in the world</div>
+    <div class="j"><i class="jack on"></i><div><b>Wrap label, 5,000 run</b><span>qriateplus.com/Ab3kQ9x</span></div></div>
+    <div class="j"><i class="jack gr"></i><div><b>Table menu card</b><span>qriateplus.com/K7mPq2d</span></div></div>
+    <div class="j"><i class="jack on"></i><div><b>Gift box insert</b><span>qriateplus.com/Rt4yZ8w</span></div></div>
+    <div class="j"><i class="jack am"></i><div><b>Roll-up banner</b><span>qriateplus.com/Qz9Hn3v</span></div></div>
+  </div>
+  <div class="bank r">
+    <div class="bh">Destinations · change any time</div>
+    <div class="j"><i class="jack on"></i><div><b>Product page</b><i>Live since Mar</i></div></div>
+    <div class="j"><i class="jack am"></i><div><b>New campaign</b><i>Patching now</i></div></div>
+    <div class="j"><i class="jack gr"></i><div><b>Dry-season menu</b><i>Live since Aug</i></div></div>
+    <div class="j"><i class="jack on"></i><div><b>WhatsApp order line</b><i>Live since Jan</i></div></div>
+  </div>
+  <div class="held">Re-patching · banner → new campaign</div>
+</div>
+<div class="auth">
+  <p class="fine">Panel shown is illustrative. Codes are 7 characters, base-58, and the host inside them never changes.</p>
+  <a class="btn"><b>Create an account</b><i>Plans from ₦—/month</i></a>
+</div>
+</body></html>

@@ -186,10 +186,16 @@ read off the logo sits beside the existing De Sign Plus tokens, which is why
 the two brands work together. QRiate+ now leads on this domain, with De Sign
 Plus credited as the parent.
 
-**The logo file itself is not in the repo.** It was shared as an image in
-conversation, which I cannot write to disk. Drop the vector at
-`public/brand/qriate-wordmark.svg` and the landing page can use it in place of
-the text wordmark.
+**The logo file is now in the repo** (23 October 2026). `QRP_Logo_Full_Colour`
+was supplied as a transparent vector and sits at
+`public/brand/qriate-wordmark.svg`. Because the letterforms are near-black and
+the landing page puts the mark on a dark ground as well as a light one, a second
+file, `public/brand/qriate-wordmark-light.svg`, is derived from it: every
+near-neutral fill is taken to paper tone and every chromatic fill — the cyan QR
+motif, the green plus, the amber and coral swashes — is preserved. A CSS filter
+could not do this, since inverting the letterforms would also invert the brand
+colours. Both are used by the landing page; the earlier text wordmark is
+retired.
 
 **Still required, and mine to hand over rather than do:** the Cloudflare DNS
 record. Vercel offers a Domain Connect flow that applies it in your account.
