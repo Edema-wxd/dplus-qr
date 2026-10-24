@@ -2,6 +2,11 @@ import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { getPlanByPaystackCode, type Plan } from "@/lib/plans";
 import {
+  notifyCancelled,
+  notifyPaymentFailed,
+  notifyPaymentSucceeded,
+} from "@/lib/billing-notify";
+import {
   decideChange,
   eventKey,
   eventSchema,
@@ -299,5 +304,65 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
   // After the commit, never inside it: a cache purge is not part of the money.
   await purgeOwnerCodes(userId);
 
+  // Also after the commit, and for a sharper reason. These are side effects on
+  // the outside world: a mail failure inside the transaction would roll back a
+  // payment we have already taken, and a throw here would make Paystack retry
+  // a charge already applied. `notify*` swallow their own errors.
+  await notifyOf({ userId, plan, change });
+
   return { kind: "applied", eventKey: key, change: change.kind };
+}
+
+/**
+ * Tell the customer what just happened to their billing.
+ *
+ * Separate from the write so the transaction stays about the money. A plan name
+ * is needed and `plan` is null for the events that do not carry a plan code, so
+ * those fall back to the name on the subscription row rather than going out
+ * addressed to a blank.
+ */
+async function notifyOf(input: {
+  userId: string;
+  plan: Plan | null;
+  change: SubscriptionChange;
+}): Promise<void> {
+  const { userId, plan, change } = input;
+
+  try {
+    const current = await queryOne<{ plan_name: string; current_period_end: Date | null }>(
+      `select p.name as plan_name, s.current_period_end
+         from qr_subscriptions s
+         join qr_plans p on p.id = s.plan_id
+        where s.user_id = $1
+        order by s.updated_at desc
+        limit 1`,
+      [userId]
+    );
+
+    const planName = plan?.name ?? current?.plan_name ?? "your";
+    const periodEnd = current?.current_period_end ?? null;
+
+    switch (change.kind) {
+      case "activate":
+        await notifyPaymentSucceeded({ userId, planName, periodEnd, first: true });
+        return;
+      case "extend":
+        await notifyPaymentSucceeded({ userId, planName, periodEnd, first: false });
+        return;
+      case "past_due":
+        await notifyPaymentFailed({ userId, planName, graceUntil: change.graceUntil });
+        return;
+      case "cancel_at_period_end":
+        await notifyCancelled({ userId, planName, periodEnd });
+        return;
+      // A disabled subscription is told about by the grace-expiry job when the
+      // codes actually go quiet. Two emails saying the same thing on the same
+      // day is how people learn to ignore billing mail.
+      case "cancelled":
+      case "ignore":
+        return;
+    }
+  } catch (error) {
+    console.error("[paystack] could not send billing notification", error);
+  }
 }

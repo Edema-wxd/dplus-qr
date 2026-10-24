@@ -7,6 +7,7 @@ import { listPurchasablePlans } from "@/lib/plans";
 import { SUPPORT_EMAIL } from "@/lib/brand";
 import { DashShell } from "../app/DashShell";
 import { PlanCards, type PlanOption } from "./PlanCards";
+import { CancelPlan } from "./CancelPlan";
 
 export const metadata: Metadata = { title: "Plan and billing" };
 
@@ -94,6 +95,18 @@ export default async function BillingPage() {
               This plan is set to stop at the end of the current period. Your codes
               keep working until then, and nothing is ever deleted.
             </p>
+          ) : state.planSlug && state.planSlug !== "free" ? (
+            <div className="mt-4">
+              <CancelPlan
+                periodEndLabel={
+                  state.currentPeriodEnd
+                    ? state.currentPeriodEnd.toLocaleDateString("en-NG", {
+                        dateStyle: "long",
+                      })
+                    : null
+                }
+              />
+            </div>
           ) : null}
         </section>
 

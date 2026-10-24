@@ -50,6 +50,7 @@ export function DashShell({
 
           <nav className="flex min-w-0 items-center gap-0.5 text-sm sm:gap-1" aria-label="Main">
             <NavLink href="/app">Codes</NavLink>
+            <NavLink href="/billing">Plan</NavLink>
             <NavLink href="/account">Settings</NavLink>
           </nav>
 

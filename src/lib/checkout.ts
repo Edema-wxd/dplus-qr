@@ -1,7 +1,7 @@
-import { queryOne } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getPlanBySlug, type Plan } from "@/lib/plans";
-import { initializeTransaction } from "@/lib/paystack";
+import { disableSubscription, initializeTransaction } from "@/lib/paystack";
 
 /**
  * Starting a checkout.
@@ -142,4 +142,66 @@ export async function getBillingState(userId: string): Promise<BillingState> {
     // mistake it for a completed purchase.
     paidAndActive: row.status === "active" && Number(row.amount_kobo) > 0,
   };
+}
+
+/**
+ * Stop a subscription renewing, leaving the current period alone.
+ *
+ * Paystack's `disable` is what ends the renewal; our `cancel_at_period_end`
+ * flag is only how the dashboard describes it in the meantime. The status
+ * itself is not touched here -- migration 004 makes the webhook the only
+ * writer of it, and Paystack will send `subscription.not_renew` and later
+ * `subscription.disable` to do that properly.
+ *
+ * The codes keep serving until the period ends. Cutting them off at the moment
+ * someone cancels would take printed codes down early, for time they have
+ * already paid for.
+ */
+export async function cancelAtPeriodEnd(
+  userId: string
+): Promise<{ ok: true } | CheckoutRefusal> {
+  const row = await queryOne<{
+    paystack_subscription_code: string | null;
+    paystack_email_token: string | null;
+  }>(
+    `select paystack_subscription_code, paystack_email_token
+       from qr_subscriptions
+      where user_id = $1 and status in ('active', 'past_due')
+      order by updated_at desc
+      limit 1`,
+    [userId]
+  );
+
+  if (!row) return { ok: false, reason: "You have no plan to cancel." };
+
+  // A free plan has no Paystack subscription behind it, so there is nothing to
+  // disable and nothing being charged.
+  if (!row.paystack_subscription_code || !row.paystack_email_token) {
+    return {
+      ok: false,
+      reason: "Your current plan is not a paid subscription, so there is nothing to cancel.",
+    };
+  }
+
+  try {
+    await disableSubscription(row.paystack_subscription_code, row.paystack_email_token);
+  } catch (error) {
+    console.error("[billing] could not disable subscription", error);
+    return {
+      ok: false,
+      reason: "We could not reach our payment provider just now. Please try again.",
+    };
+  }
+
+  // Optimistic, and safe to be: if Paystack accepted the disable, the webhook
+  // is coming. If the flag were left until then, the customer would click
+  // cancel and see nothing change.
+  await query(
+    `update qr_subscriptions
+        set cancel_at_period_end = true, updated_at = now()
+      where user_id = $1 and status in ('active', 'past_due')`,
+    [userId]
+  );
+
+  return { ok: true };
 }

@@ -2,8 +2,9 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth/server";
-import { startCheckout } from "@/lib/checkout";
+import { cancelAtPeriodEnd, startCheckout } from "@/lib/checkout";
 
 /**
  * Billing mutations.
@@ -59,4 +60,20 @@ export async function startCheckoutAction(
   // Outside the try: `redirect` throws by design, and catching it would turn a
   // successful checkout into the error above.
   redirect(result.url);
+}
+
+export type CancelFormState = { error?: string; done?: boolean };
+
+export async function cancelPlanAction(
+  _previous: CancelFormState,
+  _formData: FormData
+): Promise<CancelFormState> {
+  const userId = await requireUserId();
+
+  const result = await cancelAtPeriodEnd(userId);
+  if (!result.ok) return { error: result.reason };
+
+  // The page re-reads the subscription, so the flag has to be visible to it.
+  revalidatePath("/billing");
+  return { done: true };
 }
