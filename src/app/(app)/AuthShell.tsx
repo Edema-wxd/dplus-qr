@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { COMPANY_NAME } from "@/lib/brand";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 /** Frame for the signed-out auth pages and the account page. */
 export function AuthShell({
@@ -15,20 +15,20 @@ export function AuthShell({
   return (
     <main className="min-h-dvh flex flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm">
-        <Link href="/" className="inline-flex items-center">
+        <Link href="/" className="inline-flex items-center" aria-label={PRODUCT_NAME}>
           <Image
-            src="/brand/logo-b.svg"
-            alt={COMPANY_NAME}
-            width={110}
-            height={28}
-            className="dark:hidden"
+            src="/brand/qriate-wordmark.svg"
+            alt={PRODUCT_NAME}
+            width={104}
+            height={43}
+            className="h-auto w-[104px] dark:hidden"
           />
           <Image
-            src="/brand/logo-w.svg"
-            alt={COMPANY_NAME}
-            width={110}
-            height={28}
-            className="hidden dark:block"
+            src="/brand/qriate-wordmark-light.svg"
+            alt={PRODUCT_NAME}
+            width={104}
+            height={43}
+            className="hidden h-auto w-[104px] dark:block"
           />
         </Link>
 

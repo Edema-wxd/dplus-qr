@@ -29,7 +29,14 @@ export function DashShell({
   return (
     <div className="dash min-h-dvh">
       <header className="bg-[var(--field)] text-[var(--field-ink)]">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 py-3.5 sm:px-8">
+        {/*
+          Three items on one row overflows a 390px phone once the wordmark,
+          both nav links and the sign-out button are laid out, so the gaps and
+          the mark step down rather than the row wrapping -- a header that
+          reflows to two rows on a working screen moves the navigation every
+          time the viewport changes.
+        */}
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-4 py-3.5 sm:gap-6 sm:px-8">
           <Link href="/app" className="shrink-0" aria-label={PRODUCT_NAME}>
             <Image
               src="/brand/qriate-wordmark-light.svg"
@@ -37,11 +44,11 @@ export function DashShell({
               width={104}
               height={43}
               priority
-              className="h-auto w-[104px]"
+              className="h-auto w-[84px] sm:w-[104px]"
             />
           </Link>
 
-          <nav className="flex items-center gap-1 text-sm" aria-label="Main">
+          <nav className="flex min-w-0 items-center gap-0.5 text-sm sm:gap-1" aria-label="Main">
             <NavLink href="/app">Codes</NavLink>
             <NavLink href="/account">Settings</NavLink>
           </nav>
@@ -49,7 +56,7 @@ export function DashShell({
           <form action={signOutAction} className="shrink-0">
             <button
               type="submit"
-              className="rounded-md px-3 py-1.5 text-sm text-[var(--field-soft)] transition-colors duration-150 hover:bg-white/10 hover:text-[var(--field-ink)]"
+              className="rounded-md px-2 py-1.5 text-sm text-[var(--field-soft)] transition-colors duration-150 hover:bg-white/10 hover:text-[var(--field-ink)] sm:px-3"
             >
               Sign out
             </button>
@@ -98,7 +105,7 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
   return (
     <Link
       href={href}
-      className="rounded-md px-3 py-1.5 text-[var(--field-soft)] transition-colors duration-150 hover:bg-white/10 hover:text-[var(--field-ink)]"
+      className="rounded-md px-2 py-1.5 text-[var(--field-soft)] transition-colors duration-150 hover:bg-white/10 hover:text-[var(--field-ink)] sm:px-3"
     >
       {children}
     </Link>

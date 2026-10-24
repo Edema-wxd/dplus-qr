@@ -233,6 +233,46 @@ record. Vercel offers a Domain Connect flow that applies it in your account.
 Note that Vercel's recommended record carries `disableProxy: true`, which
 conflicts with keeping the orange cloud on — see the handover notes.
 
+## Free plan and the dashboard, 23 October 2026
+
+The client dashboard is built: `/app` lists codes, `/app/{id}` manages one, and
+`/account` is now settings. Phase 2's create / rename / re-point / pause /
+resume, QR downloads and the scan analytics all exist.
+
+**A free plan now exists and is granted on sign-up** (migration `010`,
+`ensureFreeSubscription()` in `src/lib/profile.ts`). This was forced: `decide()`
+treats "no subscription" as not entitled, and real accounts had no
+`qr_subscriptions` row, so every code a user made through the dashboard would
+have scanned to the paused page.
+
+This is **the one place outside the Paystack webhook that writes
+`qr_subscriptions.status`**, which migration 004 reserves for webhooks. It is
+narrow on purpose:
+
+- it can only ever select the `free` plan (`amount_kobo = 0`, no
+  `paystack_plan_code`);
+- `where not exists (select 1 from qr_subscriptions where user_id = $1)` means
+  it grants only to an account with no subscription row of any status, so it
+  can never resurrect a cancelled Paystack subscription nor contend with the
+  partial unique index.
+
+**Phase 3 must remove it.** When checkout exists, free accounts either migrate
+to a paid plan or lapse through the normal grace path.
+
+`max_codes = 5` and `history_days = 30` are placeholders for decisions still
+open below. Both are a single `UPDATE` on the `free` row, never a deploy.
+
+**Analytics read `qr_scans` directly.** `qr_scan_daily` still has no writer, and
+it carries no `country` or `device_type` columns, so it cannot answer what the
+dashboard asks. The nightly rollup and the retention sweep remain phase 4 work.
+
+**A destination change reaches the redirect in up to 60 seconds, not instantly.**
+Measured: exactly 60s. `purgeDestination()` clears only the calling bundle's
+in-process cache, and with no Redis configured the redirect path's own copy
+waits out its TTL. That meets the phase 2 criterion ("within 60 seconds") but
+only just; configuring Upstash makes the purge immediate. The dashboard copy
+says "within a minute" rather than claiming it is instant.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

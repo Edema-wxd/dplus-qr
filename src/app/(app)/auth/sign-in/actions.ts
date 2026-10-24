@@ -33,7 +33,7 @@ export async function signInAction(
     return { error: "That email and password do not match." };
   }
 
-  redirect("/account");
+  redirect("/app");
 }
 
 export async function signOutAction(): Promise<void> {

@@ -1,30 +1,32 @@
 import Image from "next/image";
 import Link from "next/link";
-import { COMPANY_NAME, MAIN_SITE } from "@/lib/brand";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 /**
- * The De Sign Plus logo, linked to the main site. Two files rather than one
- * recoloured by CSS because the logo is multi-coloured: only the ink changes
- * between the light and dark variants.
+ * The QRiate+ wordmark, linked home. Two files rather than one recoloured by
+ * CSS because the letterforms invert between grounds but the swashes, the QR
+ * motif and the raised plus must keep their brand colours.
  */
-export function BrandFooter({ width = 110 }: { width?: number }) {
-  const height = Math.round((width / 110) * 28);
+export function BrandFooter({ width = 104 }: { width?: number }) {
+  const height = Math.round((width * 320) / 778);
 
   return (
-    <Link href={MAIN_SITE} className="inline-flex items-center">
+    <Link href="/" className="inline-flex items-center" aria-label={PRODUCT_NAME}>
       <Image
-        src="/brand/logo-b.svg"
-        alt={COMPANY_NAME}
+        src="/brand/qriate-wordmark.svg"
+        alt={PRODUCT_NAME}
         width={width}
         height={height}
-        className="dark:hidden"
+        className="h-auto dark:hidden"
+        style={{ width }}
       />
       <Image
-        src="/brand/logo-w.svg"
-        alt={COMPANY_NAME}
+        src="/brand/qriate-wordmark-light.svg"
+        alt={PRODUCT_NAME}
         width={width}
         height={height}
-        className="hidden dark:block"
+        className="hidden h-auto dark:block"
+        style={{ width }}
       />
     </Link>
   );

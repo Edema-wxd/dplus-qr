@@ -47,5 +47,5 @@ export async function signUpAction(
     }
   }
 
-  redirect("/account");
+  redirect("/app");
 }

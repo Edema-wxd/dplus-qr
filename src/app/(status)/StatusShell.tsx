@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { COMPANY_NAME, MAIN_SITE } from "@/lib/brand";
+import { PRODUCT_NAME } from "@/lib/brand";
 
 /**
  * Shared frame for every status page. Deliberately calm: the person reading it
@@ -43,20 +43,20 @@ export function StatusShell({
         {detail ? <div className="mt-6">{detail}</div> : null}
 
         <div className="mt-10 pt-6 border-t border-border">
-          <Link href={MAIN_SITE} className="inline-flex items-center">
+          <Link href="/" className="inline-flex items-center" aria-label={PRODUCT_NAME}>
             <Image
-              src="/brand/logo-b.svg"
-              alt={COMPANY_NAME}
-              width={110}
-              height={28}
-              className="dark:hidden"
+              src="/brand/qriate-wordmark.svg"
+              alt={PRODUCT_NAME}
+              width={104}
+              height={43}
+              className="h-auto w-[104px] dark:hidden"
             />
             <Image
-              src="/brand/logo-w.svg"
-              alt={COMPANY_NAME}
-              width={110}
-              height={28}
-              className="hidden dark:block"
+              src="/brand/qriate-wordmark-light.svg"
+              alt={PRODUCT_NAME}
+              width={104}
+              height={43}
+              className="hidden h-auto w-[104px] dark:block"
             />
           </Link>
         </div>
