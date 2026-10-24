@@ -43,6 +43,8 @@ the nodemailer instruction is not just unnecessary but a regression.
 | 14 | Status page styling | Tailwind plus the De Sign Plus tokens, Sarlotte and logos |
 | 15 | Email | Resend for everything — app mail over the API, Neon Auth mail over Resend SMTP. Senders grouped by subject: `onboarding@`, `plans@`, `support@` on `mail.qriateplus.com` (send-only, no MX); every reply-to and inbox on the apex. Confirmed 23 Oct 2026 |
 | 16 | Product name | **QRiate+** (wordmark: QR capitalised, raised plus). Decided 22 Oct 2026 |
+| 17 | Plans and prices | Starter ₦4,000, Pro ₦10,000, Business ₦25,000 monthly; 10/50/250 codes; 90 days/12 months/24 months history. Annual is ten months for twelve. Confirmed 24 Oct 2026 |
+| 18 | Grace period | 7 days, as a `qr_plans.grace_days` column rather than a constant. Free plans get 0 |
 
 ### Decision 5 changes the shape of the project
 
@@ -132,6 +134,18 @@ Outstanding: dedicated inboxes. All three groups currently reply to
 `hello@qriateplus.com`, the one mailbox confirmed to exist. Once `support@`,
 `plans@` and `onboarding@` exist on the apex, repoint
 `MAIL_GROUPS[...].replyTo`; the senders are already grouped that way.
+
+**Plans and prices are settled** (decision 17), seeded by migration 013 as six
+rows -- three tiers, monthly and annual. The annual price is stored as its own
+row rather than computed from a discount, because a discount in code would be a
+second place for the price to live and the two would drift. Starter monthly
+matches `PRICE_FROM_NGN` in `src/lib/brand.ts`, which is the single anchor the
+landing page may show.
+
+`paystack_plan_code` stays null until `npm run plans:sync` mints the plans in
+Paystack and writes the codes back. `listPurchasablePlans()` requires that
+column, so the paid tiers are invisible to checkout until then -- the safe way
+round, since a plan with no code cannot be charged.
 
 Settled: the sending domain. The Resend account is registered to
 `hello@qriateplus.com`, and `mail.qriateplus.com` was verified there on 23 Oct
@@ -262,9 +276,43 @@ to a paid plan or lapse through the normal grace path.
 `max_codes = 5` and `history_days = 30` are placeholders for decisions still
 open below. Both are a single `UPDATE` on the `free` row, never a deploy.
 
-**Analytics read `qr_scans` directly.** `qr_scan_daily` still has no writer, and
-it carries no `country` or `device_type` columns, so it cannot answer what the
-dashboard asks. The nightly rollup and the retention sweep remain phase 4 work.
+**The rollup and the retention sweep now exist** (23 Oct 2026, migration `012`
+plus `src/lib/rollup.ts`).
+
+`qr_scan_daily` was created at a grain of `(qr_id, day)` with no country and no
+device, so it could answer only "how many scans that day". Migration `012` adds
+`country` and `device_type` and moves the key to
+`(qr_id, day, country, device_type)`. Safe to re-key rather than supersede: the
+table had never been written to, because nothing in the repo rolled anything up.
+
+Why this had to come before pruning: retention deletes raw `qr_scans` rows once
+they are older than the owner's plan allows, and the breakdowns the dashboard
+shows can only be rebuilt from those rows. Pruning without a dimensional rollup
+would have destroyed every answer except the daily total, permanently.
+
+- `rollupScans()` recomputes a recent window rather than incrementing, so it is
+  idempotent — verified by running it three times and watching the totals stay
+  put. It deliberately does **not** delete rollup rows whose raw rows are gone;
+  that is exactly what preserves history past retention.
+- `pruneScans()` carries three guards: a hard two-day floor whatever a plan
+  says, a requirement that the day is already rolled up, and a fallback to the
+  **longest** active retention when an account has no plan row. All three were
+  tested inside a transaction that was rolled back.
+- `codeAnalytics()` now reads the rollup for completed days and raw `qr_scans`
+  only for today, and adds the two. Verified end to end: 9 scans read the same
+  before and after a rollup, and still read 9 with both device types after every
+  raw row for that code was deleted.
+- Scheduled nightly at 02:20 UTC by `vercel.json` against `/api/cron/scans`,
+  which answers **404** — not 401 — without the correct `CRON_SECRET`, so a
+  prober learns nothing. `npm run scans:rollup` runs the same work by hand.
+- Days are UTC everywhere. `qr_scan_daily.day` is a `date`, and node-postgres
+  parses a `date` into a JS `Date` at *local* midnight, so the chart formats its
+  labels with `to_char` in Postgres instead; without that the x-axis is a day
+  out for anyone east of UTC.
+
+**`CRON_SECRET` is a new required-at-use variable.** Without it the cron route
+404s and nothing is ever pruned, which is the safe failure: raw rows simply
+accumulate. It must be set in Vercel before the schedule means anything.
 
 **A destination change reaches the redirect in up to 60 seconds, not instantly.**
 Measured: exactly 60s. `purgeDestination()` clears only the calling bundle's
@@ -277,10 +325,9 @@ says "within a minute" rather than claiming it is instant.
 
 Business decisions, none of which block the current phase:
 
-- Plan names, naira prices, code limits, annual discount
 - Free trial, and whether codes go live during one
-- Grace period after a failed renewal (7 days proposed)
 - How long lapsed codes stay paused before deletion (12 months proposed)
+- Team seats and bulk creation, listed as Business extras but not yet built
 - MaxMind GeoLite2 commercial-use licence, and Google Web Risk pricing
 - Whether De Sign Plus must register with the Nigeria Data Protection Commission
 

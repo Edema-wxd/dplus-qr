@@ -52,6 +52,39 @@ describe("decide", () => {
     ).toEqual({ kind: "blocked" });
   });
 
+  it("shows the paused page when the owner's account is suspended", () => {
+    // Migration 002 defines suspension as stopping codes from serving, and for
+    // a long time the redirect lookup did not read the column at all -- so a
+    // suspended account kept serving every scan. This is that gap closed.
+    expect(decide(destination({ ownerSuspended: true }))).toEqual({
+      kind: "paused",
+      ownerName: "Test Business",
+    });
+  });
+
+  it("suspends regardless of good billing", () => {
+    expect(
+      decide(destination({ ownerSuspended: true, subscriptionOk: true }))
+    ).toEqual({ kind: "paused", ownerName: "Test Business" });
+  });
+
+  it("prefers blocked over suspended, so a kill switch is never masked", () => {
+    expect(
+      decide(destination({ status: "blocked", ownerSuspended: true }))
+    ).toEqual({ kind: "blocked" });
+  });
+
+  /**
+   * Entries cached before `ownerSuspended` existed deserialise without it.
+   * Absent must keep serving: pausing a live code on a missing field would
+   * take working printed codes down on deploy.
+   */
+  it("treats an absent suspension flag as not suspended", () => {
+    const stale = destination();
+    delete (stale as { ownerSuspended?: boolean }).ownerSuspended;
+    expect(decide(stale)).toEqual({ kind: "redirect", url: "https://example.com" });
+  });
+
   it("never returns a redirect without a url", () => {
     const result = decide(destination());
     if (result.kind === "redirect") {

@@ -22,6 +22,7 @@ const PLAN: Plan = {
   maxCodes: 50,
   historyDays: 365,
   graceDays: 7,
+  features: { csv_export: true, analytics: "trends" },
   isActive: true,
   sortOrder: 1,
 };

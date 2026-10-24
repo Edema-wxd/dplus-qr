@@ -73,6 +73,16 @@ const schema = z.object({
 
   PAYSTACK_SECRET_KEY: z.string().min(1).optional(),
 
+  // One shared secret for every /api/cron/* route: the scan rollup and
+  // retention sweep, and the grace-period lapse that moves subscriptions and
+  // emails customers. Vercel Cron sends it as `authorization: Bearer <value>`.
+  //
+  // Absent, those routes refuse every request rather than running
+  // unauthenticated. A scheduled job that accepts strangers is worse than one
+  // that does not run: it changes billing state and sends mail, and the
+  // failure to run is at least visible.
+  CRON_SECRET: z.string().min(16).optional(),
+
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

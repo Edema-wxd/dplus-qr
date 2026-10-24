@@ -15,9 +15,25 @@ export type Plan = {
   maxCodes: number;
   historyDays: number;
   graceDays: number;
+  /**
+   * Per-plan flags from the `features` jsonb: `csv_export`, `analytics`,
+   * `support`, `months_free` and so on. Typed as an open record on purpose --
+   * migration 003 puts plan capability in the row so adding one is an UPDATE,
+   * and a closed type here would make every new flag a deploy.
+   */
+  features: PlanFeatures;
   isActive: boolean;
   sortOrder: number;
 };
+
+export type PlanFeatures = {
+  csv_export?: boolean;
+  analytics?: "basic" | "trends";
+  support?: string;
+  months_free?: number;
+  team_seats?: boolean;
+  bulk_creation?: boolean;
+} & Record<string, unknown>;
 
 type Row = {
   id: string;
@@ -29,6 +45,7 @@ type Row = {
   max_codes: number;
   history_days: number;
   grace_days: number;
+  features: PlanFeatures | null;
   is_active: boolean;
   sort_order: number;
 };
@@ -49,6 +66,7 @@ function toPlan(row: Row): Plan {
     maxCodes: row.max_codes,
     historyDays: row.history_days,
     graceDays: row.grace_days,
+    features: row.features ?? {},
     isActive: row.is_active,
     sortOrder: row.sort_order,
   };
@@ -56,7 +74,7 @@ function toPlan(row: Row): Plan {
 
 const COLUMNS = `
   id, slug, name, paystack_plan_code, amount_kobo, interval,
-  max_codes, history_days, grace_days, is_active, sort_order
+  max_codes, history_days, grace_days, features, is_active, sort_order
 `;
 
 /** Plans a customer may choose, in display order. Excludes free and retired. */
