@@ -93,6 +93,10 @@ sign-ups open to the public only after Phase 3, when abuse controls are in place
       `qr_destination_history`, `qr_scans`, `qr_scan_daily`,
       `qr_payment_events`, `qr_abuse_reports`, `qr_users`
 - [ ] `client` role in next-auth; middleware guarding the dashboard and admin
+- [x] `mail.qriateplus.com` verified in Resend, and Neon Auth's custom SMTP
+      pointed at it on the `production` branch — 23 Oct 2026. Inspect with
+      `neon neon-auth config email-provider get`; a new branch does not inherit
+      it, so re-run the `update` there.
 - [ ] Sign-up, email verification (Resend), login, password reset, rate limits
 - [ ] Redirect host routing with a `/health` route
 - [ ] Staging app with its own database
@@ -118,9 +122,14 @@ does not count as a scan; the redirect responds in under 100 ms when cached.
 ### Phase 3: Billing and safety
 
 - [ ] Paystack plans seeded into `qr_plans`; checkout via initialize transaction
-- [ ] Webhook endpoint: signature check, idempotency, handling of
+- [x] Webhook endpoint: signature check, idempotency, handling of
       `subscription.create`, `charge.success`, `invoice.payment_failed`,
-      `subscription.not_renew`, `subscription.disable`
+      `subscription.not_renew`, `subscription.disable` — 24 Oct 2026
+- [x] Plan rows seeded (migration 013); `npm run plans:sync` attaches the
+      Paystack plan codes, which is the one step that needs the live key
+- [x] Checkout: `startCheckout` + `/billing`, returning to `/billing/confirming`,
+      which waits on the webhook rather than trusting the browser
+- [x] Grace expiry cron (`/api/cron/grace`, daily) with the lapse email
 - [ ] Plan limits enforced on code creation; codes only go live with an active
       subscription
 - [ ] Grace period, lapse to paused page, restore on payment; failure emails
@@ -135,7 +144,9 @@ and a new payment restores them; a known test phishing URL is refused.
 
 ### Phase 4: Analytics and polish
 
-- [ ] Nightly rollup into `qr_scan_daily` and retention cleanup per plan
+- [x] Nightly rollup into `qr_scan_daily` and retention cleanup per plan
+      (migration `012` added the country/device dimensions; `src/lib/rollup.ts`,
+      `/api/cron/scans`, `npm run scans:rollup`)
 - [ ] Analytics charts: scans by day, country, device; CSV export
 - [ ] Nightly backup to S3 and a tested restore
 - [ ] Uptime monitor on `/health`, error alerts, weekly admin summary email

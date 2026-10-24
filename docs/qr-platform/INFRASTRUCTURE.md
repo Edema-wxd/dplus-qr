@@ -158,8 +158,8 @@ decision 13, and a limited request is still redirected.)
 **Sign-up flow**
 
 1. Client registers with name, email and password (bcrypt, cost 12).
-2. Resend sends a verification link (single-use token, 24-hour expiry, stored
-   hashed).
+2. Neon Auth sends a verification link through Resend SMTP (see DECISIONS,
+   decision 15); the token and its expiry belong to the managed service.
 3. Until verified, the client can explore the dashboard but cannot create a code.
 4. Client picks a plan and pays through Paystack. Codes go live once the
    subscription is active.
@@ -350,7 +350,7 @@ code at once.
 | Neon Postgres | Free tier to start | Storage and compute hours |
 | Upstash Redis | Free: 500K commands/month | About 4 commands per scan, so roughly 125K scans/month fit the free tier. Then $0.20 per 100K commands |
 | Paystack | No monthly fee | Local cards: 1.5% + ₦100 per payment, ₦100 waived under ₦2,500, capped at ₦2,000; international cards 3.9% + ₦100; VAT 7.5% on the fee |
-| Resend | Existing plan | Verification, receipts and alert emails |
+| Resend | Existing plan | Verification (via Neon Auth SMTP), receipts and alert emails — one account for all mail |
 | S3 | A few cents | Logos and nightly backups |
 | MaxMind GeoLite2 | Free with account | Confirm licence for commercial use |
 | Google Web Risk API | To confirm | Number of destination checks |

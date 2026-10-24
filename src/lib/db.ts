@@ -59,3 +59,47 @@ export async function queryOne<T extends Record<string, unknown>>(
   const rows = await query<T>(text, params);
   return rows[0] ?? null;
 }
+
+/**
+ * Run several statements on one connection inside a transaction.
+ *
+ * Needed by the Paystack webhook, where marking an event processed and moving
+ * the subscription it describes have to land together: a crash between the two
+ * would otherwise leave an event logged as handled whose effect never happened,
+ * and Paystack will not send it again.
+ *
+ * Takes a client out of the pool rather than using `query()`, because each
+ * `query()` call may get a different pooled connection and `BEGIN` on one
+ * connection does not wrap work done on another. This is safe over PgBouncer
+ * in transaction mode -- a transaction holds its server connection for its
+ * whole life. It is the *session* state that pooling breaks, which is why
+ * migrations use the direct URL instead.
+ */
+export async function withTransaction<T>(
+  run: (run: <R extends Record<string, unknown>>(
+    text: string,
+    params?: readonly unknown[]
+  ) => Promise<R[]>) => Promise<T>
+): Promise<T> {
+  const client = await db().connect();
+  try {
+    await client.query("begin");
+    const result = await run(async <R extends Record<string, unknown>>(
+      text: string,
+      params: readonly unknown[] = []
+    ) => {
+      const r = await client.query(text, params as unknown[]);
+      return r.rows as R[];
+    });
+    await client.query("commit");
+    return result;
+  } catch (error) {
+    // A rollback that itself fails must not mask the original error.
+    await client.query("rollback").catch((rollbackError) => {
+      console.error("[db] rollback failed", rollbackError);
+    });
+    throw error;
+  } finally {
+    client.release();
+  }
+}

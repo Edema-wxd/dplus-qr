@@ -13,7 +13,9 @@
     "db:migrate:status": "tsx --env-file=.env.local scripts/migrate.ts --status",
     "seed:codes": "tsx --env-file=.env.local scripts/seed-codes.ts",
     "env:sync": "tsx scripts/sync-vercel-env.ts",
-    "codes": "tsx --env-file=.env.local scripts/show-codes.ts"
+    "codes": "tsx --env-file=.env.local scripts/show-codes.ts",
+    "scans:rollup": "tsx --env-file=.env.local scripts/rollup-scans.ts",
+    "plans:sync": "tsx --env-file=.env.local scripts/sync-paystack-plans.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1154.0",

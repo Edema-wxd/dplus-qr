@@ -17,6 +17,18 @@ export type Destination = {
   ownerName: string;
   /** True when the owner may serve traffic: active, or past due inside grace. */
   subscriptionOk: boolean;
+  /**
+   * Platform suspension, which migration 002 defines as stopping codes from
+   * serving -- distinct from Neon Auth's `banned`, which stops the person
+   * logging in. An admin suspends an account precisely so its codes go quiet,
+   * so the redirect path has to know.
+   *
+   * Optional because entries cached before this field existed deserialise
+   * without it. Absent reads as "not suspended", which is the right default:
+   * it keeps serving rather than silently pausing a live code, and `purge`
+   * runs on suspension anyway so the real value arrives at once.
+   */
+  ownerSuspended?: boolean;
 };
 
 type Row = {
@@ -26,6 +38,7 @@ type Row = {
   destination_url: string;
   owner_name: string;
   subscription_ok: boolean;
+  owner_suspended: boolean;
 };
 
 /**
@@ -42,6 +55,7 @@ const LOOKUP_SQL = `
     c.status,
     c.destination_url,
     u.name as owner_name,
+    u.suspended_at is not null as owner_suspended,
     coalesce(
       s.status = 'active'
       or (s.status = 'past_due' and s.grace_until > now()),
@@ -70,6 +84,7 @@ export async function lookupDestination(
       destinationUrl: row.destination_url,
       ownerName: row.owner_name,
       subscriptionOk: row.subscription_ok,
+      ownerSuspended: row.owner_suspended,
     };
   });
 
@@ -97,6 +112,11 @@ export function decide(destination: Destination | null): RedirectDecision {
   if (!destination) return { kind: "not_found" };
   if (destination.status === "blocked") return { kind: "blocked" };
   if (destination.status === "paused") {
+    return { kind: "paused", ownerName: destination.ownerName };
+  }
+  // Account suspended by an admin. Same page as a pause: a scanner is owed
+  // "this code is not active", never the reason it is not active.
+  if (destination.ownerSuspended) {
     return { kind: "paused", ownerName: destination.ownerName };
   }
   if (!destination.subscriptionOk) {

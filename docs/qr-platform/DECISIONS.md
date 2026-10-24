@@ -41,8 +41,10 @@ the nodemailer instruction is not just unnecessary but a regression.
 | 12 | Short code | 7 characters, base-58 without `0 O I l` — confirmed |
 | 13 | Redirect rate limit | **300/min/IP**, and a limited request is still redirected; only the scan record is dropped |
 | 14 | Status page styling | Tailwind plus the De Sign Plus tokens, Sarlotte and logos |
-| 15 | Email | Resend, reusing the verified De Sign Plus domain |
+| 15 | Email | Resend for everything — app mail over the API, Neon Auth mail over Resend SMTP. Senders grouped by subject: `onboarding@`, `plans@`, `support@` on `mail.qriateplus.com` (send-only, no MX); every reply-to and inbox on the apex. Confirmed 23 Oct 2026 |
 | 16 | Product name | **QRiate+** (wordmark: QR capitalised, raised plus). Decided 22 Oct 2026 |
+| 17 | Plans and prices | Starter ₦4,000, Pro ₦10,000, Business ₦25,000 monthly; 10/50/250 codes; 90 days/12 months/24 months history. Annual is ten months for twelve. Confirmed 24 Oct 2026 |
+| 18 | Grace period | 7 days, as a `qr_plans.grace_days` column rather than a constant. Free plans get 0 |
 
 ### Decision 5 changes the shape of the project
 
@@ -104,8 +106,51 @@ rather than built. Still outstanding for Phase 1: custom SMTP (shared SMTP is
 development-only, and verification *links* require custom SMTP), trusted-domain
 registration per deployed origin, and rate limiting on the auth routes.
 
-**Resend is no longer an auth dependency.** It stays for admin alerts, abuse
-reports and billing email.
+**Resend carries auth mail again, as SMTP rather than as a dependency.** The
+custom SMTP that Phase 1 needs is Resend's: `smtp.resend.com:587`, username
+`resend`, password the Resend API key, set with `neon neon-auth config
+email-provider update --type standard`. One Resend account therefore sends
+everything — verification, password reset and OTP from the managed service, and
+admin alerts, abuse reports and billing email from this app over the API — but
+the app code still imports no mailer on the login path.
+
+**Senders are grouped by subject.** `onboarding@` carries auth and getting
+started (and is the sender on Neon Auth's SMTP), `plans@` carries billing,
+`support@` carries complaints and abuse reports. `MAIL_GROUPS` in
+`src/lib/email.ts` is the only place an address appears, and `sendEmail`
+requires a group, so a call site cannot invent a sender. There is no
+`EMAIL_FROM` env var for the same reason. The split buys per-address
+reputation: a bounced invoice run cannot drag verification mail down with it,
+and a user can mute billing without muting a password reset.
+
+**`mail.qriateplus.com` sends but does not receive.** It publishes SPF and DKIM
+for Resend and no MX, so mail addressed there is rejected and the sender is
+never told. Every `Reply-To`, every `mailto:` in the UI and every internal
+alert recipient therefore sits on the apex `qriateplus.com`, which has MX.
+`SENDING_DOMAIN` and `INBOX_DOMAIN` in `src/lib/brand.ts` name the two and a
+test fails if a reply-to crosses over.
+
+Outstanding: dedicated inboxes. All three groups currently reply to
+`hello@qriateplus.com`, the one mailbox confirmed to exist. Once `support@`,
+`plans@` and `onboarding@` exist on the apex, repoint
+`MAIL_GROUPS[...].replyTo`; the senders are already grouped that way.
+
+**Plans and prices are settled** (decision 17), seeded by migration 013 as six
+rows -- three tiers, monthly and annual. The annual price is stored as its own
+row rather than computed from a discount, because a discount in code would be a
+second place for the price to live and the two would drift. Starter monthly
+matches `PRICE_FROM_NGN` in `src/lib/brand.ts`, which is the single anchor the
+landing page may show.
+
+`paystack_plan_code` stays null until `npm run plans:sync` mints the plans in
+Paystack and writes the codes back. `listPurchasablePlans()` requires that
+column, so the paid tiers are invisible to checkout until then -- the safe way
+round, since a plan with no code cannot be charged.
+
+Settled: the sending domain. The Resend account is registered to
+`hello@qriateplus.com`, and `mail.qriateplus.com` was verified there on 23 Oct
+2026. The apex itself is not verified and does not need to be — it is the
+inbox side, not the sending side.
 
 **Driver: `pg`, not `@neondatabase/serverless`.** Neon's own guidance for Vercel
 is `node-postgres` with Fluid compute plus `attachDatabasePool` from
@@ -186,24 +231,103 @@ read off the logo sits beside the existing De Sign Plus tokens, which is why
 the two brands work together. QRiate+ now leads on this domain, with De Sign
 Plus credited as the parent.
 
-**The logo file itself is not in the repo.** It was shared as an image in
-conversation, which I cannot write to disk. Drop the vector at
-`public/brand/qriate-wordmark.svg` and the landing page can use it in place of
-the text wordmark.
+**The logo file is now in the repo** (23 October 2026). `QRP_Logo_Full_Colour`
+was supplied as a transparent vector and sits at
+`public/brand/qriate-wordmark.svg`. Because the letterforms are near-black and
+the landing page puts the mark on a dark ground as well as a light one, a second
+file, `public/brand/qriate-wordmark-light.svg`, is derived from it: every
+near-neutral fill is taken to paper tone and every chromatic fill — the cyan QR
+motif, the green plus, the amber and coral swashes — is preserved. A CSS filter
+could not do this, since inverting the letterforms would also invert the brand
+colours. Both are used by the landing page; the earlier text wordmark is
+retired.
 
 **Still required, and mine to hand over rather than do:** the Cloudflare DNS
 record. Vercel offers a Domain Connect flow that applies it in your account.
 Note that Vercel's recommended record carries `disableProxy: true`, which
 conflicts with keeping the orange cloud on — see the handover notes.
 
+## Free plan and the dashboard, 23 October 2026
+
+The client dashboard is built: `/app` lists codes, `/app/{id}` manages one, and
+`/account` is now settings. Phase 2's create / rename / re-point / pause /
+resume, QR downloads and the scan analytics all exist.
+
+**A free plan now exists and is granted on sign-up** (migration `010`,
+`ensureFreeSubscription()` in `src/lib/profile.ts`). This was forced: `decide()`
+treats "no subscription" as not entitled, and real accounts had no
+`qr_subscriptions` row, so every code a user made through the dashboard would
+have scanned to the paused page.
+
+This is **the one place outside the Paystack webhook that writes
+`qr_subscriptions.status`**, which migration 004 reserves for webhooks. It is
+narrow on purpose:
+
+- it can only ever select the `free` plan (`amount_kobo = 0`, no
+  `paystack_plan_code`);
+- `where not exists (select 1 from qr_subscriptions where user_id = $1)` means
+  it grants only to an account with no subscription row of any status, so it
+  can never resurrect a cancelled Paystack subscription nor contend with the
+  partial unique index.
+
+**Phase 3 must remove it.** When checkout exists, free accounts either migrate
+to a paid plan or lapse through the normal grace path.
+
+`max_codes = 5` and `history_days = 30` are placeholders for decisions still
+open below. Both are a single `UPDATE` on the `free` row, never a deploy.
+
+**The rollup and the retention sweep now exist** (23 Oct 2026, migration `012`
+plus `src/lib/rollup.ts`).
+
+`qr_scan_daily` was created at a grain of `(qr_id, day)` with no country and no
+device, so it could answer only "how many scans that day". Migration `012` adds
+`country` and `device_type` and moves the key to
+`(qr_id, day, country, device_type)`. Safe to re-key rather than supersede: the
+table had never been written to, because nothing in the repo rolled anything up.
+
+Why this had to come before pruning: retention deletes raw `qr_scans` rows once
+they are older than the owner's plan allows, and the breakdowns the dashboard
+shows can only be rebuilt from those rows. Pruning without a dimensional rollup
+would have destroyed every answer except the daily total, permanently.
+
+- `rollupScans()` recomputes a recent window rather than incrementing, so it is
+  idempotent — verified by running it three times and watching the totals stay
+  put. It deliberately does **not** delete rollup rows whose raw rows are gone;
+  that is exactly what preserves history past retention.
+- `pruneScans()` carries three guards: a hard two-day floor whatever a plan
+  says, a requirement that the day is already rolled up, and a fallback to the
+  **longest** active retention when an account has no plan row. All three were
+  tested inside a transaction that was rolled back.
+- `codeAnalytics()` now reads the rollup for completed days and raw `qr_scans`
+  only for today, and adds the two. Verified end to end: 9 scans read the same
+  before and after a rollup, and still read 9 with both device types after every
+  raw row for that code was deleted.
+- Scheduled nightly at 02:20 UTC by `vercel.json` against `/api/cron/scans`,
+  which answers **404** — not 401 — without the correct `CRON_SECRET`, so a
+  prober learns nothing. `npm run scans:rollup` runs the same work by hand.
+- Days are UTC everywhere. `qr_scan_daily.day` is a `date`, and node-postgres
+  parses a `date` into a JS `Date` at *local* midnight, so the chart formats its
+  labels with `to_char` in Postgres instead; without that the x-axis is a day
+  out for anyone east of UTC.
+
+**`CRON_SECRET` is a new required-at-use variable.** Without it the cron route
+404s and nothing is ever pruned, which is the safe failure: raw rows simply
+accumulate. It must be set in Vercel before the schedule means anything.
+
+**A destination change reaches the redirect in up to 60 seconds, not instantly.**
+Measured: exactly 60s. `purgeDestination()` clears only the calling bundle's
+in-process cache, and with no Redis configured the redirect path's own copy
+waits out its TTL. That meets the phase 2 criterion ("within 60 seconds") but
+only just; configuring Upstash makes the purge immediate. The dashboard copy
+says "within a minute" rather than claiming it is instant.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
 
-- Plan names, naira prices, code limits, annual discount
 - Free trial, and whether codes go live during one
-- Grace period after a failed renewal (7 days proposed)
 - How long lapsed codes stay paused before deletion (12 months proposed)
+- Team seats and bulk creation, listed as Business extras but not yet built
 - MaxMind GeoLite2 commercial-use licence, and Google Web Risk pricing
 - Whether De Sign Plus must register with the Nigeria Data Protection Commission
 

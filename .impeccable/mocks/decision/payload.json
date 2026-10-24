@@ -1,0 +1,46 @@
+{
+  "title": "QRiate+ landing page: choose the composition",
+  "question": "The visual world is already settled (Sarlotte, Raleway, the De Sign Plus tokens, the QRiate+ palette). This choice is composition: how the page is arranged and what it proves in the first viewport. The roll dealt three. Lock one.",
+  "options": [
+    {
+      "id": "assigned",
+      "kind": "assigned",
+      "label": "The Reprint Quote",
+      "kicker": "THE ROLL",
+      "lineage": "a Nigerian print-shop job docket and quotation sheet",
+      "thesis": "The page is the reprint bill you never have to pay again.",
+      "palette": ["#1A1A1A", "#F1595C", "#F5B335", "#FDFCF8"],
+      "materials": ["carbon-copy docket", "rubber authorisation stamp"],
+      "viewport": "A full-bleed quotation docket: ruled line items for reprinting a label run, the naira total struck through in coral, and directly beneath it one line reading 'Change the destination instead — no reprint'. The sign-up action is the docket's authorisation stamp, bottom right where a signature goes.",
+      "risk": "Leads with cost rather than capability, and every figure on the docket is illustrative, so it has to be labelled as such or it reads as an invented claim.",
+      "html": ".impeccable/mocks/decision/assigned.html"
+    },
+    {
+      "id": "dealt-constant",
+      "kind": "dealt",
+      "label": "The Constant Code",
+      "lineage": "a printed specimen pinned under glass while the page moves past it",
+      "thesis": "One QR symbol, pinned and never redrawn, while every destination under it changes.",
+      "palette": ["#1A1A1A", "#5BC5E8", "#7DC242", "#FDFCF8"],
+      "materials": ["pinned specimen card", "ruled destination log"],
+      "viewport": "A single real QR symbol locked at full height on the left two-fifths, physically unchanged for the entire scroll. To its right the destination log: dated rows swapping from a launch page to a menu to a catalogue, the newest one live. The paste-a-destination field and the sign-up action sit directly under the symbol, so the action is in the mechanism.",
+      "risk": "A pinned object can read as a static illustration; the proof collapses unless the destinations visibly change against it.",
+      "html": ".impeccable/mocks/decision/dealt-constant.html"
+    },
+    {
+      "id": "dealt-switchboard",
+      "kind": "dealt",
+      "label": "The Switchboard",
+      "lineage": "a telephone patch panel: printed objects on one side, destinations on the other",
+      "thesis": "Printed things on one side, destinations on the other, and cables you re-patch without touching the print.",
+      "palette": ["#1A1A1A", "#5BC5E8", "#F5B335", "#7DC242"],
+      "materials": ["enamelled panel", "braided patch cable", "engraved jack labels"],
+      "viewport": "A full-width enamelled patch field. Left: engraved jacks for real printed things — label, menu card, gift box, banner. Right: destination jacks. Braided cables arc between them, one held mid-move with its old jack still warm. The primary action is the panel's authorisation plate under the field.",
+      "risk": "The metaphor outruns the product the moment the cables do not actually re-point anything; it also asks the most of a phone screen.",
+      "html": ".impeccable/mocks/decision/dealt-switchboard.html"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code" },
+  "steer": true
+}

@@ -54,3 +54,201 @@ body {
   font-family: var(--font-raleway), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/*
+ * The loading mark. Four squares of the QR motif light in clockwise order, so
+ * the glyph reads as a code being read rather than as a generic spinner.
+ *
+ * Deliberately CSS-only: loading.tsx renders as a Suspense fallback while the
+ * page is still streaming, so the animation has to run before any JavaScript
+ * has loaded or hydrated. Only opacity and transform are animated, both of
+ * which the compositor handles without laying the page out again.
+ */
+@keyframes qr-module {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.7);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* The reduced-motion substitute: the whole mark cross-fades, nothing travels. */
+@keyframes qr-breathe {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.qr-module {
+  /* An SVG element's transform-origin is the user-space origin by default, so
+     a scale would throw the square across the glyph without these two. */
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: qr-module 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-module {
+    animation: none;
+    opacity: 1;
+  }
+
+  .qr-mark-animated {
+    animation: qr-breathe 2.4s ease-in-out infinite;
+  }
+}
+
+/*
+ * The landing page owns its ground.
+ *
+ * It is one composition of two materials — a paper specimen panel against an
+ * ink field — and the argument lives in the seam between them. Inverting that
+ * with the system colour scheme would not darken the page, it would destroy
+ * the composition, so these values are fixed in both schemes. The status and
+ * account pages keep following `prefers-color-scheme` as before.
+ *
+ * Derived from BRAND_COLORS in src/lib/brand.ts: cyan is the pin, green is
+ * reserved for the one live row, amber is pending, coral is struck through.
+ */
+.lp {
+  --paper: oklch(0.985 0.004 85);
+  --paper-ink: oklch(0.17 0.006 226);
+  --paper-soft: oklch(0.44 0.006 226);
+  --paper-rule: oklch(0.87 0.004 85);
+  --field: oklch(0.165 0.006 226);
+  --field-raised: oklch(0.205 0.006 226);
+  --field-ink: oklch(0.97 0.002 226);
+  --field-soft: oklch(0.74 0.006 226);
+  --field-rule: oklch(0.31 0.008 226);
+  --pin: oklch(0.8 0.1 220);
+  --field-muted: oklch(0.66 0.006 226);
+  --live: oklch(0.8 0.19 133);
+  /*
+   * Paper-safe counterparts. The accents above were tuned against the ink
+   * field; on the paper panel they go faint, so each one is taken down far
+   * enough to hold its own against near-white.
+   */
+  --live-ink: oklch(0.52 0.16 133);
+  --pin-ink: oklch(0.58 0.12 220);
+  --pending-ink: oklch(0.65 0.14 72);
+  --struck-ink: oklch(0.58 0.2 25);
+  --pending: oklch(0.83 0.15 81);
+  --struck: oklch(0.72 0.18 23);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  background: var(--field);
+  color: var(--field-ink);
+  /* Clears the sticky phone header when an in-page anchor is followed. */
+  scroll-padding-top: 5rem;
+  --qr-ground: transparent;
+  --qr-ink: var(--paper-ink);
+}
+
+/* Browser surfaces the page did not draw still belong to it. */
+.lp ::selection {
+  background: var(--pin);
+  color: oklch(0.17 0.006 226);
+}
+.lp :focus-visible {
+  outline: 2px solid var(--pin);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.lp a:where(:not([data-plain])) {
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: from-font;
+}
+
+/* The paper panel is the one place the scheme flips, by material not by mode. */
+.lp-paper {
+  background: var(--paper);
+  color: var(--paper-ink);
+}
+
+/* Pulls a one-word last line back up beside its paragraph. */
+.lp p,
+.lp dd {
+  text-wrap: pretty;
+}
+
+/* Tabular figures everywhere a number can be compared down a column. */
+.lp-num {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lp-rise {
+    animation: lp-rise 620ms var(--ease-out) both;
+  }
+}
+
+@keyframes lp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/*
+ * The dashboard.
+ *
+ * An Operate surface, so the world is held to four things — type, palette,
+ * density and one signature move — and supplies none of the layout or the
+ * controls. It inherits the landing page's tokens and reassigns the two
+ * materials by job: ink is the shell, paper is the work area. A dense table is
+ * read for minutes rather than seconds, so the long surface is the light one.
+ */
+.dash {
+  --paper: oklch(0.985 0.004 85);
+  --paper-ink: oklch(0.17 0.006 226);
+  --paper-soft: oklch(0.44 0.006 226);
+  --paper-rule: oklch(0.89 0.004 85);
+  --paper-raised: oklch(0.965 0.004 85);
+  --field: oklch(0.165 0.006 226);
+  --field-ink: oklch(0.97 0.002 226);
+  --field-soft: oklch(0.74 0.006 226);
+  --field-rule: oklch(0.31 0.008 226);
+  --live-ink: oklch(0.52 0.16 133);
+  --pin-ink: oklch(0.5 0.13 243);
+  --pending-ink: oklch(0.58 0.13 70);
+  --struck-ink: oklch(0.55 0.2 25);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  background: var(--paper);
+  color: var(--paper-ink);
+  --qr-ground: transparent;
+  --qr-ink: var(--paper-ink);
+}
+
+.dash ::selection {
+  background: var(--pin-ink);
+  color: var(--paper);
+}
+
+/* One focus treatment across the whole surface, including the browser's own. */
+.dash :focus-visible {
+  outline: 2px solid var(--pin-ink);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.dash-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row is a link; the whole row reacts, not just the text in it. */
+.dash-row {
+  transition: background-color 120ms var(--ease-out);
+}
+.dash-row:hover {
+  background: var(--paper-raised);
+}
