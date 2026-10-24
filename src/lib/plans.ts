@@ -1,0 +1,96 @@
+import { query, queryOne } from "@/lib/db";
+
+/**
+ * Reading `qr_plans`. Nothing here decides what a plan allows -- migration 003
+ * put that in the table so a limit change is an UPDATE, not a deploy -- so this
+ * module only ever selects.
+ */
+export type Plan = {
+  id: number;
+  slug: string;
+  name: string;
+  paystackPlanCode: string | null;
+  amountKobo: number;
+  interval: "monthly" | "annually";
+  maxCodes: number;
+  historyDays: number;
+  graceDays: number;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+type Row = {
+  id: string;
+  slug: string;
+  name: string;
+  paystack_plan_code: string | null;
+  amount_kobo: string;
+  interval: "monthly" | "annually";
+  max_codes: number;
+  history_days: number;
+  grace_days: number;
+  is_active: boolean;
+  sort_order: number;
+};
+
+/**
+ * `bigserial` and `bigint` arrive as strings from `pg`, because a 64-bit
+ * integer does not fit a JS number. Both of these comfortably do, so they are
+ * converted once here rather than at every call site.
+ */
+function toPlan(row: Row): Plan {
+  return {
+    id: Number(row.id),
+    slug: row.slug,
+    name: row.name,
+    paystackPlanCode: row.paystack_plan_code,
+    amountKobo: Number(row.amount_kobo),
+    interval: row.interval,
+    maxCodes: row.max_codes,
+    historyDays: row.history_days,
+    graceDays: row.grace_days,
+    isActive: row.is_active,
+    sortOrder: row.sort_order,
+  };
+}
+
+const COLUMNS = `
+  id, slug, name, paystack_plan_code, amount_kobo, interval,
+  max_codes, history_days, grace_days, is_active, sort_order
+`;
+
+/** Plans a customer may choose, in display order. Excludes free and retired. */
+export async function listPurchasablePlans(): Promise<Plan[]> {
+  const rows = await query<Row>(
+    `select ${COLUMNS} from qr_plans
+     where is_active
+       and amount_kobo > 0
+       and paystack_plan_code is not null
+     order by sort_order, amount_kobo`
+  );
+  return rows.map(toPlan);
+}
+
+export async function getPlanBySlug(slug: string): Promise<Plan | null> {
+  const row = await queryOne<Row>(
+    `select ${COLUMNS} from qr_plans where slug = $1`,
+    [slug]
+  );
+  return row ? toPlan(row) : null;
+}
+
+/**
+ * Match an incoming webhook to a plan.
+ *
+ * A charge for a plan code we do not hold is not an error to swallow: it means
+ * someone created a plan in the Paystack dashboard that this database has never
+ * been told about, and the subscription cannot be given limits. The caller logs
+ * it and leaves the event unprocessed so it can be replayed after seeding.
+ */
+export async function getPlanByPaystackCode(code: string): Promise<Plan | null> {
+  const row = await queryOne<Row>(
+    `select ${COLUMNS} from qr_plans where paystack_plan_code = $1`,
+    [code]
+  );
+  return row ? toPlan(row) : null;
+}

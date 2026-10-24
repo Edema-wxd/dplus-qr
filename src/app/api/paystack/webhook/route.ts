@@ -1,44 +1,68 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { after } from "next/server";
 import { env } from "@/lib/env";
+import { verifySignature } from "@/lib/paystack";
+import { applyPaystackEvent } from "@/lib/billing";
 
 /**
- * Paystack webhook. Phase 3 fills in the event handling; the signature check
- * and the idempotency guard are written now because they are the parts that
- * must never be bolted on afterwards.
+ * Paystack webhook. The only source of truth for payment state.
  *
- * Webhooks are the only source of truth for payment state. Nothing in the
- * browser return flow may set a subscription to active.
+ * Three rules, in this order:
+ *
+ * 1. Verify `x-paystack-signature` against the RAW body before reading it.
+ *    `request.text()` once, verify, and only then parse -- re-serialising JSON
+ *    changes the bytes and would fail a signature that is perfectly valid.
+ * 2. Answer 200 quickly and process after. Paystack retries on a slow or
+ *    failed response, and a retry of work already half-done is how a charge
+ *    gets applied twice. The idempotency key makes a retry harmless anyway,
+ *    but not making it wait is cheaper for both sides.
+ * 3. Never 500 on our own bug. A 500 makes Paystack retry something that will
+ *    fail identically; the event is already recorded, so it can be replayed
+ *    from the table deliberately instead.
+ *
+ * `no-store` because a cached webhook response is meaningless, and this route
+ * reads a request API (headers), so Cache Components does not try to evaluate
+ * it at build time.
  */
-export async function POST(request: Request) {
-  const secret = env().PAYSTACK_SECRET_KEY;
-  if (!secret) {
-    console.error("[paystack] webhook received but no secret configured");
-    return new Response("not configured", { status: 503 });
-  }
-
-  // The raw body is required: re-serialising parsed JSON changes the bytes and
-  // breaks the HMAC.
-  const raw = await request.text();
+export async function POST(request: Request): Promise<Response> {
+  const rawBody = await request.text();
   const signature = request.headers.get("x-paystack-signature");
 
-  if (!signature || !verify(raw, signature, secret)) {
-    console.error("[paystack] signature verification failed");
-    return new Response("invalid signature", { status: 401 });
+  // A missing key is a deployment fault, not a bad delivery. 503 rather than
+  // 500 because Paystack retries a 503 -- so the event survives long enough
+  // for someone to set the variable, instead of being lost to a hard failure.
+  if (!env().PAYSTACK_SECRET_KEY) {
+    console.error("[paystack] delivery received but no secret is configured");
+    return new Response("not configured", {
+      status: 503,
+      headers: { "cache-control": "no-store" },
+    });
   }
 
-  // TODO(phase-3): insert into qr_payment_events keyed on the event id for
-  // idempotency, return 200 immediately, then process:
-  //   subscription.create, charge.success, invoice.payment_failed,
-  //   subscription.not_renew, subscription.disable
-  return Response.json({ received: true });
-}
+  if (!verifySignature(rawBody, signature)) {
+    // No detail: an attacker probing the endpoint learns nothing from this.
+    console.warn("[paystack] rejected a delivery with a bad signature");
+    return new Response("invalid signature", {
+      status: 401,
+      headers: { "cache-control": "no-store" },
+    });
+  }
 
-function verify(raw: string, signature: string, secret: string): boolean {
-  const expected = createHmac("sha512", secret).update(raw).digest("hex");
-  const a = Buffer.from(expected, "utf8");
-  const b = Buffer.from(signature, "utf8");
+  after(async () => {
+    try {
+      const outcome = await applyPaystackEvent(rawBody);
+      if (outcome.kind === "deferred") {
+        // Needs a human: the event is stored with its reason in `error`.
+        console.error("[paystack] deferred", outcome.eventKey, outcome.why);
+      } else {
+        console.info("[paystack]", outcome.kind, outcome.eventKey);
+      }
+    } catch (error) {
+      console.error("[paystack] processing failed", error);
+    }
+  });
 
-  // timingSafeEqual throws on a length mismatch, so compare lengths first.
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+  return new Response("ok", {
+    status: 200,
+    headers: { "cache-control": "no-store" },
+  });
 }
