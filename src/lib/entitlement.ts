@@ -3,6 +3,10 @@ import { queryOne } from "@/lib/db";
 /**
  * What an account is currently allowed to do.
  *
+ * Not to be confused with `src/lib/plans.ts`, which is the catalogue of plans
+ * someone can buy. This module answers "what may *this* account do right now",
+ * which is the plan it holds joined to what it has already used.
+ *
  * Read from `qr_plans` through the user's subscription rather than from
  * constants, because migration 003 puts limits in that table on purpose: a
  * plan change is a row update, not a deploy.

@@ -1,5 +1,6 @@
-import { canCreateCode, type Entitlement } from "@/lib/plan";
+import { canCreateCode, type Entitlement } from "@/lib/entitlement";
 import { analyticsWindow, ANALYTICS_WINDOWS } from "@/lib/user-codes";
+import { rollupWindow } from "@/lib/rollup";
 
 /**
  * Pure logic only. Everything else in these modules is SQL, which is covered by
@@ -66,4 +67,32 @@ describe("analyticsWindow", () => {
       expect(ANALYTICS_WINDOWS).toContain(analyticsWindow(candidate));
     }
   });
+});
+
+describe("rollupWindow", () => {
+  it("keeps a sensible window as given", () => {
+    expect(rollupWindow(3)).toBe(3);
+    expect(rollupWindow(90)).toBe(90);
+  });
+
+  it("never returns less than a day, so a run always covers something", () => {
+    expect(rollupWindow(0)).toBe(1);
+    expect(rollupWindow(-5)).toBe(1);
+  });
+
+  it("caps a backfill at a year, because that is a migration not a cron run", () => {
+    expect(rollupWindow(100000)).toBe(400);
+  });
+
+  it("truncates to a whole number, since this value is interpolated into SQL", () => {
+    expect(rollupWindow(7.9)).toBe(7);
+    expect(Number.isInteger(rollupWindow(7.9))).toBe(true);
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    "falls back to the default for %p",
+    (value) => {
+      expect(rollupWindow(value)).toBe(3);
+    }
+  );
 });

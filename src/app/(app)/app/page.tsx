@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
-import { getEntitlement } from "@/lib/plan";
+import { getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { CODE_HOST } from "@/lib/brand";
 import { QrSymbol } from "@/app/_landing/QrSymbol";

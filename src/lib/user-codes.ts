@@ -2,7 +2,7 @@ import { query, queryOne } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { generateCode } from "@/lib/short-code";
 import { screenUrl } from "@/lib/screening";
-import { canCreateCode, getEntitlement } from "@/lib/plan";
+import { canCreateCode, getEntitlement } from "@/lib/entitlement";
 
 /**
  * Everything the signed-in owner can do to their own codes.
@@ -319,11 +319,20 @@ export type Analytics = {
 /**
  * Scans by day, country and device for one code.
  *
+ * Reads the `qr_scan_daily` rollup for every completed day and raw `qr_scans`
+ * only for today. That split is not an optimisation -- it is the only correct
+ * source. Retention deletes raw rows once they are older than the owner's plan
+ * allows, so anything beyond that window exists *only* in the rollup; reading
+ * raw rows alone would make a code's history quietly vanish as it aged.
+ * Today's rows are not rolled up yet, so they come from the raw table and the
+ * two halves are added together.
+ *
  * `generate_series` fills the gaps: a chart that silently omits quiet days
  * compresses time and makes a flat week look busy. Every day in the window is
  * present whether or not anything scanned.
  *
- * Bots are excluded, consistent with the list totals.
+ * Days are UTC, matching the rollup, so a scan is never counted on one day by
+ * the chart and another by the totals.
  */
 export async function codeAnalytics(
   userId: string,
@@ -338,54 +347,74 @@ export async function codeAnalytics(
   );
   if (!owns) return { days: [], countries: [], devices: [], total: 0 };
 
+  // The rollup plus today, as one set of rows every query below groups from.
+  const COMBINED = `
+    with combined as (
+      select d.day, d.country, d.device_type, d.scans
+      from qr_scan_daily d
+      where d.qr_id = $1
+        and d.day >= (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1)
+        and d.day <  (now() at time zone 'UTC')::date
+      union all
+      select
+        (s.scanned_at at time zone 'UTC')::date,
+        coalesce(nullif(s.country, ''), 'unknown'),
+        coalesce(nullif(s.device_type, ''), 'unknown'),
+        count(*)
+      from qr_scans s
+      where s.qr_id = $1
+        and not s.is_bot
+        and s.scanned_at >= (now() at time zone 'UTC')::date
+      group by 1, 2, 3
+    )
+  `;
+
   const [dayRows, countryRows, deviceRows] = await Promise.all([
-    query<{ day: Date; scans: string }>(
-      `select d.day::date as day,
-              coalesce(count(s.id) filter (where not s.is_bot), 0) as scans
+    // `to_char`, not a date: node-postgres parses a DATE into a JS Date at
+    // *local* midnight, so `toISOString()` on it shifts the label back a day
+    // for anyone east of UTC. Formatting in Postgres keeps the day the rollup
+    // stored and the day the chart prints the same day.
+    query<{ day: string; scans: string }>(
+      `${COMBINED}
+       select to_char(g.day, 'YYYY-MM-DD') as day, coalesce(sum(c.scans), 0) as scans
        from generate_series(
-              date_trunc('day', now()) - interval '${window - 1} days',
-              date_trunc('day', now()),
+              (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1),
+              (now() at time zone 'UTC')::date,
               interval '1 day'
-            ) as d(day)
-       left join qr_scans s
-         on s.qr_id = $1
-        and s.scanned_at >= d.day
-        and s.scanned_at <  d.day + interval '1 day'
-       group by d.day
-       order by d.day`,
+            ) as g(day)
+       left join combined c on c.day = g.day::date
+       group by g.day
+       order by g.day`,
       [id]
     ),
     query<{ label: string | null; scans: string }>(
-      `select country as label, count(*) as scans
-       from qr_scans
-       where qr_id = $1 and not is_bot
-         and scanned_at >= now() - interval '${window} days'
-       group by country
-       order by count(*) desc
-       limit 10`,
+      `${COMBINED}
+       select country as label, sum(scans) as scans
+       from combined group by country order by sum(scans) desc limit 10`,
       [id]
     ),
     query<{ label: string | null; scans: string }>(
-      `select device_type as label, count(*) as scans
-       from qr_scans
-       where qr_id = $1 and not is_bot
-         and scanned_at >= now() - interval '${window} days'
-       group by device_type
-       order by count(*) desc
-       limit 10`,
+      `${COMBINED}
+       select device_type as label, sum(scans) as scans
+       from combined group by device_type order by sum(scans) desc limit 10`,
       [id]
     ),
   ]);
 
   const dayPoints = dayRows.map((r) => ({
-    day: r.day.toISOString().slice(0, 10),
+    day: r.day,
     scans: Number(r.scans),
   }));
 
   // "Unknown" rather than a blank row: geo is a deliberate stub on hosts that
   // do not supply a country header, and a nameless slice reads as a bug.
   const toSlices = (rows: { label: string | null; scans: string }[]): Slice[] =>
-    rows.map((r) => ({ label: r.label ?? "Unknown", scans: Number(r.scans) }));
+    rows
+      .map((r) => ({ label: r.label ?? "unknown", scans: Number(r.scans) }))
+      .map((slice) => ({
+        ...slice,
+        label: slice.label === "unknown" ? "Unknown" : slice.label,
+      }));
 
   return {
     days: dayPoints,
@@ -395,7 +424,14 @@ export async function codeAnalytics(
   };
 }
 
-/** Raw scan rows for CSV export, newest first. Never includes the IP hash. */
+/**
+ * Raw scan rows for CSV export, newest first. Never includes the IP hash.
+ *
+ * Reads `qr_scans` rather than the rollup on purpose: an export is the one
+ * place a per-scan row is the point. It is therefore bounded by retention --
+ * once raw rows are pruned, only the rolled-up daily counts remain, which the
+ * charts show and a CSV of individual scans cannot.
+ */
 export async function scanRows(
   userId: string,
   id: string,

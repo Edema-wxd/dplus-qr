@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
-import { getEntitlement } from "@/lib/plan";
+import { getEntitlement } from "@/lib/entitlement";
 import { SUPPORT_EMAIL } from "@/lib/brand";
 import { DashShell } from "../app/DashShell";
 
