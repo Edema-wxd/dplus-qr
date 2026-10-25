@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { PRODUCT_NAME } from "@/lib/brand";
+import { LegalLinks } from "@/components/LegalLinks";
 
 /**
  * Shared frame for every status page. Deliberately calm: the person reading it
@@ -42,7 +43,7 @@ export function StatusShell({
 
         {detail ? <div className="mt-6">{detail}</div> : null}
 
-        <div className="mt-10 pt-6 border-t border-border">
+        <div className="mt-10 flex flex-wrap items-center justify-between gap-x-6 gap-y-4 pt-6 border-t border-border">
           <Link href="/" className="inline-flex items-center" aria-label={PRODUCT_NAME}>
             <Image
               src="/brand/qriate-wordmark.svg"
@@ -59,6 +60,12 @@ export function StatusShell({
               className="hidden h-auto w-[104px] dark:block"
             />
           </Link>
+          {/*
+            A scanner who has landed here is being asked to trust an unfamiliar
+            host, so the documents that say what this host does with their scan
+            are reachable from the page itself, not only from the landing page.
+          */}
+          <LegalLinks tone="muted" />
         </div>
       </div>
     </main>

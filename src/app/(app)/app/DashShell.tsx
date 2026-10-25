@@ -2,6 +2,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { PRODUCT_NAME } from "@/lib/brand";
 import { signOutAction } from "../auth/sign-in/actions";
+import { LegalLinks } from "@/components/LegalLinks";
 
 /**
  * The dashboard shell.
@@ -97,6 +98,10 @@ export function DashShell({
         </div>
 
         <div className="mt-8">{children}</div>
+
+        <footer className="mt-16 border-t border-[var(--paper-rule)] pt-5">
+          <LegalLinks tone="paper" />
+        </footer>
       </main>
     </div>
   );

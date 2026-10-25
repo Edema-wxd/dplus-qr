@@ -45,6 +45,9 @@ the nodemailer instruction is not just unnecessary but a regression.
 | 16 | Product name | **QRiate+** (wordmark: QR capitalised, raised plus). Decided 22 Oct 2026 |
 | 17 | Plans and prices | Starter ₦4,000, Pro ₦10,000, Business ₦25,000 monthly; 10/50/250 codes; 90 days/12 months/24 months history. Annual is ten months for twelve. Confirmed 24 Oct 2026 |
 | 18 | Grace period | 7 days, as a `qr_plans.grace_days` column rather than a constant. Free plans get 0 |
+| 19 | Legal page routes | Flat: `/terms`, `/privacy`, `/acceptable-use`, all three in `RESERVED_CODES`. Decided 25 Oct 2026 |
+| 20 | Refunds | **None.** Payments are charged in advance and not refundable; cancelling runs to the end of the paid period, so nobody pays for time they cannot use. Decided 25 Oct 2026 |
+| 21 | Retention after lapse | **6 months**, then codes and scan data are deleted. Decided 25 Oct 2026, replacing the 12 months previously proposed |
 
 ### Decision 5 changes the shape of the project
 
@@ -321,12 +324,63 @@ waits out its TTL. That meets the phase 2 criterion ("within 60 seconds") but
 only just; configuring Upstash makes the purge immediate. The dashboard copy
 says "within a minute" rather than claiming it is instant.
 
+## Legal pages, 25 October 2026
+
+Three documents at `/terms`, `/privacy` and `/acceptable-use`, written from the
+running code rather than from a template, and rendered from `src/lib/legal.ts`
+so the copy sits beside the constants it quotes.
+
+**Flat routes, not `/legal/*`.** `privacy` and `terms` were already in
+`RESERVED_CODES`, the links are shorter in a footer, and Paystack's merchant
+review cites `/terms` directly. `legal`, `aup`, `cookies` and `refunds` were
+reserved at the same time, so a later rename cannot be shadowed by a code.
+`acceptable-use` could never collide anyway — a generated code has no hyphen —
+but it is listed with the others to keep the set truthful.
+
+**Refunds: none, and cancelling runs to the end of the paid period.** This is
+what `cancelAtPeriodEnd()` already does, so the page describes the code rather
+than promising a flow nobody has built. A money-back window would need a manual
+Paystack refund path that does not exist.
+
+**Retention after lapse or closure: 6 months** (`LAPSE_RETENTION_MONTHS` in
+`brand.ts`), down from the 12 months this document proposed. Long enough that
+printed material survives a missed payment and a late return restores
+everything; short enough to state as a real limit under the NDPA. **No sweep
+enforces it yet** — the constant and the promise exist, the deletion job does
+not. That is now the gap, and it is a written commitment, so it is a Phase 3
+obligation rather than a nice-to-have.
+
+**Entity details are deliberately absent.** No registered name, RC number or
+address appears on any page yet (Francis, 25 Oct 2026: leave them out for now).
+The documents name De Sign Plus and QRiate+ and give `hello@qriateplus.com` as
+the contact. They need the registration details before launch, for NDPA
+transparency and for Paystack's merchant checks.
+
+**What the pages commit the code to**, each asserted by
+`src/__tests__/legal.test.ts` so the promise cannot quietly drift:
+
+- Both NDPA roles stated in the Terms and the Privacy Policy: controller for
+  account data, processor for scan data.
+- Raw IPs are never stored or logged; the stored value is
+  `sha256(ip + salt + UTC day)`, so a scanner cannot be followed across days.
+- The redirect sets no cookies, runs no analytics and loads nothing in the
+  scanner's browser. The only cookie on the host is the dashboard session.
+- Codes are paused and accounts suspended, never deleted to settle a dispute.
+- A CSV export excludes `ip_hash`, as the export route already does.
+- Every address printed on a legal page is on the apex, never the send-only
+  `mail.` domain — the same rule `email-groups.test.ts` applies to `Reply-To`,
+  because a data request sent to a domain with no MX vanishes silently.
+
+**These are drafts, not advice.** A Nigerian lawyer should read all three
+before live payments are taken. The NDPC registration question stays open, so
+the Privacy Policy names a contact for data requests and claims no
+registration.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
 
 - Free trial, and whether codes go live during one
-- How long lapsed codes stay paused before deletion (12 months proposed)
 - Team seats and bulk creation, listed as Business extras but not yet built
 - MaxMind GeoLite2 commercial-use licence, and Google Web Risk pricing
 - Whether De Sign Plus must register with the Nigeria Data Protection Commission

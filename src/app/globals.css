@@ -252,3 +252,49 @@ body {
 .dash-row:hover {
   background: var(--paper-raised);
 }
+
+/*
+ * The legal pages.
+ *
+ * A reading surface rather than a designed one: the paper material from the
+ * landing page, one measured column, and the same type. The tokens are fixed
+ * in both colour schemes for the same reason the landing page's are -- these
+ * documents are read end to end, cited by section and sometimes printed, and
+ * one that changes appearance with the operating system is harder to refer
+ * back to than one that always looks the same.
+ */
+.legal {
+  --paper: oklch(0.985 0.004 85);
+  --paper-ink: oklch(0.17 0.006 226);
+  --paper-soft: oklch(0.44 0.006 226);
+  --paper-rule: oklch(0.87 0.004 85);
+  --pin-ink: oklch(0.5 0.13 243);
+
+  background: var(--paper);
+  color: var(--paper-ink);
+  /* The anchored headings sit just below the top edge when followed. */
+  scroll-padding-top: 1.5rem;
+}
+
+.legal ::selection {
+  background: var(--pin-ink);
+  color: var(--paper);
+}
+
+.legal :focus-visible {
+  outline: 2px solid var(--pin-ink);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Pulls a one-word last line back up beside its paragraph. */
+.legal p,
+.legal li,
+.legal dd {
+  text-wrap: pretty;
+}
+
+/* Section numbers line up down the contents list and the headings. */
+.legal-num {
+  font-variant-numeric: tabular-nums;
+}

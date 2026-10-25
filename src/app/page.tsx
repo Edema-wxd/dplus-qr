@@ -15,6 +15,7 @@ import {
 import { CONTRACT, DEMO_CODE, FIXED, STATES, YOURS } from "@/lib/landing";
 import { QrSymbol, moduleCount } from "./_landing/QrSymbol";
 import { CodeDemo } from "./_landing/CodeDemo";
+import { LegalLinks } from "@/components/LegalLinks";
 
 /**
  * The landing page at the root of qriateplus.com.
@@ -396,7 +397,10 @@ export default function Home() {
           </Link>
           <span>product: the studio that prints the thing your code lives on.</span>
         </div>
-        <Wordmark on="field" width={104} className="opacity-85" />
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+          <LegalLinks tone="field" />
+          <Wordmark on="field" width={104} className="opacity-85" />
+        </div>
       </footer>
     </div>
   );

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { PRODUCT_NAME } from "@/lib/brand";
+import { LegalLinks } from "@/components/LegalLinks";
 
 /** Frame for the signed-out auth pages and the account page. */
 export function AuthShell({
@@ -50,6 +51,9 @@ export function AuthShell({
               {footer}
             </div>
           ) : null}
+
+          {/* Creating an account is agreeing to these, so they are on the form. */}
+          <LegalLinks tone="muted" className="mt-8" />
         </div>
       </div>
     </main>

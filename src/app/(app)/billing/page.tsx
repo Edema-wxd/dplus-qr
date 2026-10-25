@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
@@ -117,6 +118,27 @@ export default async function BillingPage() {
           >
             Plans
           </h2>
+
+          {/*
+            Stated before the charge, not after it. The refund position and the
+            fact that a subscription renews itself are the two things a customer
+            is entitled to know at the moment they choose a plan, and a payment
+            provider's merchant review looks for exactly this line.
+          */}
+          <p className="mt-4 max-w-[62ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+            Choosing a plan starts a subscription that renews automatically until
+            you cancel it. Payments are charged in advance and are not refundable;
+            cancelling always runs to the end of the period you have paid for. See
+            the{" "}
+            <Link href="/terms" className="underline underline-offset-4">
+              terms
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="underline underline-offset-4">
+              privacy policy
+            </Link>
+            .
+          </p>
 
           <div className="mt-4">
             {options.length > 0 ? (

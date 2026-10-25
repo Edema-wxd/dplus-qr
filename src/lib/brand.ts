@@ -72,6 +72,27 @@ export function priceFrom(): string {
 }
 
 /**
+ * The date the current legal pages took effect, shown at the top of each one.
+ *
+ * Changed by hand when a document changes materially, which is also when the
+ * Terms require us to email customers 14 days ahead -- so moving this date is
+ * deliberately a decision rather than a side effect of a deploy.
+ */
+export const LEGAL_EFFECTIVE = "25 October 2026";
+
+/**
+ * How long a closed or lapsed account's codes and scan data are kept before
+ * deletion.
+ *
+ * Settled at 6 months (Francis, 25 October 2026), replacing the 12 months
+ * DECISIONS.md had proposed. Long enough that printed material survives a
+ * missed renewal and a late payment restores everything; short enough to state
+ * as a real limit under the NDPA. Stated in the Terms and the Privacy Policy,
+ * so the sweep that eventually enforces it must read this constant.
+ */
+export const LAPSE_RETENTION_MONTHS = 6;
+
+/**
  * Wordmark palette, read from the logo. These match the De Sign Plus tokens
  * already in globals.css, which is why the product sits comfortably beside the
  * parent brand.
