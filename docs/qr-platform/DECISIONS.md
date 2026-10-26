@@ -561,6 +561,29 @@ The Vercel Marketplace Upstash integration was deliberately not used: it
 injects `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which `src/lib/redis.ts` does
 not read, so it would have looked configured while `/health` stayed degraded.
 
+## Hosted-page photos are resized, 26 October 2026
+
+Photos on `/p/{code}` were served exactly as uploaded, up to 4MB each, to
+phones that are often on metered mobile data. They now go through
+`next/image` (`PageImage` in `src/app/p/[code]/views.tsx`): each phone gets a
+WebP at the width its layout needs, and everything below the fold loads
+lazily. Tapping a gallery thumbnail still opens the original.
+
+- **Scoped to this app's own UploadThing host** (`UPLOADTHING_APP_HOST` in
+  `src/lib/upload-host.ts`, read by `next.config.ts`). `*.ufs.sh` would have
+  let anyone run any UploadThing customer's files through this deployment's
+  optimiser on this account's bill. Verified against `next start`: another
+  app's file is refused with 400, ours is accepted, and a width outside
+  `deviceSizes`/`imageSizes` is refused.
+- WebP only, four device widths and three icon widths, so each picture costs
+  as few Vercel image transformations as possible. Resized copies are cached
+  for 31 days: a file URL is an UploadThing key and never points at new bytes.
+- A URL on any other host renders as a plain `<img>`, because `next/image`
+  throws on an unlisted host and one picture must not take a page down.
+  **If the UploadThing app changes, update `UPLOADTHING_APP_HOST`**, or photos
+  quietly go back to full size.
+- Video and audio were already `preload="metadata"` / `"none"`; unchanged.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

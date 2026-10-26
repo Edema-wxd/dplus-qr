@@ -1,4 +1,6 @@
+import Image from "next/image";
 import type { PageKind } from "@/lib/qr-types";
+import { isOptimisableImage } from "@/lib/upload-host";
 import { SOCIAL_NETWORKS, type FileRef, type PageContent } from "@/lib/page-content";
 import { gs1ElementString, videoEmbedUrl } from "@/lib/page-helpers";
 import { FeedbackForm } from "./FeedbackForm";
@@ -33,18 +35,84 @@ function Prose({ text }: { text?: string }) {
   return <p className="whitespace-pre-line leading-relaxed text-muted-foreground">{text}</p>;
 }
 
+/**
+ * A customer's photo, sized for the phone looking at it.
+ *
+ * Uploads can be 4MB, and these pages are opened in shops and restaurants on
+ * mobile data. Through `next/image` the phone gets a WebP at the width it
+ * needs (`sizes`), so a full-width cover costs a few hundred KB, not the
+ * original. The box (`frame`) sets the shape; the image fills it.
+ *
+ * A URL the optimiser is not configured for renders as a plain `<img>`
+ * rather than failing: `next/image` throws on an unlisted host, and a page
+ * that crashes because of one picture is worse than a heavy picture.
+ */
+function PageImage({
+  url,
+  alt,
+  frame,
+  sizes,
+  fit = "cover",
+  eager = false,
+}: {
+  url: string;
+  alt: string;
+  /** Classes for the box: its size, shape and border. */
+  frame: string;
+  /** The rendered width, for `srcset`. Must match `frame`. */
+  sizes: string;
+  fit?: "cover" | "contain";
+  /** Above the fold: load now rather than lazily. */
+  eager?: boolean;
+}) {
+  const fitClass = fit === "cover" ? "object-cover" : "object-contain";
+  return (
+    <div className={`relative overflow-hidden ${frame}`}>
+      {isOptimisableImage(url) ? (
+        <Image
+          src={url}
+          alt={alt}
+          fill
+          sizes={sizes}
+          loading={eager ? "eager" : "lazy"}
+          fetchPriority={eager ? "high" : undefined}
+          className={fitClass}
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={url}
+          alt={alt}
+          loading={eager ? "eager" : "lazy"}
+          className={`absolute inset-0 h-full w-full ${fitClass}`}
+        />
+      )}
+    </div>
+  );
+}
+
+/** The page column is at most 28rem (448px) wide inside a 16px gutter. */
+const FULL_WIDTH = "(max-width: 480px) calc(100vw - 2rem), 448px";
+
 function Cover({ file, alt, round }: { file: FileRef | null; alt: string; round?: boolean }) {
   if (!file) return null;
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={file.url}
+  // A cover is the first thing on its page, so it is the one picture worth
+  // fetching before the rest of the page has been read.
+  return round ? (
+    <PageImage
+      url={file.url}
       alt={alt}
-      className={
-        round
-          ? "h-28 w-28 rounded-full border border-border object-cover"
-          : "aspect-[16/9] w-full rounded-xl border border-border object-cover"
-      }
+      frame="h-28 w-28 shrink-0 rounded-full border border-border"
+      sizes="112px"
+      eager
+    />
+  ) : (
+    <PageImage
+      url={file.url}
+      alt={alt}
+      frame="aspect-[16/9] w-full rounded-xl border border-border"
+      sizes={FULL_WIDTH}
+      eager
     />
   );
 }
@@ -172,13 +240,21 @@ export function PageView({
           <ul className="grid grid-cols-2 gap-2">
             {c.images.map((image, i) => (
               <li key={image.fileId} className={i === 0 ? "col-span-2" : ""}>
-                <a href={image.url} rel="noopener">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={image.url}
+                {/*
+                  The thumbnail is resized; tapping it opens the original,
+                  which is the one time a scanner has asked for full size.
+                */}
+                <a href={image.url} rel="noopener" className="block">
+                  <PageImage
+                    url={image.url}
                     alt={`${c.title}, image ${i + 1}`}
-                    loading={i < 3 ? "eager" : "lazy"}
-                    className="aspect-square w-full rounded-lg border border-border object-cover"
+                    frame="aspect-square w-full rounded-lg border border-border"
+                    sizes={
+                      i === 0
+                        ? FULL_WIDTH
+                        : "(max-width: 480px) calc(50vw - 1.25rem), 220px"
+                    }
+                    eager={i < 3}
                   />
                 </a>
               </li>
@@ -273,11 +349,12 @@ export function PageView({
         <Stack>
           <div className="flex items-center gap-4">
             {c.icon ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={c.icon.url}
+              <PageImage
+                url={c.icon.url}
                 alt=""
-                className="h-20 w-20 rounded-2xl border border-border object-cover"
+                frame="h-20 w-20 shrink-0 rounded-2xl border border-border"
+                sizes="80px"
+                eager
               />
             ) : null}
             <Heading title={c.name} />
@@ -489,11 +566,13 @@ export function PageView({
       return (
         <Stack>
           {c.image ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={c.image.url}
+            <PageImage
+              url={c.image.url}
               alt={c.name}
-              className="mx-auto aspect-square w-full max-w-[16rem] rounded-xl border border-border object-contain"
+              frame="mx-auto aspect-square w-full max-w-[16rem] rounded-xl border border-border"
+              sizes="256px"
+              fit="contain"
+              eager
             />
           ) : null}
           <Heading title={c.name} sub={c.brand || undefined} />
