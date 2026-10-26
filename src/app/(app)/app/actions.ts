@@ -11,7 +11,10 @@ import {
   renameCode,
   setCodeStyle,
   setStatus,
+  updateCodeContent,
+  type CreateInput,
 } from "@/lib/user-codes";
+import { isDynamicKind, isLinkKind } from "@/lib/qr-types";
 import { checkQrStyle, qrStyleSchema } from "@/lib/qr-style";
 import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
 
@@ -56,6 +59,23 @@ const logoIdSchema = z
   )
   .transform((value) => (value === "" ? null : value));
 
+/**
+ * A page type's content, posted as one JSON field by the editor. Parsed here
+ * only as far as "is it JSON, and not huge"; its shape is the kind's schema's
+ * job, in `createCode` and `updateCodeContent`.
+ */
+const contentSchema = z
+  .string({ error: "Fill in the page first." })
+  .max(100_000, "That page is too large.")
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      ctx.addIssue({ code: "custom", message: "That page could not be read. Please try again." });
+      return z.NEVER;
+    }
+  });
+
 export type CreateCodeState = { error?: string };
 
 export async function createCodeAction(
@@ -64,25 +84,41 @@ export async function createCodeAction(
 ): Promise<CreateCodeState> {
   const userId = await requireUserId();
 
-  const parsed = z
+  const common = z
     .object({
       name: nameSchema,
-      destinationUrl: destinationSchema,
+      kind: z.string().refine(isDynamicKind, "Choose a kind of code."),
       logoId: logoIdSchema,
     })
     .safeParse({
       name: formData.get("name"),
-      destinationUrl: formData.get("destinationUrl"),
+      kind: formData.get("kind") ?? "url",
       logoId: formData.get("logoId") ?? "",
     });
 
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  if (!common.success) {
+    return { error: common.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  const { name, kind, logoId } = common.data;
+  let input: CreateInput;
+  if (isLinkKind(kind)) {
+    const destination = destinationSchema.safeParse(formData.get("destinationUrl"));
+    if (!destination.success) {
+      return { error: destination.error.issues[0]?.message ?? "Check the form." };
+    }
+    input = { kind, name, logoId, destinationUrl: destination.data };
+  } else {
+    const content = contentSchema.safeParse(formData.get("content"));
+    if (!content.success) {
+      return { error: content.error.issues[0]?.message ?? "Check the form." };
+    }
+    input = { kind, name, logoId, content: content.data };
   }
 
   let created;
   try {
-    created = await createCode(userId, parsed.data);
+    created = await createCode(userId, input);
   } catch (error) {
     console.error("[dashboard] create failed", error);
     return { error: "We could not create that code. Please try again." };
@@ -157,6 +193,32 @@ export async function changeDestinationAction(
 
   revalidatePath(`/app/${parsed.data.id}`);
   revalidatePath("/app");
+  return { saved: true };
+}
+
+export async function updateContentAction(
+  _previous: CodeState,
+  formData: FormData
+): Promise<CodeState> {
+  const userId = await requireUserId();
+
+  const parsed = z
+    .object({ id: idSchema, content: contentSchema })
+    .safeParse({ id: formData.get("id"), content: formData.get("content") });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  try {
+    const result = await updateCodeContent(userId, parsed.data.id, parsed.data.content);
+    if (!result.ok) return { error: result.reason };
+  } catch (error) {
+    console.error("[dashboard] content change failed", error);
+    return { error: "We could not save that. Please try again." };
+  }
+
+  revalidatePath(`/app/${parsed.data.id}`);
   return { saved: true };
 }
 

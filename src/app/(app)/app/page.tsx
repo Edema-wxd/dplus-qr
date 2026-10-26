@@ -8,8 +8,7 @@ import { getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { qrStyleVars } from "@/lib/qr-style";
-import { listLogos } from "@/lib/logos";
-import { uploadsEnabled } from "@/lib/uploads";
+import { dynamicType, isPageKind } from "@/lib/qr-types";
 import {
   applyListQuery,
   CODE_SORTS,
@@ -19,9 +18,13 @@ import {
   type ListQuery,
 } from "@/lib/code-list";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
-import { DashShell, inputClass, secondaryButtonClass } from "./DashShell";
+import {
+  DashShell,
+  inputClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "./DashShell";
 import { StatusPill } from "./StatusPill";
-import { NewCodeForm } from "./NewCodeForm";
 import { VerifyBanner } from "./VerifyBanner";
 
 export const metadata: Metadata = { title: "Your codes" };
@@ -48,10 +51,9 @@ export default async function CodesPage({
   // actually serve traffic. See ensureFreeSubscription.
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
 
-  const [codes, entitlement, library, params] = await Promise.all([
+  const [codes, entitlement, params] = await Promise.all([
     listCodes(user.id),
     getEntitlement(user.id),
-    listLogos(user.id),
     searchParams,
   ]);
 
@@ -59,17 +61,11 @@ export default async function CodesPage({
   const shown = applyListQuery(codes, listQuery);
   const filtered = !isDefaultListQuery(listQuery);
 
-  // Plain objects for the client picker: no Dates across the boundary.
-  const logos = library.map(({ id, url, name }) => ({ id, url, name }));
-  const uploads = uploadsEnabled();
-
   const atLimit = entitlement !== null && codes.length >= entitlement.maxCodes;
 
-  // The header action appears only when there is a table to sit above. The
-  // empty state carries its own copy of this form, and mounting both would put
-  // two live disclosures on one page -- two elements sharing the field ids
-  // their labels point at, and a validation error landing on whichever of the
-  // two was not submitted.
+  // The header action appears only when there is a table to sit above; the
+  // empty state carries its own, and two identical calls to action on one
+  // screen is one too many.
   const hasCodes = codes.length > 0;
 
   // `getEntitlement` returns null for an account with no usable subscription,
@@ -89,9 +85,7 @@ export default async function CodesPage({
         ) : null
       }
       action={
-        hasCodes ? (
-          <NewCodeForm disabled={atLimit} logos={logos} uploads={uploads} />
-        ) : null
+        hasCodes ? <NewCodeButton /> : null
       }
     >
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
@@ -105,7 +99,7 @@ export default async function CodesPage({
       ) : null}
 
       {codes.length === 0 ? (
-        <EmptyState logos={logos} uploads={uploads} />
+        <EmptyState />
       ) : shown.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-10 text-center text-sm text-[var(--paper-soft)]">
           No codes match.{" "}
@@ -183,9 +177,19 @@ export default async function CodesPage({
                     </Link>
                   </th>
                   <td className="max-w-[18rem] px-4 py-3">
-                    <span className="block truncate font-mono text-xs text-[var(--paper-soft)]">
-                      {code.destinationUrl}
-                    </span>
+                    {/*
+                      A page type's destination is our own `/p/...` path,
+                      which says nothing to the owner. Its type does.
+                    */}
+                    {isPageKind(code.kind) ? (
+                      <span className="block truncate text-xs text-[var(--paper-soft)]">
+                        {dynamicType(code.kind).label} page
+                      </span>
+                    ) : (
+                      <span className="block truncate font-mono text-xs text-[var(--paper-soft)]">
+                        {code.destinationUrl}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <StatusPill status={code.status} />
@@ -204,7 +208,8 @@ export default async function CodesPage({
         <p id="code-limit-hint" className="mt-4 text-sm text-[var(--paper-soft)]">
           You are using all {entitlement.maxCodes} codes on the{" "}
           {entitlement.planName} plan. A code you hold keeps its short code for
-          good, so pausing one does not free a slot.
+          good, so pausing one does not free a slot. Static codes need no slot,
+          so you can still make those.
         </p>
       ) : null}
     </DashShell>
@@ -374,13 +379,20 @@ function ListControls({
   );
 }
 
-function EmptyState({
-  logos,
-  uploads,
-}: {
-  logos: { id: string; url: string; name: string }[];
-  uploads: boolean;
-}) {
+/**
+ * A link, not a disclosure: choosing among twenty-odd code types needs a page
+ * of its own. It stays enabled at the plan limit, because static codes need
+ * no slot; the type picker says which kinds are unavailable and why.
+ */
+function NewCodeButton() {
+  return (
+    <Link href="/app/new" className={`${primaryButtonClass} no-underline`}>
+      New code
+    </Link>
+  );
+}
+
+function EmptyState() {
   return (
     <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-14 text-center">
       <p className="mx-auto max-w-[42ch] text-[15px] leading-relaxed text-[var(--paper-soft)]">
@@ -388,7 +400,7 @@ function EmptyState({
         as long as the printed thing exists.
       </p>
       <div className="mt-6 flex justify-center">
-        <NewCodeForm logos={logos} uploads={uploads} />
+        <NewCodeButton />
       </div>
     </div>
   );
