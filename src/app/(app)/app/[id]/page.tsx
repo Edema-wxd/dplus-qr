@@ -16,6 +16,8 @@ import { DashShell, secondaryButtonClass } from "../DashShell";
 import { StatusPill } from "../StatusPill";
 import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";
+import { StyleForm, StyleScope } from "./StyleControls";
+import { CopyLink } from "../CopyLink";
 
 export const metadata: Metadata = { title: "Code" };
 export const instant = false;
@@ -65,6 +67,7 @@ export default async function CodePage({
           <span className="dash-num font-mono">
             {CODE_HOST}/{code.shortCode}
           </span>
+          <CopyLink url={url} />
           <StatusPill status={code.status} />
         </span>
       }
@@ -81,7 +84,14 @@ export default async function CodePage({
         </p>
       ) : null}
 
-      <div className="grid gap-10 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-14">
+      {/*
+        The scope wraps both columns: it holds the colours being previewed, so
+        the specimen on the left recolours as the form on the right changes.
+      */}
+      <StyleScope
+        initial={code.style}
+        className="grid gap-10 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-14"
+      >
         {/* The specimen, built exactly as the landing page builds it. */}
         <div>
           <div className="rounded-lg border border-[var(--paper-rule)] bg-white p-6">
@@ -130,11 +140,12 @@ export default async function CodePage({
             disabled={code.status === "blocked"}
           />
           <RenameForm id={code.id} current={code.name} />
+          <StyleForm id={code.id} saved={code.style} />
           {code.status === "blocked" ? null : (
             <StatusForm id={code.id} status={code.status} />
           )}
         </div>
-      </div>
+      </StyleScope>
 
       <hr className="my-12 border-[var(--paper-rule)]" />
 

@@ -376,6 +376,43 @@ before live payments are taken. The NDPC registration question stays open, so
 the Privacy Policy names a contact for data requests and claims no
 registration.
 
+## Code colours and dashboard totals, 26 October 2026
+
+**Owners can colour their codes** from `/app/{id}`. The pair is stored in
+`qr_codes.style` as `{ dark, light }`, and the download route, the on-screen
+specimen and the list thumbnails all read it through `readQrStyle()` in
+`src/lib/qr-style.ts`. Colour changes the artwork only: the encoded content is
+still the code URL, `style` is never read by the redirect path, and nothing is
+purged on save.
+
+Two rules decide which pairs may be saved, and both are policy, not taste:
+
+- **Dark on light only.** An inverted code has the same contrast ratio, but a
+  share of scanner apps, older Android ones especially, only look for dark
+  finder patterns and never read it.
+- **Contrast of at least 4.5:1** (`MIN_QR_CONTRAST`). A printed code meets bad
+  light and glossy stock the owner never sees on a bright screen. This refuses
+  some mid-tone brand colours on white; they belong in a frame around the
+  code, not in it. Lowering it is a one-line change, but every code printed
+  under a lower floor stays printed.
+
+The form runs the same check as the owner picks, and the Server Action runs it
+again. `readQrStyle()` falls back to black on white for any stored value that
+fails, so a row edited by hand still downloads a code that scans.
+
+Logos (which need error correction H) are still not offered.
+
+**`/app` now shows account-wide totals** (scans today, 7 and 30 days, live
+codes), summed from the same rows as the table so the two cannot disagree, and
+**a notice when the plan is not active**, because every code on such an
+account is serving the paused page and the owner cannot otherwise tell.
+
+**The empty-environment build passes again.** `/account`, `/app`, `/billing`
+and `/billing/confirming` now `await connection()` before the session read.
+Without it `next build` tried to prerender them and failed on
+`NEON_AUTH_BASE_URL`, because the lazy `auth` throws on first use when the
+variable is absent. `instant = false` alone does not stop that prerender.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

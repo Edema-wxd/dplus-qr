@@ -20,6 +20,10 @@ import { getCode, parseCodeId } from "@/lib/user-codes";
  *
  * Error correction is Q, the level a printed code without a centred logo
  * wants. Logo-in-QR (which needs H) is not offered yet.
+ *
+ * Colours come from the code's saved style through `readQrStyle`, which is
+ * also what the on-screen specimen uses, so the download matches what the
+ * owner previewed. A stored pair that would not scan reads as the default.
  */
 export async function GET(
   request: Request,
@@ -50,7 +54,8 @@ export async function GET(
   const common = {
     errorCorrectionLevel: "Q" as const,
     margin: 4,
-    color: { dark: "#1A1A1AFF", light: "#FFFFFFFF" },
+    // `qrcode` takes RGBA hex; the style is opaque RGB, so append full alpha.
+    color: { dark: `${code.style.dark}FF`, light: `${code.style.light}FF` },
   };
 
   const body =

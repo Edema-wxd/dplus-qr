@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
 import { getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
+import { qrStyleVars } from "@/lib/qr-style";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
 import { DashShell } from "./DashShell";
 import { StatusPill } from "./StatusPill";
@@ -20,6 +22,10 @@ export const metadata: Metadata = { title: "Your codes" };
 export const instant = false;
 
 export default async function CodesPage() {
+  // Before the session read, not after: `auth` validates its env vars on
+  // first use and throws when they are absent, so without this `next build`
+  // tries to prerender the page and fails on a secret it should never need.
+  await connection();
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
@@ -42,6 +48,11 @@ export default async function CodesPage() {
   // two was not submitted.
   const hasCodes = codes.length > 0;
 
+  // `getEntitlement` returns null for an account with no usable subscription,
+  // and `active: false` for one past its grace period. Either way the redirect
+  // path's `decide()` serves the paused page for every code on the account.
+  const lapsed = entitlement === null || !entitlement.active;
+
   return (
     <DashShell
       heading="Your codes"
@@ -56,6 +67,10 @@ export default async function CodesPage() {
       action={hasCodes ? <NewCodeForm disabled={atLimit} /> : null}
     >
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
+
+      {lapsed && hasCodes ? <LapsedNotice /> : null}
+
+      {hasCodes ? <Totals codes={codes} /> : null}
 
       {codes.length === 0 ? (
         <EmptyState />
@@ -104,12 +119,17 @@ export default async function CodesPage() {
                         code's own short code, at every scale the product shows.
                         Not an icon standing in for a code.
                       */}
-                      <QrSymbol
-                        value={codeUrl(code.shortCode)}
-                        px={44}
-                        title={`QR code for ${code.name}`}
-                        className="block h-auto w-11 shrink-0"
-                      />
+                      <span
+                        className="block shrink-0"
+                        style={qrStyleVars(code.style) as React.CSSProperties}
+                      >
+                        <QrSymbol
+                          value={codeUrl(code.shortCode)}
+                          px={44}
+                          title={`QR code for ${code.name}`}
+                          className="block h-auto w-11"
+                        />
+                      </span>
                       <span className="min-w-0">
                         <span className="block truncate font-medium text-[var(--paper-ink)]">
                           {code.name}
@@ -146,6 +166,75 @@ export default async function CodesPage() {
         </p>
       ) : null}
     </DashShell>
+  );
+}
+
+/**
+ * Said plainly, on the page the owner checks first. A lapsed plan does not
+ * break printed codes, but every one of them is showing the paused page right
+ * now, and the owner cannot see that from here without being told.
+ */
+function LapsedNotice() {
+  return (
+    <p
+      role="alert"
+      className="mb-8 rounded-lg border border-[var(--struck-ink)]/40 bg-white px-4 py-3 text-sm leading-relaxed"
+    >
+      <strong className="font-medium">Your plan is not active.</strong> Every
+      code below is showing a paused page that names your business, instead of
+      its destination. Nothing is lost: once a plan is active again they follow
+      their destinations within a minute.{" "}
+      <Link href="/billing" className="underline underline-offset-4">
+        Choose a plan
+      </Link>
+      .
+    </p>
+  );
+}
+
+/**
+ * Account-wide figures above the table: scans across every code, and how many
+ * are live. Summed from the rows the table already shows, so the two can never
+ * disagree, and bots are excluded for the same reason they are in each row.
+ */
+function Totals({
+  codes,
+}: {
+  codes: { status: string; scansToday: number; scans7d: number; scans30d: number }[];
+}) {
+  const sum = (pick: (code: (typeof codes)[number]) => number) =>
+    codes.reduce((total, code) => total + pick(code), 0);
+
+  const figures: { label: string; value: number; of?: number }[] = [
+    { label: "Scans today", value: sum((c) => c.scansToday) },
+    { label: "Last 7 days", value: sum((c) => c.scans7d) },
+    { label: "Last 30 days", value: sum((c) => c.scans30d) },
+    {
+      label: "Live codes",
+      value: codes.filter((c) => c.status === "active").length,
+      of: codes.length,
+    },
+  ];
+
+  return (
+    <dl className="mb-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-[var(--paper-rule)] bg-[var(--paper-rule)] sm:grid-cols-4">
+      {figures.map((figure) => (
+        <div key={figure.label} className="bg-white px-4 py-3.5">
+          <dt className="text-xs uppercase tracking-[0.1em] text-[var(--paper-soft)]">
+            {figure.label}
+          </dt>
+          <dd className="dash-num mt-1 text-2xl leading-none text-[var(--paper-ink)]">
+            {figure.value.toLocaleString("en-NG")}
+            {figure.of !== undefined ? (
+              <span className="text-sm text-[var(--paper-soft)]">
+                {" "}
+                of {figure.of.toLocaleString("en-NG")}
+              </span>
+            ) : null}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
