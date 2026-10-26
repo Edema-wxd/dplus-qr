@@ -584,6 +584,30 @@ lazily. Tapping a gallery thumbnail still opens the original.
   quietly go back to full size.
 - Video and audio were already `preload="metadata"` / `"none"`; unchanged.
 
+## Hosted pages carry the customer's brand, 26 October 2026
+
+A hosted page now wears the colour and logo its owner already chose for the
+code (Francis, 26 Oct 2026: per code, buttons only, footer kept). The scanner
+has just pointed a camera at that artwork, so the page should look like it came
+from the same business. No new settings screen; the code's page says the two
+are linked.
+
+- **Buttons** fill with the code's colour, with white or black text, whichever
+  contrasts more (`pageBrand` in `src/lib/qr-style.ts`; tested to stay at
+  4.5:1 or better). The background stays neutral and follows dark mode; a
+  full tint would fight dark mode and make long text harder to read.
+- **A code on the default black keeps the standard look exactly**, because
+  `pageBrand` returns null and the buttons fall back to the site's own
+  foreground, which flips in dark mode. A fixed near-black would not.
+- In dark mode a branded button gets a faint rim (`--brand-edge` in
+  `globals.css`): a brand colour is dark by construction and could otherwise
+  sink into a dark page.
+- **The logo** sits at the top of the page, contained in a fixed 160×56 box,
+  through the same resized-image path as page photos.
+- The QRiate+ footer, "Shared by …" and "Report this page" stay on every plan.
+  Removing the footer on paid plans (white-label) is a possible upsell, not
+  built.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

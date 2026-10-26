@@ -48,6 +48,30 @@
   }
 }
 
+/*
+ * Hosted pages wear their owner's colour.
+ *
+ * `/p/{code}` sets `--brand` and `--brand-ink` on its <main> from the code's
+ * saved style, and the primary buttons fill from these. Unset (a code on the
+ * default black), they fall back to the site's own foreground and background,
+ * so an unbranded page looks exactly as it did and still follows dark mode.
+ *
+ * A brand colour is dark by construction (the QR style requires dark on
+ * light), so on a dark-mode page a branded button could sink into the
+ * background. `--brand-edge` gives it a faint rim in that one case.
+ */
+.brand-scope {
+  --brand-fill: var(--brand, var(--foreground));
+  --brand-on: var(--brand-ink, var(--background));
+  --brand-edge: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  .brand-scope[data-branded] {
+    --brand-edge: oklch(1 0 0 / 0.24);
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);

@@ -17,7 +17,7 @@ import { CopyText } from "./CopyText";
  */
 
 const button =
-  "flex w-full items-center justify-center rounded-lg bg-foreground px-4 py-3 text-[15px] font-medium text-background no-underline transition-transform duration-150 active:scale-[0.98]";
+  "flex w-full items-center justify-center rounded-lg bg-[var(--brand-fill)] px-4 py-3 text-[15px] font-medium text-[var(--brand-on)] no-underline ring-1 ring-inset ring-[var(--brand-edge)] transition-transform duration-150 active:scale-[0.98]";
 const quiet =
   "flex w-full items-center justify-center rounded-lg border border-border bg-card px-4 py-3 text-[15px] text-foreground no-underline transition-colors duration-150 hover:border-foreground";
 
@@ -88,6 +88,24 @@ function PageImage({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The owner's logo, from the code it belongs to, at the top of the page. A
+ * fixed box with the logo contained in it, so a wide wordmark and a square
+ * mark both sit at a sensible size.
+ */
+export function BrandLogo({ url, name }: { url: string; name: string }) {
+  return (
+    <PageImage
+      url={url}
+      alt={name}
+      frame="mx-auto mb-8 h-14 w-40"
+      sizes="160px"
+      fit="contain"
+      eager
+    />
   );
 }
 

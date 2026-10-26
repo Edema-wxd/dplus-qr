@@ -38,7 +38,7 @@ export function FeedbackForm({
           <a
             href={reviewUrl}
             rel="noopener nofollow"
-            className="flex w-full items-center justify-center rounded-lg bg-foreground px-4 py-3 text-[15px] font-medium text-background no-underline"
+            className="flex w-full items-center justify-center rounded-lg bg-[var(--brand-fill)] px-4 py-3 text-[15px] font-medium text-[var(--brand-on)] no-underline ring-1 ring-inset ring-[var(--brand-edge)]"
           >
             Share it in a public review
           </a>
@@ -108,7 +108,7 @@ export function FeedbackForm({
       <button
         type="submit"
         disabled={pending || rating === 0}
-        className="flex w-full items-center justify-center rounded-lg bg-foreground px-4 py-3 text-[15px] font-medium text-background disabled:opacity-50"
+        className="flex w-full items-center justify-center rounded-lg bg-[var(--brand-fill)] px-4 py-3 text-[15px] font-medium text-[var(--brand-on)] ring-1 ring-inset ring-[var(--brand-edge)] disabled:opacity-50"
       >
         {pending ? "Sending…" : "Send"}
       </button>
