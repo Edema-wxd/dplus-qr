@@ -16,6 +16,22 @@ import { canCreateCode, getEntitlement } from "@/lib/entitlement";
  * session. There is no "fetch then check" anywhere in this file.
  */
 
+/**
+ * Validate an id out of a URL before it reaches a query.
+ *
+ * `qr_codes.id` is `bigserial`, so `where c.id = $2` with a non-numeric value
+ * does not return no rows -- Postgres raises `invalid input syntax for type
+ * bigint` and the request becomes a 500. `/app/anything` is a perfectly
+ * ordinary thing for a stale link or a crawler to ask for, and it has to be a
+ * 404. Every entry point that takes an id from a URL parses it here first.
+ *
+ * Capped at 19 digits, the width of a signed 64-bit integer, so an absurdly
+ * long run of digits is also a miss rather than an overflow error.
+ */
+export function parseCodeId(raw: string): string | null {
+  return /^[1-9]\d{0,18}$/.test(raw) ? raw : null;
+}
+
 /** A code as its owner sees it, with the scan counts the list needs. */
 export type OwnedCode = {
   id: string;

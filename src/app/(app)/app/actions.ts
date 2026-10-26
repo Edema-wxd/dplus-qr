@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth/server";
 import {
   changeDestination,
   createCode,
+  parseCodeId,
   renameCode,
   setStatus,
 } from "@/lib/user-codes";
@@ -37,7 +38,11 @@ const destinationSchema = z
   .min(1, "Enter a destination link.")
   .max(2048, "That link is too long.");
 
-const idSchema = z.string().regex(/^\d+$/, "That code could not be found.");
+// The same guard the pages and route handlers use, so a tampered form id is a
+// clean "not found" rather than a bigint cast error from Postgres.
+const idSchema = z
+  .string()
+  .refine((value) => parseCodeId(value) !== null, "That code could not be found.");
 
 export type CreateCodeState = { error?: string };
 

@@ -54,7 +54,7 @@ export default async function ConfirmingPage() {
               You do not need to stay on this page. We record payments from the
               provider directly, so your plan will activate either way.
             </p>
-            <Poller done={state.paidAndActive} />
+            <Poller />
             <p className="text-sm text-[var(--paper-soft)]">
               Charged but still waiting after a few minutes? Email{" "}
               <a className="underline" href={`mailto:${SUPPORT_EMAIL}`}>

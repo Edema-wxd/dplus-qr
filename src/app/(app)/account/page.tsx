@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
@@ -80,10 +81,22 @@ export default async function AccountPage() {
               </>
             ) : null}
           </dl>
+          {/*
+            This page reports the plan; it does not change it. The sentence
+            that used to sit here said paid plans were not open, which stopped
+            being true when checkout shipped -- so it points at the page that
+            owns the decision instead of restating anything /billing already
+            says and can contradict.
+          */}
           <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-[var(--paper-soft)]">
-            Paid plans and billing through Paystack are not open yet. Your codes
-            keep working in the meantime, and nothing you create now will be
-            deleted when they open.
+            Changing plan, payment and cancellation all live on{" "}
+            <Link
+              href="/billing"
+              className="text-[var(--paper-ink)] underline underline-offset-4"
+            >
+              plan and billing
+            </Link>
+            . Nothing you have created is ever deleted by a plan change.
           </p>
         </section>
 

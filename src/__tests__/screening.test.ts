@@ -19,6 +19,32 @@ describe("screenUrl", () => {
     expect(screenUrl(input).ok).toBe(false);
   });
 
+  describe("bare domains", () => {
+    it.each([
+      ["google.com", "https://google.com/"],
+      ["  Google.com  ", "https://google.com/"],
+      ["www.example.co.uk/sale?x=1", "https://www.example.co.uk/sale?x=1"],
+      ["//example.com/a", "https://example.com/a"],
+      ["example.com:8080/a", "https://example.com:8080/a"],
+    ])("accepts %j", (input, expected) => {
+      expect(screenUrl(input)).toEqual({ ok: true, normalised: expected });
+    });
+
+    it.each([
+      "mailto:a@evil.com",
+      "tel:+2348012345678",
+      "javascript:alert(1)",
+      "ftp://example.com",
+      "not a url",
+      "localhost",
+      "192.168.1.1",
+      "bit.ly/abc",
+      "qriateplus.com/Ab3kQ9x",
+    ])("still rejects %j", (input) => {
+      expect(screenUrl(input).ok).toBe(false);
+    });
+  });
+
   it("rejects a bare IPv4 host, which hides who is being visited", () => {
     expect(screenUrl("https://192.168.1.1/login").ok).toBe(false);
   });

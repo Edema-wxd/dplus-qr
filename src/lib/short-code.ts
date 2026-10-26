@@ -1,4 +1,5 @@
 import { randomInt } from "node:crypto";
+import { DEMO_CODE } from "./demo-code";
 
 /** Base-58: no 0, O, I or l, so a code read off print is unambiguous. */
 export const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
@@ -17,7 +18,12 @@ const CODE_PATTERN = new RegExp(`^[${ALPHABET}]{${CODE_LENGTH}}$`);
  * it is cheap, and it keeps the list truthful as routes are added.
  */
 export const RESERVED_CODES: ReadonlySet<string> = new Set([
+  // The landing page's specimen. It is printed on a public page and answered
+  // by the redirect path from a constant, so issuing it to an account would
+  // give that account a code that never reaches their destination.
+  DEMO_CODE.toLowerCase(),
   // Routes on this host, current and planned.
+  "demo",
   "health",
   "paused",
   "blocked",
@@ -39,6 +45,10 @@ export const RESERVED_CODES: ReadonlySet<string> = new Set([
   "pricing",
   "privacy",
   "terms",
+  "legal",
+  "aup",
+  "cookies",
+  "refunds",
   "support",
   "static",
   "assets",

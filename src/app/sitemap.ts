@@ -1,11 +1,15 @@
 import type { MetadataRoute } from "next";
 import { CODE_ORIGIN } from "@/lib/brand";
+import { LEGAL_PAGES } from "@/lib/legal";
 
 /**
  * Serves /sitemap.xml.
  *
- * One entry, deliberately. Listing sign-in, sign-up or any status page would
- * invite a crawler into pages that exist for one person at one moment.
+ * The landing page and the three legal documents, deliberately and only those.
+ * Listing sign-in, sign-up or any status page would invite a crawler into pages
+ * that exist for one person at one moment; the legal pages are the opposite --
+ * they are meant to be found by a customer checking the refund position before
+ * paying, and by a payment provider's review.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
@@ -14,5 +18,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 1,
     },
+    ...LEGAL_PAGES.map((page) => ({
+      url: `${CODE_ORIGIN}${page.href}`,
+      changeFrequency: "yearly" as const,
+      priority: 0.3,
+    })),
   ];
 }

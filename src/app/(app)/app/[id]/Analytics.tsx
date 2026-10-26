@@ -28,17 +28,23 @@ export function AnalyticsPanel({
           Scans
         </h2>
 
+        {/*
+          A group of toggle buttons, not a tablist. `role="tab"` promises a
+          tabpanel to point `aria-controls` at and arrow-key navigation
+          between the tabs; this has neither, and announcing "tab 1 of 3" to
+          someone whose arrow keys then do nothing is worse than describing
+          the controls as what they are. `aria-pressed` carries the state.
+        */}
         <div
-          role="tablist"
+          role="group"
           aria-label="Date range"
           className="flex rounded-md border border-[var(--paper-rule)] bg-white p-0.5"
         >
           {windows.map((w) => (
             <button
               key={w.days}
-              role="tab"
               type="button"
-              aria-selected={w.days === active}
+              aria-pressed={w.days === active}
               onClick={() => setActive(w.days)}
               className={`rounded px-3 py-1 text-xs transition-colors duration-150 ${
                 w.days === active
@@ -72,8 +78,7 @@ export function AnalyticsPanel({
           */}
           <div
             className="mt-5 flex h-32 items-end gap-[2px]"
-            role="img"
-            aria-label={`Scans per day over the last ${current.days} days. Peak ${peak}.`}
+            aria-hidden
           >
             {current.data.days.map((point) => (
               <div
@@ -103,6 +108,35 @@ export function AnalyticsPanel({
             <span>{current.data.days[0]?.day}</span>
             <span>{current.data.days.at(-1)?.day}</span>
           </div>
+
+          {/*
+            The figures themselves, for anyone the bars do not serve.
+            The tooltip above is hover-only -- there is no hover on a phone and
+            no focus on a `div` -- so an `aria-label` quoting just the peak was
+            the entire alternative to a chart of up to ninety values. This is
+            the same data as a table, which a screen reader can walk row by
+            row, and which a touch user gets nothing worse than scrolling for.
+            The bars are `aria-hidden` so the two are not announced twice.
+          */}
+          <table className="sr-only">
+            <caption>
+              Scans per day over the last {current.days} days.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Day</th>
+                <th scope="col">Scans</th>
+              </tr>
+            </thead>
+            <tbody>
+              {current.data.days.map((point) => (
+                <tr key={point.day}>
+                  <th scope="row">{point.day}</th>
+                  <td>{point.scans}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
           <div className="mt-8 grid gap-8 sm:grid-cols-2">
             <Breakdown title="Country" slices={current.data.countries} />

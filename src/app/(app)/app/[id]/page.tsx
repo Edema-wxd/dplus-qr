@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
-import { CODE_HOST } from "@/lib/brand";
+import { CODE_HOST, codeUrl } from "@/lib/brand";
+import { canExportCsv, getEntitlement } from "@/lib/entitlement";
 import {
   codeAnalytics,
   destinationHistory,
   getCode,
+  parseCodeId,
   ANALYTICS_WINDOWS,
 } from "@/lib/user-codes";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
@@ -22,27 +25,36 @@ export default async function CodePage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
+  const { id: raw } = await params;
 
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
 
-  // The id in the URL is a guess until the database agrees it belongs to this
+  // Parsed before it reaches a query: the id column is a bigint, so a
+  // non-numeric path segment is a database error rather than an empty result.
+  const id = parseCodeId(raw);
+  if (!id) notFound();
+
+  // The id is still a guess until the database agrees it belongs to this
   // session: every query below filters by user_id, and a miss is a 404 rather
   // than a "not yours", which would confirm the row exists.
   const code = await getCode(user.id, id);
   if (!code) notFound();
 
-  const [history, ...windows] = await Promise.all([
+  const [history, entitlement, windows] = await Promise.all([
     destinationHistory(user.id, id),
-    ...ANALYTICS_WINDOWS.map(async (days) => ({
-      days,
-      data: await codeAnalytics(user.id, id, days),
-    })),
+    getEntitlement(user.id),
+    Promise.all(
+      ANALYTICS_WINDOWS.map(async (days) => ({
+        days,
+        data: await codeAnalytics(user.id, id, days),
+      }))
+    ),
   ]);
 
-  const codeUrl = `https://${CODE_HOST}/${code.shortCode}`;
+  const exportable = canExportCsv(entitlement);
+  const url = codeUrl(code.shortCode);
 
   return (
     <DashShell
@@ -74,7 +86,7 @@ export default async function CodePage({
         <div>
           <div className="rounded-lg border border-[var(--paper-rule)] bg-white p-6">
             <QrSymbol
-              value={codeUrl}
+              value={url}
               px={248}
               title={`QR code for ${code.name}`}
               className="mx-auto block h-auto w-full max-w-[248px]"
@@ -106,7 +118,7 @@ export default async function CodePage({
           </div>
           <p className="mt-3 text-xs leading-relaxed text-[var(--paper-soft)]">
             SVG for print — it stays sharp at any size. The symbol encodes{" "}
-            <span className="font-mono">{codeUrl}</span>, never the destination,
+            <span className="font-mono">{url}</span>, never the destination,
             which is what lets you re-point it later.
           </p>
         </div>
@@ -129,13 +141,29 @@ export default async function CodePage({
       <AnalyticsPanel windows={windows} />
 
       <div className="mt-6">
-        <a
-          href={`/app/${code.id}/export?days=30`}
-          download
-          className={secondaryButtonClass}
-        >
-          Export 30 days as CSV
-        </a>
+        {exportable.ok ? (
+          <a
+            href={`/app/${code.id}/export?days=30`}
+            download
+            className={secondaryButtonClass}
+          >
+            Export 30 days as CSV
+          </a>
+        ) : (
+          /*
+            Named rather than hidden. A plan limit the customer cannot see is
+            the kind of thing that gets reported as a missing feature, and the
+            route refuses the download anyway -- so this says which plans
+            include it and links to the page that changes plans.
+          */
+          <p className="max-w-[52ch] text-sm leading-relaxed text-[var(--paper-soft)]">
+            {exportable.reason}{" "}
+            <Link href="/billing" className="underline underline-offset-4">
+              See plans
+            </Link>
+            .
+          </p>
+        )}
       </div>
 
       {history.length > 0 ? (

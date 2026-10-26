@@ -2,58 +2,42 @@
 
 import { useActionState } from "react";
 import { signUpAction, type SignUpState } from "./actions";
-import { fieldClass, buttonClass } from "../../AuthShell";
+import { Field, PasswordField, FormError, SubmitButton } from "../../AuthFields";
 
 export function SignUpForm() {
   const [state, action, pending] = useActionState(signUpAction, {} as SignUpState);
 
   return (
-    <form action={action} className="space-y-4">
-      <div>
-        <label htmlFor="name" className="block text-sm mb-1">
-          Business or contact name
-        </label>
-        <input id="name" name="name" required autoComplete="organization" className={fieldClass} />
-      </div>
+    <form action={action} className="space-y-5">
+      <Field
+        label="Business or contact name"
+        name="name"
+        required
+        autoComplete="organization"
+      />
+      <Field
+        label="Email"
+        name="email"
+        type="email"
+        required
+        autoComplete="email"
+        inputMode="email"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+      <PasswordField
+        label="Password"
+        name="password"
+        required
+        minLength={8}
+        autoComplete="new-password"
+        hint="At least 8 characters."
+      />
 
-      <div>
-        <label htmlFor="email" className="block text-sm mb-1">
-          Email
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          required
-          autoComplete="email"
-          className={fieldClass}
-        />
-      </div>
+      <FormError message={state.error} />
 
-      <div>
-        <label htmlFor="password" className="block text-sm mb-1">
-          Password
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          minLength={8}
-          autoComplete="new-password"
-          className={fieldClass}
-        />
-      </div>
-
-      {state.error ? (
-        <p role="alert" className="text-sm text-dsp-red">
-          {state.error}
-        </p>
-      ) : null}
-
-      <button type="submit" disabled={pending} className={buttonClass}>
-        {pending ? "Creating account…" : "Create account"}
-      </button>
+      <SubmitButton pending={pending} idle="Create account" busy="Creating account…" />
     </form>
   );
 }

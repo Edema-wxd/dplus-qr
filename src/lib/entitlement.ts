@@ -1,4 +1,5 @@
 import { queryOne } from "@/lib/db";
+import type { PlanFeatures } from "@/lib/plans";
 
 /**
  * What an account is currently allowed to do.
@@ -20,6 +21,15 @@ export type Entitlement = {
   historyDays: number;
   /** Codes the account already has, counting every status. */
   codesUsed: number;
+  /**
+   * The held plan's capability flags, straight from `qr_plans.features`.
+   *
+   * Carried here so a feature gate and the billing page's feature list read
+   * the same row: the billing page advertises `csv_export` per plan, and
+   * anything that enforces it has to consult the same source or the two drift
+   * into advertising a limit that is not applied.
+   */
+  features: PlanFeatures;
   /** True while the subscription is good for serving traffic. */
   active: boolean;
 };
@@ -30,6 +40,7 @@ type Row = {
   max_codes: number;
   history_days: number;
   codes_used: string;
+  features: PlanFeatures | null;
   active: boolean;
 };
 
@@ -48,6 +59,7 @@ export async function getEntitlement(userId: string): Promise<Entitlement | null
        p.slug                                     as plan_slug,
        p.max_codes,
        p.history_days,
+       p.features,
        (select count(*) from qr_codes where user_id = $1) as codes_used,
        (s.status = 'active'
          or (s.status = 'past_due' and s.grace_until > now()))  as active
@@ -67,8 +79,36 @@ export async function getEntitlement(userId: string): Promise<Entitlement | null
     maxCodes: row.max_codes,
     historyDays: row.history_days,
     codesUsed: Number(row.codes_used),
+    features: row.features ?? {},
     active: row.active,
   };
+}
+
+/**
+ * Whether this account may export raw scan rows as CSV.
+ *
+ * A paid capability: migration 013 sets `csv_export` false on free and starter
+ * and true from growth up, and the billing page prints that distinction on
+ * every card. It is enforced in `lib/` rather than in the route so the page
+ * that offers the button and the handler that serves the bytes ask the same
+ * question -- a gate applied only in the UI is not a gate.
+ */
+export function canExportCsv(
+  entitlement: Entitlement | null
+): { ok: true } | { ok: false; reason: string } {
+  if (!entitlement) {
+    return {
+      ok: false,
+      reason: "Your account has no active plan yet.",
+    };
+  }
+  if (entitlement.features.csv_export !== true) {
+    return {
+      ok: false,
+      reason: `CSV export is not part of the ${entitlement.planName} plan. The charts above cover the same window, and a plan that includes export is on the billing page.`,
+    };
+  }
+  return { ok: true };
 }
 
 /** Whether another code may be created, and why not when it may not. */

@@ -47,6 +47,21 @@ function isIpHost(host: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith("[");
 }
 
+/**
+ * Let people type what they would say aloud: `google.com`, `www.shop.co/sale`.
+ *
+ * A value with no scheme gets `https://`. The guard against `mailto:x@y.z` is
+ * the point of the regex: a scheme followed by anything but a port number is a
+ * scheme, not a host, and prefixing it would turn `mailto:a@evil.com` into a
+ * link whose host is `evil.com`. Those are left alone to fail the protocol
+ * check, exactly as before.
+ */
+function withScheme(raw: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return raw;
+  if (/^[a-z][a-z0-9+.-]*:(?!\d)/i.test(raw)) return raw;
+  return `https://${raw.replace(/^\/\//, "")}`;
+}
+
 export function screenUrl(input: string): ScreenResult {
   const raw = input.trim();
   if (!raw) return { ok: false, reason: "Enter a destination link." };
@@ -58,11 +73,15 @@ export function screenUrl(input: string): ScreenResult {
     }
   }
 
+  if (/\s/.test(raw)) {
+    return { ok: false, reason: "That link has spaces in it. Check for a typo." };
+  }
+
   let url: URL;
   try {
-    url = new URL(raw);
+    url = new URL(withScheme(raw));
   } catch {
-    return { ok: false, reason: "That does not look like a complete link. Include https://" };
+    return { ok: false, reason: "That does not look like a link. Try something like example.com" };
   }
 
   if (url.protocol !== "https:" && url.protocol !== "http:") {

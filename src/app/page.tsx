@@ -15,6 +15,7 @@ import {
 import { CONTRACT, DEMO_CODE, FIXED, STATES, YOURS } from "@/lib/landing";
 import { QrSymbol, moduleCount } from "./_landing/QrSymbol";
 import { CodeDemo } from "./_landing/CodeDemo";
+import { LegalLinks } from "@/components/LegalLinks";
 
 /**
  * The landing page at the root of qriateplus.com.
@@ -124,10 +125,18 @@ export default function Home() {
               </>
             }
           >
+            {/*
+              The hero symbol encodes the code the caption beneath it prints,
+              not the bare origin. It said `qriateplus.com/Ab3kQ9x` while
+              encoding `qriateplus.com`, so a visitor who scanned the page's
+              central claim was returned to the page instead of being redirected
+              by it. The redirect path answers this code from a constant, so the
+              scan demonstrates the product rather than the home page.
+            */}
             <QrSymbol
-              value={CODE_ORIGIN}
+              value={codeUrl}
               px={312}
-              title={`${PRODUCT_NAME_SPOKEN} — scan to open ${CODE_HOST}`}
+              title={`${PRODUCT_NAME_SPOKEN} — scan to open ${CODE_HOST}/${DEMO_CODE}`}
               className="block h-auto w-[min(72vw,312px)]"
             />
           </CodeDemo>
@@ -396,7 +405,10 @@ export default function Home() {
           </Link>
           <span>product: the studio that prints the thing your code lives on.</span>
         </div>
-        <Wordmark on="field" width={104} className="opacity-85" />
+        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+          <LegalLinks tone="field" />
+          <Wordmark on="field" width={104} className="opacity-85" />
+        </div>
       </footer>
     </div>
   );

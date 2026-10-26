@@ -5,10 +5,15 @@ import { useState } from "react";
 /**
  * Shown while the account's email is unverified.
  *
- * It does not block anything. Verification *links* need custom SMTP, which is
- * still outstanding, so gating the dashboard on `emailVerified` would lock out
- * every account until that lands. This states the position honestly instead,
- * and becomes a real gate in one line once SMTP is configured.
+ * It does not block anything, and that is a product decision rather than a
+ * missing piece: a printed code has to keep working, so an unconfirmed address
+ * is a thing to chase, not a reason to lock someone out of the dashboard that
+ * re-points it. Making this a gate is a one-line change if that ever becomes
+ * the policy.
+ *
+ * The mail itself goes out through Neon Auth's own Resend SMTP, configured per
+ * branch (`neon neon-auth config email-provider update`), which is why this
+ * can state plainly that a link was sent.
  *
  * Dismissal is per-page-load on purpose: no storage, so nothing persists a
  * decision the user did not make deliberately.

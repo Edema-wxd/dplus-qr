@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { cancelPlanAction, type CancelFormState } from "./actions";
+import { secondaryButtonClass } from "../app/DashShell";
 
 /**
  * Cancelling.
@@ -46,11 +47,7 @@ export function CancelPlan({ periodEndLabel }: { periodEndLabel: string | null }
             After that they show a &ldquo;temporarily unavailable&rdquo; page. Nothing is
             deleted, and starting a plan again brings every printed code back.
           </p>
-          <button
-            type="submit"
-            disabled={pending}
-            className="border border-[var(--paper-rule)] px-4 py-2 disabled:opacity-50"
-          >
+          <button type="submit" disabled={pending} className={secondaryButtonClass}>
             {pending ? "Cancelling…" : "Confirm cancellation"}
           </button>
         </div>
