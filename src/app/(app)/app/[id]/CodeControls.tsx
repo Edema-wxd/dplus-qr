@@ -34,8 +34,10 @@ export function DestinationForm({
         <input
           id="destination"
           name="destinationUrl"
-          type="url"
+          type="text"
           inputMode="url"
+          autoCapitalize="none"
+          spellCheck={false}
           required
           disabled={disabled}
           defaultValue={current}

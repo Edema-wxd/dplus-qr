@@ -1,7 +1,16 @@
 import { query, queryOne } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { generateCode } from "@/lib/short-code";
-import { screenUrl } from "@/lib/screening";
+import { linkDestination, parsePageContent, type PageContent } from "@/lib/page-content";
+import { resolveFiles } from "@/lib/files";
+import {
+  isLinkKind,
+  isPageKind,
+  pagePath,
+  type DynamicKind,
+  type LinkKind,
+  type PageKind,
+} from "@/lib/qr-types";
 import { canCreateCode, getEntitlement } from "@/lib/entitlement";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
@@ -39,7 +48,15 @@ export type OwnedCode = {
   id: string;
   shortCode: string;
   name: string;
+  /** What the code is: a link type, or a page type we host. */
+  kind: DynamicKind;
+  /**
+   * For a link type, where scans go. For a page type, our own relative
+   * `/p/{short_code}` -- the content is in `content`.
+   */
   destinationUrl: string;
+  /** A page type's stored content, unparsed. Null for link types. */
+  content: unknown;
   status: "active" | "paused" | "blocked";
   blockedReason: string | null;
   /** Always safe to draw: a missing or invalid stored value reads as the default. */
@@ -60,7 +77,9 @@ type CodeRow = {
   id: string;
   short_code: string;
   name: string;
+  kind: DynamicKind;
   destination_url: string;
+  content: unknown;
   status: OwnedCode["status"];
   blocked_reason: string | null;
   style: unknown;
@@ -78,7 +97,9 @@ function toOwnedCode(row: CodeRow): OwnedCode {
     id: String(row.id),
     shortCode: row.short_code,
     name: row.name,
+    kind: row.kind,
     destinationUrl: row.destination_url,
+    content: row.content,
     status: row.status,
     blockedReason: row.blocked_reason,
     style: readQrStyle(row.style),
@@ -127,7 +148,7 @@ const LOGO_JOIN = `left join qr_logos l on l.id = c.logo_id and l.user_id = c.us
 export async function listCodes(userId: string): Promise<OwnedCode[]> {
   const rows = await query<CodeRow>(
     `select
-       c.id, c.short_code, c.name, c.destination_url, c.status,
+       c.id, c.short_code, c.name, c.kind, c.destination_url, c.content, c.status,
        c.blocked_reason, c.style, c.created_at, c.updated_at,
        l.id as logo_id, l.url as logo_url,
        ${COUNTS}
@@ -148,7 +169,7 @@ export async function getCode(
 ): Promise<OwnedCode | null> {
   const row = await queryOne<CodeRow>(
     `select
-       c.id, c.short_code, c.name, c.destination_url, c.status,
+       c.id, c.short_code, c.name, c.kind, c.destination_url, c.content, c.status,
        c.blocked_reason, c.style, c.created_at, c.updated_at,
        l.id as logo_id, l.url as logo_url,
        ${COUNTS}
@@ -173,12 +194,48 @@ export type CreateResult =
  * first, because checking races. Insert against the unique index and retry on
  * violation. Five attempts against a 58^7 space is already far past paranoid.
  */
+export type CreateInput =
+  | { kind: LinkKind; name: string; destinationUrl: string; logoId?: string | null }
+  | { kind: PageKind; name: string; content: unknown; logoId?: string | null };
+
+/**
+ * Validate what a page type will show: files resolved against the account's
+ * own uploads first, then the kind's schema.
+ */
+async function checkContent(
+  userId: string,
+  kind: PageKind,
+  raw: unknown
+): Promise<{ ok: true; content: PageContent } | { ok: false; reason: string }> {
+  const resolved = await resolveFiles(userId, raw);
+  if (!resolved.ok) return resolved;
+  return parsePageContent(kind, resolved.content);
+}
+
 export async function createCode(
   userId: string,
-  input: { name: string; destinationUrl: string; logoId?: string | null }
+  input: CreateInput
 ): Promise<CreateResult> {
-  const screened = screenUrl(input.destinationUrl);
-  if (!screened.ok) return { ok: false, reason: screened.reason };
+  // A link type's destination is screened. A page type's destination is our
+  // own page, built from the short code below; its content is checked here.
+  let destination: string | null = null;
+  let content: PageContent | null = null;
+  if (isLinkKind(input.kind)) {
+    const screened = linkDestination(
+      input.kind,
+      (input as { destinationUrl: string }).destinationUrl
+    );
+    if (!screened.ok) return { ok: false, reason: screened.reason };
+    destination = screened.normalised;
+  } else {
+    const checked = await checkContent(
+      userId,
+      input.kind,
+      (input as { content: unknown }).content
+    );
+    if (!checked.ok) return checked;
+    content = checked.content;
+  }
 
   const allowed = canCreateCode(await getEntitlement(userId));
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
@@ -197,10 +254,19 @@ export async function createCode(
     const shortCode = generateCode();
     try {
       const row = await queryOne<{ id: string }>(
-        `insert into qr_codes (user_id, short_code, name, destination_url, logo_id)
-         values ($1, $2, $3, $4, $5::bigint)
+        `insert into qr_codes
+           (user_id, short_code, name, kind, destination_url, content, logo_id)
+         values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint)
          returning id`,
-        [userId, shortCode, name, screened.normalised, logoId]
+        [
+          userId,
+          shortCode,
+          name,
+          input.kind,
+          destination ?? pagePath(shortCode),
+          content === null ? null : JSON.stringify(content),
+          logoId,
+        ]
       );
       // A fresh code has no history row: there is no previous destination to
       // record, and inventing one would make the log lie about a change that
@@ -275,14 +341,26 @@ export async function changeDestination(
   id: string,
   destinationUrl: string
 ): Promise<ChangeResult> {
-  const screened = screenUrl(destinationUrl);
+  // The kind decides how the input is read: an Instagram code takes a handle
+  // and must stay on Instagram. A page type has no destination to change --
+  // its content is edited instead -- so it is refused rather than re-pointed
+  // away from its own page.
+  const current = await queryOne<{ kind: string }>(
+    `select kind from qr_codes where user_id = $1 and id = $2`,
+    [userId, id]
+  );
+  if (!current) return { ok: false, reason: "That code could not be found." };
+  if (!isLinkKind(current.kind)) {
+    return { ok: false, reason: "This code shows a page. Edit its content instead." };
+  }
+  const screened = linkDestination(current.kind, destinationUrl);
   if (!screened.ok) return { ok: false, reason: screened.reason };
 
   const row = await queryOne<{ short_code: string }>(
     `with prev as (
        select id, short_code, destination_url
        from qr_codes
-       where user_id = $1 and id = $2
+       where user_id = $1 and id = $2 and kind = $4
      ), updated as (
        update qr_codes c
          set destination_url = $3, updated_at = now()
@@ -294,7 +372,7 @@ export async function changeDestination(
        select prev.id, prev.destination_url, $3, $1 from prev
      )
      select short_code from updated`,
-    [userId, id, screened.normalised]
+    [userId, id, screened.normalised, current.kind]
   );
 
   if (!row) return { ok: false, reason: "That code could not be found." };
@@ -303,6 +381,72 @@ export async function changeDestination(
   // instance's copy immediately; other instances wait out the TTL.
   await purgeDestination(row.short_code);
   return { ok: true };
+}
+
+/**
+ * Replace a page type's content.
+ *
+ * The kind is fixed at creation -- a menu does not become a coupon -- so the
+ * statement only matches a row of the kind the content was checked against.
+ * No cache purge: the redirect path caches the destination, which is
+ * unchanged, and the hosted page reads content fresh on every view.
+ */
+export async function updateCodeContent(
+  userId: string,
+  id: string,
+  raw: unknown
+): Promise<ChangeResult> {
+  const current = await queryOne<{ kind: string }>(
+    `select kind from qr_codes where user_id = $1 and id = $2`,
+    [userId, id]
+  );
+  if (!current) return { ok: false, reason: "That code could not be found." };
+  if (!isPageKind(current.kind)) {
+    return { ok: false, reason: "This code is a link. Change where it points instead." };
+  }
+
+  const checked = await checkContent(userId, current.kind, raw);
+  if (!checked.ok) return checked;
+
+  const row = await queryOne<{ id: string }>(
+    `update qr_codes set content = $4::jsonb, updated_at = now()
+     where user_id = $1 and id = $2 and kind = $3
+     returning id`,
+    [userId, id, current.kind, JSON.stringify(checked.content)]
+  );
+  return row ? { ok: true } : { ok: false, reason: "That code could not be found." };
+}
+
+export type FeedbackEntry = { rating: number; comment: string | null; createdAt: Date };
+
+/** Answers left on a feedback code, newest first, with the average. */
+export async function codeFeedback(
+  userId: string,
+  id: string
+): Promise<{ entries: FeedbackEntry[]; count: number; average: number | null }> {
+  const [rows, summary] = await Promise.all([
+    query<{ rating: number; comment: string | null; created_at: Date }>(
+      `select f.rating, f.comment, f.created_at
+       from qr_feedback f
+       join qr_codes c on c.id = f.qr_id
+       where c.user_id = $1 and c.id = $2
+       order by f.created_at desc
+       limit 100`,
+      [userId, id]
+    ),
+    queryOne<{ count: string; average: string | null }>(
+      `select count(*) as count, avg(f.rating) as average
+       from qr_feedback f
+       join qr_codes c on c.id = f.qr_id
+       where c.user_id = $1 and c.id = $2`,
+      [userId, id]
+    ),
+  ]);
+  return {
+    entries: rows.map((r) => ({ rating: r.rating, comment: r.comment, createdAt: r.created_at })),
+    count: Number(summary?.count ?? 0),
+    average: summary?.average ? Number(summary.average) : null,
+  };
 }
 
 /**

@@ -107,3 +107,46 @@ export async function allowReport(key: string | null): Promise<boolean> {
     return true;
   }
 }
+
+/**
+ * Feedback limiter: 10 answers an hour per visitor.
+ *
+ * The feedback form on a hosted page is, like the report form, a write with no
+ * session. Ten is more than any honest customer leaves and few enough that a
+ * script cannot bury an owner's real ratings.
+ */
+const FEEDBACK_LIMIT = 10;
+
+let feedbackRl: Ratelimit | null | undefined;
+
+function feedbackLimiter(): Ratelimit | null {
+  if (feedbackRl !== undefined) return feedbackRl;
+
+  const client = redis();
+  feedbackRl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(FEEDBACK_LIMIT, "1 h"),
+        prefix: "rl:feedback",
+        analytics: false,
+      })
+    : null;
+
+  return feedbackRl;
+}
+
+/** Fails open, like the others: a Redis outage does not turn a customer away. */
+export async function allowFeedback(key: string | null): Promise<boolean> {
+  if (!key) return true;
+
+  const rl = feedbackLimiter();
+  if (!rl) return true;
+
+  try {
+    const { success } = await rl.limit(key);
+    return success;
+  } catch (error) {
+    console.error("[ratelimit] feedback check failed", error);
+    return true;
+  }
+}

@@ -476,6 +476,58 @@ Applied in memory to the rows `listCodes` already returns (at most a plan's
 code limit), which keeps the account-wide totals summed from every code while
 the table shows the subset.
 
+## Code types and hosted pages, 26 October 2026
+
+**Creating a code starts with a type picker at `/app/new`** (Francis, 26 Oct
+2026: "everything now"). The type lives in the URL (`?dynamic=menu`,
+`?static=wifi`), so the picker is plain links. "New code" on `/app` is a link
+to it, and it stays enabled at the plan limit, because static codes need no
+slot. The catalog is `src/lib/qr-types.ts`.
+
+**Dynamic types come in two kinds**, and the redirect path cannot tell them
+apart:
+
+- **Link types** (`url`, `instagram`, `facebook`) are a destination URL, as
+  every code was before. Instagram and Facebook accept a handle and must stay
+  on that network, so an "Instagram" code cannot hide some other site.
+- **Page types** (PDF, images, video, profile card, multiple links, social,
+  app, MP3, business, menu, feedback, event, coupon, playlist, 2D barcode)
+  store their `content` as jsonb and point at **`/p/{short_code}`, a relative
+  path**. The scan goes through `/{code}` as usual (302, counted, pausable),
+  then to the hosted page. `p` is in `RESERVED_CODES`.
+
+Migration `015` adds `qr_codes.kind` (default `'url'`, so every existing code
+is unchanged) and `content`, plus `qr_files` and `qr_feedback`. **It must run
+before this deploys**: `/app` now selects both new columns. The redirect
+lookup names its columns, so printed codes are unaffected either way.
+
+- `/p/{code}` re-applies the redirect path's own `decide()`, so a paused or
+  blocked code's page is not reachable by bookmark. It records no scan; the
+  hop through `/{code}` already did.
+- Every link inside page content is screened with `screenUrl`, like a
+  destination. Every file is referenced by `fileId` and **resolved against the
+  account's own `qr_files` rows before parsing**, so a saved page can only show
+  a file its owner uploaded, at the URL this server recorded.
+- Page files go through four new UploadThing endpoints: images (4MB, no SVG),
+  PDF (16MB), video (64MB) and audio (16MB). Without `UPLOADTHING_TOKEN`, the
+  types that need a file are shown in the picker but not offered.
+- Feedback answers are the second unauthenticated write on this host, after
+  abuse reports. They are rate limited to 10 an hour per visitor
+  (`allowFeedback`), and only a live code of the feedback kind accepts one. No
+  IP or hash is stored with an answer.
+- An app code sends an iPhone or an Android phone straight to its own store
+  from the server. Anyone else sees both buttons.
+- "2D Barcode" is a GS1 product page: GTIN with a verified check digit, batch,
+  expiry and serial, shown as the GS1 element string. The symbol is still our
+  short link, not a GS1 Digital Link URI, because a printed dynamic code has to
+  encode our host.
+- A code's type is fixed when it is made. A page type is edited in place
+  (`updateCodeContent`), and `changeDestination` refuses it.
+
+**Static types grew to ten**: WhatsApp (`wa.me`, country code required),
+vCard 3.0, PayPal (`_xclick` link; PayPal does not take naira, so USD, EUR,
+GBP, CAD or AUD) and Bitcoin (BIP 21) join the original six.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

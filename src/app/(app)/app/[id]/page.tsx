@@ -6,6 +6,7 @@ import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { canExportCsv, getEntitlement } from "@/lib/entitlement";
 import {
   codeAnalytics,
+  codeFeedback,
   destinationHistory,
   getCode,
   parseCodeId,
@@ -21,6 +22,8 @@ import { CopyLink } from "../CopyLink";
 import { LogoForm } from "./LogoForm";
 import { listLogos } from "@/lib/logos";
 import { uploadsEnabled } from "@/lib/uploads";
+import { dynamicType, isPageKind, pagePath } from "@/lib/qr-types";
+import { ContentForm } from "./ContentForm";
 
 export const metadata: Metadata = { title: "Code" };
 export const instant = false;
@@ -47,8 +50,10 @@ export default async function CodePage({
   const code = await getCode(user.id, id);
   if (!code) notFound();
 
-  const [history, entitlement, library, windows] = await Promise.all([
-    destinationHistory(user.id, id),
+  const page = isPageKind(code.kind) ? code.kind : null;
+
+  const [history, entitlement, library, windows, feedback] = await Promise.all([
+    page ? Promise.resolve([]) : destinationHistory(user.id, id),
     getEntitlement(user.id),
     listLogos(user.id),
     Promise.all(
@@ -57,6 +62,7 @@ export default async function CodePage({
         data: await codeAnalytics(user.id, id, days),
       }))
     ),
+    code.kind === "feedback" ? codeFeedback(user.id, id) : Promise.resolve(null),
   ]);
 
   const exportable = canExportCsv(entitlement);
@@ -80,6 +86,17 @@ export default async function CodePage({
           </span>
           <CopyLink url={url} />
           <StatusPill status={code.status} />
+          <span>{dynamicType(code.kind).label}</span>
+          {page && code.status === "active" ? (
+            <a
+              href={pagePath(code.shortCode)}
+              target="_blank"
+              rel="noopener"
+              className="underline underline-offset-4"
+            >
+              View page
+            </a>
+          ) : null}
         </span>
       }
     >
@@ -146,11 +163,21 @@ export default async function CodePage({
         </div>
 
         <div className="space-y-10">
-          <DestinationForm
-            id={code.id}
-            current={code.destinationUrl}
-            disabled={code.status === "blocked"}
-          />
+          {page ? (
+            <ContentForm
+              id={code.id}
+              kind={page}
+              initial={(code.content ?? {}) as Record<string, unknown>}
+              uploads={uploadsEnabled()}
+              disabled={code.status === "blocked"}
+            />
+          ) : (
+            <DestinationForm
+              id={code.id}
+              current={code.destinationUrl}
+              disabled={code.status === "blocked"}
+            />
+          )}
           <RenameForm id={code.id} current={code.name} />
           <StyleForm id={code.id} saved={code.style} />
           <LogoForm
@@ -164,6 +191,13 @@ export default async function CodePage({
           )}
         </div>
       </StyleScope>
+
+      {feedback ? (
+        <>
+          <hr className="my-12 border-[var(--paper-rule)]" />
+          <FeedbackPanel feedback={feedback} />
+        </>
+      ) : null}
 
       <hr className="my-12 border-[var(--paper-rule)]" />
 
@@ -241,5 +275,55 @@ export default async function CodePage({
         </>
       ) : null}
     </DashShell>
+  );
+}
+
+/** What customers said through a feedback code, newest first. */
+function FeedbackPanel({
+  feedback,
+}: {
+  feedback: NonNullable<Awaited<ReturnType<typeof codeFeedback>>>;
+}) {
+  return (
+    <section aria-labelledby="feedback-heading">
+      <h2 id="feedback-heading" className="font-sarlotte text-2xl leading-none">
+        Feedback
+      </h2>
+      <p className="dash-num mt-2 text-sm text-[var(--paper-soft)]">
+        {feedback.count === 0
+          ? "No answers yet. They appear here as customers leave them."
+          : `${feedback.count.toLocaleString("en-NG")} ${
+              feedback.count === 1 ? "answer" : "answers"
+            }, averaging ${feedback.average?.toFixed(1)} out of 5.`}
+      </p>
+      {feedback.entries.length > 0 ? (
+        <ol className="mt-5">
+          {feedback.entries.map((entry, i) => (
+            <li
+              key={`${entry.createdAt.toISOString()}-${i}`}
+              className="grid gap-x-5 gap-y-1 border-b border-[var(--paper-rule)] py-3 sm:grid-cols-[9rem_6rem_1fr]"
+            >
+              <time
+                dateTime={entry.createdAt.toISOString()}
+                className="dash-num text-xs text-[var(--paper-soft)]"
+              >
+                {entry.createdAt.toLocaleDateString("en-NG", {
+                  day: "numeric",
+                  month: "short",
+                  year: "numeric",
+                })}
+              </time>
+              <span className="text-sm" aria-label={`${entry.rating} out of 5`}>
+                {"★".repeat(entry.rating)}
+                <span className="text-[var(--paper-rule)]">{"★".repeat(5 - entry.rating)}</span>
+              </span>
+              <p className="min-w-0 whitespace-pre-line text-sm">
+                {entry.comment ?? <span className="text-[var(--paper-soft)]">No comment</span>}
+              </p>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </section>
   );
 }

@@ -56,6 +56,8 @@ export const RESERVED_CODES: ReadonlySet<string> = new Set([
   "favicon",
   "robots",
   "sitemap",
+  // Hosted pages for page-type codes live under `/p/{code}`.
+  "p",
   // Words that would embarrass the brand or imply official status in a URL
   // that is printed on someone else's packaging.
   "desplus",
