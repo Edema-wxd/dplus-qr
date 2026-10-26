@@ -53,17 +53,21 @@ export function PasswordField({
   label,
   hint,
   invalid,
+  labelAside,
   ...input
-}: Omit<FieldProps, "type">) {
+}: Omit<FieldProps, "type"> & { labelAside?: React.ReactNode }) {
   const id = useId();
   const hintId = `${id}-hint`;
   const [shown, setShown] = useState(false);
 
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium mb-1.5">
-        {label}
-      </label>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <label htmlFor={id} className="block text-sm font-medium">
+          {label}
+        </label>
+        {labelAside}
+      </div>
       <div className="relative">
         <input
           id={id}
