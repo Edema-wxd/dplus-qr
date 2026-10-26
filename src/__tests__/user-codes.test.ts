@@ -1,5 +1,5 @@
-import { canCreateCode, type Entitlement } from "@/lib/entitlement";
-import { analyticsWindow, ANALYTICS_WINDOWS } from "@/lib/user-codes";
+import { canCreateCode, canExportCsv, type Entitlement } from "@/lib/entitlement";
+import { analyticsWindow, ANALYTICS_WINDOWS, parseCodeId } from "@/lib/user-codes";
 import { rollupWindow } from "@/lib/rollup";
 
 /**
@@ -15,6 +15,7 @@ function entitlement(overrides: Partial<Entitlement> = {}): Entitlement {
     maxCodes: 5,
     historyDays: 30,
     codesUsed: 0,
+    features: {},
     active: true,
     ...overrides,
   };
@@ -95,4 +96,53 @@ describe("rollupWindow", () => {
       expect(rollupWindow(value)).toBe(3);
     }
   );
+});
+
+describe("canExportCsv", () => {
+  it("refuses a plan whose features do not include it", () => {
+    const result = canExportCsv(entitlement({ features: { csv_export: false } }));
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses a plan that says nothing about it, rather than assuming yes", () => {
+    // Absent is not permission. A new plan row added without the flag must not
+    // quietly grant a paid feature.
+    expect(canExportCsv(entitlement()).ok).toBe(false);
+  });
+
+  it("refuses an account with no plan", () => {
+    expect(canExportCsv(null).ok).toBe(false);
+  });
+
+  it("allows a plan that includes it", () => {
+    expect(canExportCsv(entitlement({ features: { csv_export: true } }))).toEqual({
+      ok: true,
+    });
+  });
+
+  it("names the plan it refused, so the message is actionable", () => {
+    const result = canExportCsv(
+      entitlement({ planName: "Starter", features: { csv_export: false } })
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/Starter/);
+  });
+});
+
+describe("parseCodeId", () => {
+  it("accepts a plain id", () => {
+    expect(parseCodeId("42")).toBe("42");
+  });
+
+  it.each(["abc", "", "1a", " 1", "1.0", "-1", "0", "1e3", "٤٢"])(
+    "rejects %p rather than letting it reach a bigint column",
+    (raw) => {
+      expect(parseCodeId(raw)).toBeNull();
+    }
+  );
+
+  it("rejects more digits than a bigint can hold", () => {
+    expect(parseCodeId("9".repeat(20))).toBeNull();
+    expect(parseCodeId("9".repeat(19))).toBe("9".repeat(19));
+  });
 });

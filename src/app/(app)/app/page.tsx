@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
 import { getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
-import { CODE_HOST } from "@/lib/brand";
+import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
 import { DashShell } from "./DashShell";
 import { StatusPill } from "./StatusPill";
@@ -35,6 +35,13 @@ export default async function CodesPage() {
 
   const atLimit = entitlement !== null && codes.length >= entitlement.maxCodes;
 
+  // The header action appears only when there is a table to sit above. The
+  // empty state carries its own copy of this form, and mounting both would put
+  // two live disclosures on one page -- two elements sharing the field ids
+  // their labels point at, and a validation error landing on whichever of the
+  // two was not submitted.
+  const hasCodes = codes.length > 0;
+
   return (
     <DashShell
       heading="Your codes"
@@ -46,7 +53,7 @@ export default async function CodesPage() {
           </span>
         ) : null
       }
-      action={<NewCodeForm disabled={atLimit} />}
+      action={hasCodes ? <NewCodeForm disabled={atLimit} /> : null}
     >
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
 
@@ -98,7 +105,7 @@ export default async function CodesPage() {
                         Not an icon standing in for a code.
                       */}
                       <QrSymbol
-                        value={`https://${CODE_HOST}/${code.shortCode}`}
+                        value={codeUrl(code.shortCode)}
                         px={44}
                         title={`QR code for ${code.name}`}
                         className="block h-auto w-11 shrink-0"
@@ -132,7 +139,7 @@ export default async function CodesPage() {
       )}
 
       {atLimit && entitlement ? (
-        <p className="mt-4 text-sm text-[var(--paper-soft)]">
+        <p id="code-limit-hint" className="mt-4 text-sm text-[var(--paper-soft)]">
           You are using all {entitlement.maxCodes} codes on the{" "}
           {entitlement.planName} plan. A code you hold keeps its short code for
           good, so pausing one does not free a slot.

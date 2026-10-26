@@ -1,7 +1,7 @@
 import QRCode from "qrcode";
 import { auth } from "@/lib/auth/server";
-import { getCode } from "@/lib/user-codes";
-import { env } from "@/lib/env";
+import { codeUrl } from "@/lib/brand";
+import { getCode, parseCodeId } from "@/lib/user-codes";
 
 /**
  * The downloadable artwork for one code.
@@ -14,6 +14,10 @@ import { env } from "@/lib/env";
  * the whole product: a symbol encoding the destination would be a static code
  * and could never be re-pointed.
  *
+ * That URL comes from `codeUrl()`, the same function the dashboard renders its
+ * on-screen symbol and its caption from, so what the owner sees and what they
+ * download cannot encode different hosts.
+ *
  * Error correction is Q, the level a printed code without a centred logo
  * wants. Logo-in-QR (which needs H) is not offered yet.
  */
@@ -21,12 +25,15 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
+  const { id: raw } = await params;
 
   const { data: session } = await auth.getSession();
   if (!session?.user) {
     return new Response("Not signed in", { status: 401 });
   }
+
+  const id = parseCodeId(raw);
+  if (!id) return new Response("Not found", { status: 404 });
 
   const code = await getCode(session.user.id, id);
   if (!code) return new Response("Not found", { status: 404 });
@@ -37,7 +44,7 @@ export async function GET(
   const requested = Number(url.searchParams.get("size"));
   const size = requested === 2048 ? 2048 : 1024;
 
-  const content = `${env().QR_BASE_URL.replace(/\/$/, "")}/${code.shortCode}`;
+  const content = codeUrl(code.shortCode);
   const filename = `${code.shortCode}.${format}`;
 
   const common = {

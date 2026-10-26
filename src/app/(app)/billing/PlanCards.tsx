@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { startCheckoutAction, type CheckoutFormState } from "./actions";
+import { primaryButtonClass, secondaryButtonClass } from "../app/DashShell";
 
 export type PlanOption = {
   slug: string;
@@ -21,6 +22,10 @@ export type PlanOption = {
  * is shared: with a form each, every button would have to track its own
  * pending flag and a second click during the redirect could start a second
  * checkout.
+ *
+ * The cards and buttons use the shapes `DashShell` exports, so choosing a plan
+ * looks like the rest of the signed-in surface rather than like a page from
+ * another product: same radius, same ink, same pressed response.
  */
 export function PlanCards({ plans }: { plans: PlanOption[] }) {
   const [state, action, pending] = useActionState<CheckoutFormState, FormData>(
@@ -40,7 +45,7 @@ export function PlanCards({ plans }: { plans: PlanOption[] }) {
         {plans.map((plan) => (
           <li
             key={plan.slug}
-            className="flex flex-col border border-[var(--paper-rule)] p-5"
+            className="flex flex-col rounded-lg border border-[var(--paper-rule)] bg-white p-5"
           >
             <h3 className="text-base font-medium">{plan.name}</h3>
             <p className="mt-1 text-2xl">
@@ -66,7 +71,9 @@ export function PlanCards({ plans }: { plans: PlanOption[] }) {
               name="plan"
               value={plan.slug}
               disabled={pending || plan.isCurrent}
-              className="mt-5 border border-[var(--paper-rule)] px-4 py-2 text-sm disabled:opacity-50"
+              className={`mt-5 ${
+                plan.isCurrent ? secondaryButtonClass : primaryButtonClass
+              }`}
             >
               {plan.isCurrent ? "Current plan" : pending ? "Starting…" : "Choose"}
             </button>

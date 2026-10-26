@@ -47,6 +47,24 @@ export const CODE_HOST = "qriateplus.com";
 export const CODE_ORIGIN = `https://${CODE_HOST}`;
 
 /**
+ * The URL a printed symbol encodes. **The one function that decides it.**
+ *
+ * Built from `CODE_ORIGIN` and never from `QR_BASE_URL`, which is a different
+ * thing wearing a similar name: that variable is the *deployment's* own origin,
+ * used for links back into the app (the billing page, the Paystack callback),
+ * and it legitimately differs per environment -- a preview URL, or a LAN
+ * address during a local demo. The host inside a symbol cannot differ per
+ * environment, because the symbol gets printed. Deriving artwork from
+ * `QR_BASE_URL` would let a demo deploy hand out codes encoding `192.168.x.x`.
+ *
+ * The dashboard's on-screen symbol, the caption that quotes it and the
+ * downloadable SVG/PNG all come through here, so they cannot disagree.
+ */
+export function codeUrl(shortCode: string): string {
+  return `${CODE_ORIGIN}/${shortCode}`;
+}
+
+/**
  * The retired subdomain, kept only so the landing page can state the
  * character-count difference that justified moving off it. Never a destination.
  */

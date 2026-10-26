@@ -25,8 +25,15 @@ const schema = z.object({
 
   NEON_BRANCH: z.string().optional(),
 
-  // Public base of the redirect host. This string is baked into printed codes,
-  // so it can never change once a code has been printed.
+  // This deployment's own public origin, used for links back into the app: the
+  // Paystack callback and the billing links in outbound mail. It legitimately
+  // differs per environment -- a preview URL, or a LAN address during a demo.
+  //
+  // It is deliberately NOT what a printed symbol encodes. That host can never
+  // vary by environment, because the symbol gets printed, so artwork is built
+  // from `codeUrl()` in `src/lib/brand.ts` and the constant behind it. Reading
+  // this variable to generate a code once meant a demo deploy could hand out
+  // artwork encoding a LAN address.
   QR_BASE_URL: z.string().url().default("https://qriateplus.com"),
 
   // --- Neon Auth (Managed Better Auth) ---

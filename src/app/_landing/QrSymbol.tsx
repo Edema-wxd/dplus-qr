@@ -1,29 +1,29 @@
 import QRCode from "qrcode";
 
+type Geometry = { path: string; span: number; quiet: number };
+
 /**
- * A real QR symbol, drawn from the same library that will generate the
- * downloadable code artwork.
+ * Generated symbols, kept by the string they encode.
  *
- * Deliberately not an image and not a decorative approximation: the page's
- * whole argument is that this exact grid is what gets printed, so drawing a
- * fake one would be the one lie the surface cannot afford. Error correction is
- * Q, the level a printed code without a logo wants, and the level every
- * module-count figure on the page is quoted at.
+ * A symbol is a pure function of its content at a fixed error-correction
+ * level, so this can never go stale: a given URL has exactly one grid, for as
+ * long as the process lives. What it saves is real -- the code list renders
+ * one symbol per row on a per-request page, and an account at the top tier's
+ * limit would otherwise run a hundred encodes and build a hundred path strings
+ * before the page could stream.
  *
- * Runs at build time. The page reads no request API, so Next evaluates this
- * once and ships the markup — nothing here reaches a scanner's critical path.
+ * Bounded, and the bound is the point: this is a module-scope map in a
+ * long-lived server process, which is a memory leak unless something stops it
+ * growing. Oldest-first eviction, because `Map` iterates in insertion order
+ * and the useful entries on any one page are the ones just inserted.
  */
-export function QrSymbol({
-  value,
-  px,
-  className,
-  title,
-}: {
-  value: string;
-  px: number;
-  className?: string;
-  title?: string;
-}) {
+const CACHE_LIMIT = 512;
+const cache = new Map<string, Geometry>();
+
+function geometry(value: string): Geometry {
+  const hit = cache.get(value);
+  if (hit) return hit;
+
   const qr = QRCode.create(value, { errorCorrectionLevel: "Q" });
   const n = qr.modules.size;
   const data = qr.modules.data;
@@ -40,7 +40,45 @@ export function QrSymbol({
   // A quiet zone is part of the symbol, not padding around it: without four
   // modules of clear ground a scanner can fail to find the finder patterns.
   const quiet = 4;
-  const span = n + quiet * 2;
+  const built: Geometry = { path, quiet, span: n + quiet * 2 };
+
+  if (cache.size >= CACHE_LIMIT) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(value, built);
+
+  return built;
+}
+
+/**
+ * A real QR symbol, drawn from the same library that will generate the
+ * downloadable code artwork.
+ *
+ * Deliberately not an image and not a decorative approximation: the page's
+ * whole argument is that this exact grid is what gets printed, so drawing a
+ * fake one would be the one lie the surface cannot afford. Error correction is
+ * Q, the level a printed code without a logo wants, and the level every
+ * module-count figure on the page is quoted at.
+ *
+ * On the landing page this runs at build time: that page reads no request API,
+ * so Next evaluates it once and ships the markup. The dashboard is the other
+ * case -- those pages set `instant = false`, so every symbol in a code list is
+ * generated per request, one per row. Hence the cache below. Either way
+ * nothing here is on a scanner's critical path.
+ */
+export function QrSymbol({
+  value,
+  px,
+  className,
+  title,
+}: {
+  value: string;
+  px: number;
+  className?: string;
+  title?: string;
+}) {
+  const { path, span, quiet } = geometry(value);
 
   return (
     <svg

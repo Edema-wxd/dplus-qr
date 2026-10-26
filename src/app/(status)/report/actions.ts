@@ -1,8 +1,11 @@
 "use server";
 
+import { headers } from "next/headers";
 import { z } from "zod";
 import { query, queryOne } from "@/lib/db";
 import { notifyAdmin } from "@/lib/email";
+import { clientIp, ipRateKey } from "@/lib/ip";
+import { allowReport } from "@/lib/ratelimit";
 import { isValidCodeFormat } from "@/lib/short-code";
 
 const schema = z.object({
@@ -30,6 +33,18 @@ export async function submitReport(
 
   const { code, reporterEmail, reason } = parsed.data;
 
+  // The only unauthenticated write on this host, so the ceiling is here rather
+  // than inherited from a session.
+  const allowed = await allowReport(ipRateKey(clientIp(await headers())));
+  if (!allowed) {
+    return {
+      status: "idle",
+      error:
+        "That is several reports in a short time. If there is more to tell us, email it to us instead.",
+    };
+  }
+
+  let known = false;
   try {
     // The code may not exist -- someone can report a code they mistyped, and a
     // report about an unknown code is still worth seeing. `reported_code` is
@@ -38,24 +53,33 @@ export async function submitReport(
       "select id from qr_codes where short_code = $1",
       [code]
     );
+    known = existing !== null;
 
     await query(
       `insert into qr_abuse_reports (qr_id, reported_code, reporter_email, reason)
        values ($1, $2, $3, $4)`,
       [existing?.id ?? null, code, reporterEmail || null, reason]
     );
-
-    // Notification is best-effort; the row is already safe.
-    await notifyAdmin(
-      `Abuse report: ${code}`,
-      `Code: ${code}\nKnown code: ${existing ? "yes" : "no"}\nReporter: ${
-        reporterEmail || "not given"
-      }\n\n${reason}`
-    );
-
-    return { status: "sent" };
   } catch (error) {
     console.error("[report] submit failed", error);
     return { status: "idle", error: "We could not save that. Please try again." };
   }
+
+  // Outside the try, and deliberately so. The row is already saved, so a
+  // Resend outage must not report failure to someone whose report landed --
+  // they would send it again, and we would hold two rows for one complaint.
+  // The alert is a convenience; the table is the record, and an unsent alert
+  // is recoverable by reading it.
+  try {
+    await notifyAdmin(
+      `Abuse report: ${code}`,
+      `Code: ${code}\nKnown code: ${known ? "yes" : "no"}\nReporter: ${
+        reporterEmail || "not given"
+      }\n\n${reason}`
+    );
+  } catch (error) {
+    console.error("[report] admin notification failed", error);
+  }
+
+  return { status: "sent" };
 }

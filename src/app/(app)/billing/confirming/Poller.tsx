@@ -18,13 +18,19 @@ import { useRouter } from "next/navigation";
 const EVERY_MS = 3000;
 const GIVE_UP_AFTER_MS = 120_000;
 
-export function Poller({ done }: { done: boolean }) {
+/*
+ * Takes no `done` prop. It had one, but the page renders this component only
+ * inside the branch where the payment has *not* landed, so the prop was always
+ * false and every guard reading it was dead -- a safety net that looked like
+ * it was holding something. When the webhook lands, the refresh re-renders the
+ * page into its other branch and this unmounts, which is the real stop
+ * condition.
+ */
+export function Poller() {
   const router = useRouter();
   const [gaveUp, setGaveUp] = useState(false);
 
   useEffect(() => {
-    if (done) return;
-
     const started = Date.now();
     const timer = setInterval(() => {
       if (Date.now() - started > GIVE_UP_AFTER_MS) {
@@ -36,9 +42,9 @@ export function Poller({ done }: { done: boolean }) {
     }, EVERY_MS);
 
     return () => clearInterval(timer);
-  }, [done, router]);
+  }, [router]);
 
-  if (done || !gaveUp) return null;
+  if (!gaveUp) return null;
 
   return (
     <p role="status" className="mt-4 text-sm text-[var(--paper-soft)]">

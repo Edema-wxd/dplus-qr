@@ -13,6 +13,10 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from "./DashShel
  *
  * Opening moves focus to the first field, so the keyboard path is the same
  * length as the pointer one.
+ *
+ * At the plan's code limit the trigger is `aria-disabled` rather than
+ * `disabled`, so the reason it cannot be pressed is reachable from the
+ * keyboard. The page owns that sentence and gives it `id="code-limit-hint"`.
  */
 export function NewCodeForm({ disabled }: { disabled?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -27,15 +31,24 @@ export function NewCodeForm({ disabled }: { disabled?: boolean }) {
   }, [open]);
 
   if (!open) {
+    /*
+      `aria-disabled`, not `disabled`. A disabled button is removed from the
+      tab order, so the one explanation of why it cannot be pressed -- the
+      plan-limit paragraph below the table -- was reachable only by a pointer
+      hovering a `title`. This stays focusable, announces itself as disabled,
+      and points at that paragraph, while the handler declines to open.
+    */
     return (
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        disabled={disabled}
-        className={primaryButtonClass}
-        title={
-          disabled ? "You are using every code your plan allows." : undefined
-        }
+        onClick={() => {
+          if (!disabled) setOpen(true);
+        }}
+        aria-disabled={disabled || undefined}
+        aria-describedby={disabled ? "code-limit-hint" : undefined}
+        className={`${primaryButtonClass} ${
+          disabled ? "opacity-60" : ""
+        }`.trim()}
       >
         New code
       </button>
