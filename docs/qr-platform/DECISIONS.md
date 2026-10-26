@@ -321,8 +321,9 @@ accumulate. It must be set in Vercel before the schedule means anything.
 Measured: exactly 60s. `purgeDestination()` clears only the calling bundle's
 in-process cache, and with no Redis configured the redirect path's own copy
 waits out its TTL. That meets the phase 2 criterion ("within 60 seconds") but
-only just; configuring Upstash makes the purge immediate. The dashboard copy
-says "within a minute" rather than claiming it is instant.
+only just. (Configuring Upstash does *not* make it immediate on its own; see
+"Redis is live", 26 October 2026.) The dashboard copy says "within a minute"
+rather than claiming it is instant.
 
 ## Legal pages, 25 October 2026
 
@@ -528,6 +529,38 @@ lookup names its columns, so printed codes are unaffected either way.
 vCard 3.0, PayPal (`_xclick` link; PayPal does not take naira, so USD, EUR,
 GBP, CAD or AUD) and Bitcoin (BIP 21) join the original six.
 
+## Redis is live, 26 October 2026
+
+A separate Upstash database (`dplus-qr`, us-east-1, eviction on), not the one
+`dplus` would use: the redirect cache and its rate limiter should not share
+memory or a failure with the marketing site. Set as `UPSTASH_REDIS_REST_URL`
+and `UPSTASH_REDIS_REST_TOKEN` in Vercel (production and preview) and
+`.env.local`; `/health` reports `redis: ok`. This supersedes "Still no Redis"
+above.
+
+us-east-1 because `vercel.json` sets no region, so functions run in Vercel's
+default `iad1` (Washington DC). If a region is ever set, move the database
+with it, or every cache read pays a cross-region hop.
+
+What it changes:
+
+- A cold or new instance now finds a destination in Redis instead of going to
+  Postgres, so scans stop depending on the database for every request.
+- The 300/min/IP redirect limiter and the dashboard's rate limits now actually
+  limit. Both still fail open if Redis is unreachable.
+- **A destination change is still not instant.** `purge()` deletes the Redis
+  key and the calling instance's in-process copy, but any other warm instance
+  checks its own in-process tier first and can serve the old destination for
+  up to its 60-second TTL. Redis shortens the usual delay; it does not remove
+  the worst case. The "within a minute" copy stays accurate. Making it
+  immediate would mean dropping or shortening the in-process tier on Vercel,
+  which trades a Redis hop on every scan for freshness, and is a decision for
+  later rather than a side effect of this one.
+
+The Vercel Marketplace Upstash integration was deliberately not used: it
+injects `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which `src/lib/redis.ts` does
+not read, so it would have looked configured while `/health` stayed degraded.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
@@ -540,5 +573,4 @@ Business decisions, none of which block the current phase:
 Infrastructure, needed before this can run end to end:
 
 - Neon project and `DATABASE_URL`
-- Upstash credentials: reuse `dplus`'s, or a separate instance
 - `qr.de-signplus.com` DNS, required before the first code is printed
