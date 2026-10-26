@@ -5,10 +5,11 @@ import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
 import { getBillingState } from "@/lib/checkout";
-import { listPurchasablePlans } from "@/lib/plans";
+import { listPublicPlans } from "@/lib/plans";
+import { groupTiers } from "@/lib/plan-tiers";
 import { SUPPORT_EMAIL } from "@/lib/brand";
 import { DashShell } from "../app/DashShell";
-import { PlanCards, type PlanOption } from "./PlanCards";
+import { PlanCards } from "./PlanCards";
 import { CancelPlan } from "./CancelPlan";
 
 export const metadata: Metadata = { title: "Plan and billing" };
@@ -16,17 +17,6 @@ export const metadata: Metadata = { title: "Plan and billing" };
 // Entirely the signed-in user's own state, with no useful static shell to
 // stream around, so it blocks rather than wrapping everything in Suspense.
 export const instant = false;
-
-function historyLabel(days: number): string {
-  if (days >= 730) return "24 months";
-  if (days >= 365) return "12 months";
-  return `${days} days`;
-}
-
-/** Kobo to a naira string. Integers throughout; naira is never a float here. */
-function naira(kobo: number): string {
-  return Math.round(kobo / 100).toLocaleString("en-NG");
-}
 
 /**
  * How a subscription status is said out loud.
@@ -80,20 +70,15 @@ export default async function BillingPage() {
 
   const [state, plans] = await Promise.all([
     getBillingState(profile.id),
-    listPurchasablePlans(),
+    listPublicPlans(),
   ]);
 
-  const options: PlanOption[] = plans.map((plan) => ({
-    slug: plan.slug,
-    name: plan.name,
-    priceNgn: naira(plan.amountKobo),
-    interval: plan.interval,
-    maxCodes: plan.maxCodes,
-    historyLabel: historyLabel(plan.historyDays),
-    csvExport: plan.features.csv_export === true,
-    customLinks: plan.features.custom_codes === true,
-    isCurrent: state.planSlug === plan.slug,
-  }));
+  // The same tiers the public pricing page shows, from the same rows, so a
+  // customer never meets one price there and another here.
+  const tiers = groupTiers(plans);
+  const anyPurchasable = tiers.some(
+    (tier) => tier.monthly?.purchasable || tier.annual?.purchasable
+  );
 
   return (
     <DashShell heading="Plan and billing">
@@ -172,27 +157,29 @@ export default async function BillingPage() {
             .
           </p>
 
-          <div className="mt-4">
-            {options.length > 0 ? (
-              <PlanCards plans={options} />
-            ) : (
-              /*
-                `listPurchasablePlans()` requires a Paystack plan code, so this
-                is what shows before `npm run plans:sync` has attached them.
-                Honest about it rather than rendering buttons that cannot work.
-              */
-              <p className="text-sm text-[var(--paper-soft)]">
-                Paid plans are not open for self-service checkout yet. Email{" "}
-                <a
-                  className="text-[var(--paper-ink)] underline underline-offset-4"
-                  href={`mailto:${SUPPORT_EMAIL}`}
-                >
-                  {SUPPORT_EMAIL}
-                </a>{" "}
-                and we will set your account up directly.
-              </p>
-            )}
-          </div>
+          {tiers.length > 0 ? (
+            <div className="mt-6">
+              <PlanCards tiers={tiers} currentSlug={state.planSlug} />
+            </div>
+          ) : null}
+
+          {anyPurchasable ? null : (
+            /*
+              A plan is bought online only once `npm run plans:sync` has given
+              it a Paystack code. Until then the prices still show, and this
+              says how to get one rather than leaving dead buttons unexplained.
+            */
+            <p className="mt-4 text-sm text-[var(--paper-soft)]">
+              Paid plans are not open for self-service checkout yet. Email{" "}
+              <a
+                className="text-[var(--paper-ink)] underline underline-offset-4"
+                href={`mailto:${SUPPORT_EMAIL}`}
+              >
+                {SUPPORT_EMAIL}
+              </a>{" "}
+              and we will set your account up directly.
+            </p>
+          )}
         </section>
       </div>
     </DashShell>

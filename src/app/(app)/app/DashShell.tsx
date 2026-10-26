@@ -74,12 +74,14 @@ export function DashShell({
   );
 }
 
-/** Shared control styles, so every form on the surface agrees. */
-export const inputClass =
-  "w-full rounded-md border border-[var(--paper-rule)] bg-white px-3 py-2 text-sm text-[var(--paper-ink)] placeholder:text-[var(--paper-soft)] transition-colors duration-150 focus:border-[var(--pin-ink)]";
-
-export const primaryButtonClass =
-  "inline-flex items-center justify-center rounded-md bg-[var(--paper-ink)] px-4 py-2 text-sm font-medium text-[var(--paper)] transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.97] disabled:opacity-60 disabled:active:scale-100";
-
-export const secondaryButtonClass =
-  "inline-flex items-center justify-center rounded-md border border-[var(--paper-rule)] bg-white px-3.5 py-2 text-sm text-[var(--paper-ink)] transition-colors duration-150 hover:border-[var(--paper-ink)] disabled:opacity-60";
+/**
+ * Shared control styles live in `@/components/controls` so a public page (the
+ * pricing page) can match the dashboard without importing the dashboard.
+ * Re-exported here because every dashboard form already imports them from this
+ * file.
+ */
+export {
+  inputClass,
+  primaryButtonClass,
+  secondaryButtonClass,
+} from "@/components/controls";
