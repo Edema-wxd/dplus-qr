@@ -3,6 +3,7 @@ import {
   contrastRatio,
   DEFAULT_QR_STYLE,
   isDefaultQrStyle,
+  pageBrand,
   MIN_QR_CONTRAST,
   qrStyleSchema,
   qrStyleVars,
@@ -128,4 +129,32 @@ describe("helpers", () => {
       "--qr-ground-solid": "#FFF8EC",
     });
   });
+});
+
+describe("pageBrand", () => {
+  it("leaves an unbranded page on the site's own colours, so dark mode still works", () => {
+    expect(pageBrand(DEFAULT_QR_STYLE)).toBeNull();
+  });
+
+  it("fills buttons with the code colour", () => {
+    expect(pageBrand({ dark: "#0B3D5C", light: "#FFFFFF" })?.fill).toBe("#0B3D5C");
+  });
+
+  it("puts white text on a dark brand colour", () => {
+    expect(pageBrand({ dark: "#0B3D5C", light: "#FFFFFF" })?.ink).toBe("#FFFFFF");
+  });
+
+  it("puts black text on a mid-tone brand colour where black reads better", () => {
+    // #767676 is about the lightest grey a code may use on white. White on it
+    // is 4.54:1 and black about 4.6:1, so black narrowly wins.
+    expect(pageBrand({ dark: "#767676", light: "#FFFFFF" })?.ink).toBe("#000000");
+  });
+
+  it.each(["#0B3D5C", "#7A1F1F", "#1F5E2E", "#5A2D82", "#767676", "#000000"])(
+    "always leaves button text readable on %s",
+    (dark) => {
+      const brand = pageBrand({ dark, light: "#FFFFFF" })!;
+      expect(contrastRatio(brand.fill, brand.ink)).toBeGreaterThanOrEqual(4.5);
+    }
+  );
 });

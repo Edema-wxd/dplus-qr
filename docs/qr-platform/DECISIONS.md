@@ -561,6 +561,53 @@ The Vercel Marketplace Upstash integration was deliberately not used: it
 injects `KV_REST_API_URL` / `KV_REST_API_TOKEN`, which `src/lib/redis.ts` does
 not read, so it would have looked configured while `/health` stayed degraded.
 
+## Hosted-page photos are resized, 26 October 2026
+
+Photos on `/p/{code}` were served exactly as uploaded, up to 4MB each, to
+phones that are often on metered mobile data. They now go through
+`next/image` (`PageImage` in `src/app/p/[code]/views.tsx`): each phone gets a
+WebP at the width its layout needs, and everything below the fold loads
+lazily. Tapping a gallery thumbnail still opens the original.
+
+- **Scoped to this app's own UploadThing host** (`UPLOADTHING_APP_HOST` in
+  `src/lib/upload-host.ts`, read by `next.config.ts`). `*.ufs.sh` would have
+  let anyone run any UploadThing customer's files through this deployment's
+  optimiser on this account's bill. Verified against `next start`: another
+  app's file is refused with 400, ours is accepted, and a width outside
+  `deviceSizes`/`imageSizes` is refused.
+- WebP only, four device widths and three icon widths, so each picture costs
+  as few Vercel image transformations as possible. Resized copies are cached
+  for 31 days: a file URL is an UploadThing key and never points at new bytes.
+- A URL on any other host renders as a plain `<img>`, because `next/image`
+  throws on an unlisted host and one picture must not take a page down.
+  **If the UploadThing app changes, update `UPLOADTHING_APP_HOST`**, or photos
+  quietly go back to full size.
+- Video and audio were already `preload="metadata"` / `"none"`; unchanged.
+
+## Hosted pages carry the customer's brand, 26 October 2026
+
+A hosted page now wears the colour and logo its owner already chose for the
+code (Francis, 26 Oct 2026: per code, buttons only, footer kept). The scanner
+has just pointed a camera at that artwork, so the page should look like it came
+from the same business. No new settings screen; the code's page says the two
+are linked.
+
+- **Buttons** fill with the code's colour, with white or black text, whichever
+  contrasts more (`pageBrand` in `src/lib/qr-style.ts`; tested to stay at
+  4.5:1 or better). The background stays neutral and follows dark mode; a
+  full tint would fight dark mode and make long text harder to read.
+- **A code on the default black keeps the standard look exactly**, because
+  `pageBrand` returns null and the buttons fall back to the site's own
+  foreground, which flips in dark mode. A fixed near-black would not.
+- In dark mode a branded button gets a faint rim (`--brand-edge` in
+  `globals.css`): a brand colour is dark by construction and could otherwise
+  sink into a dark page.
+- **The logo** sits at the top of the page, contained in a fixed 160×56 box,
+  through the same resized-image path as page photos.
+- The QRiate+ footer, "Shared by …" and "Report this page" stay on every plan.
+  Removing the footer on paid plans (white-label) is a possible upsell, not
+  built.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

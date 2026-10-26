@@ -186,6 +186,17 @@ export default async function CodePage({
             logos={logos}
             uploads={uploadsEnabled()}
           />
+          {/*
+            Said here, beside the controls, because otherwise saving a colour
+            for the artwork silently changes a public page as well.
+          */}
+          {page ? (
+            <p className="max-w-[48ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+              The colour and logo above also style this code&apos;s page: its
+              buttons take the code colour and the logo sits at the top. On
+              black and white with no logo, the page keeps the standard look.
+            </p>
+          ) : null}
           {code.status === "blocked" ? null : (
             <StatusForm id={code.id} status={code.status} />
           )}

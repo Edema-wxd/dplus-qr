@@ -9,7 +9,8 @@ import { isValidCodeFormat } from "@/lib/short-code";
 import { loadPublicPage, type PublicPage } from "@/lib/public-page";
 import type { PageContent } from "@/lib/page-content";
 import { LegalLinks } from "@/components/LegalLinks";
-import { PageView } from "./views";
+import { pageBrand } from "@/lib/qr-style";
+import { BrandLogo, PageView } from "./views";
 
 // A scanned page is somebody's menu or business card, not something for a
 // search engine to index under this host.
@@ -55,9 +56,23 @@ export default async function HostedPage({ params }: { params: Promise<{ code: s
     if (app.android && /Android/i.test(agent)) redirect(app.android);
   }
 
+  // The page wears the colours and logo its owner chose for the code itself:
+  // the scanner has just pointed a camera at that artwork, so the page they
+  // land on should look like it came from the same business.
+  const brand = pageBrand(page.style);
+
   return (
-    <main className="min-h-dvh bg-background px-4 py-8 text-foreground sm:py-12">
+    <main
+      className="brand-scope min-h-dvh bg-background px-4 py-8 text-foreground sm:py-12"
+      data-branded={brand ? "" : undefined}
+      style={
+        brand
+          ? ({ "--brand": brand.fill, "--brand-ink": brand.ink } as React.CSSProperties)
+          : undefined
+      }
+    >
       <div className="mx-auto w-full max-w-md">
+        {page.logoUrl ? <BrandLogo url={page.logoUrl} name={page.ownerName} /> : null}
         <PageView kind={page.kind} content={page.content} code={code} />
 
         <footer className="mt-12 space-y-4 border-t border-border pt-6 text-xs text-muted-foreground">

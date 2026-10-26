@@ -131,3 +131,22 @@ export function qrStyleVars(
     "--qr-ground-solid": style.light,
   };
 }
+
+/**
+ * The colours a hosted page's primary buttons take from its code, or null to
+ * keep the site's own.
+ *
+ * The fill is the code's dark colour. The text on it is white or black,
+ * whichever contrasts more, so a button stays legible whatever the owner
+ * picked. A code on the default style returns null rather than its near-black,
+ * because the site's own foreground also flips for dark mode and a fixed
+ * near-black would not.
+ */
+export function pageBrand(style: QrStyle): { fill: string; ink: string } | null {
+  if (isDefaultQrStyle(style)) return null;
+  const ink =
+    contrastRatio(style.dark, "#FFFFFF") >= contrastRatio(style.dark, "#000000")
+      ? "#FFFFFF"
+      : "#000000";
+  return { fill: style.dark, ink };
+}
