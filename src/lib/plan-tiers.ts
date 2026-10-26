@@ -1,4 +1,5 @@
-import type { Plan, PlanFeatures } from "@/lib/plans";
+import type { Plan } from "@/lib/plans";
+import { advertisedFeatures } from "@/lib/plan-features";
 
 /**
  * Plans as a customer reads them: one tier, two billing intervals.
@@ -46,32 +47,19 @@ export function historyLabel(days: number): string {
   return `${days} days`;
 }
 
-const SUPPORT_LABEL: Record<string, string> = {
-  email: "Email support",
-  whatsapp_priority: "Priority WhatsApp support",
-  priority: "Priority support",
-};
-
 /**
- * Feature lines for a tier.
- *
- * Only flags the product actually enforces or delivers are listed.
- * `team_seats` and `bulk_creation` sit in the Business row's `features` but
- * nothing implements them yet, and a price table is the one place an
- * unbuilt feature turns into a promise someone paid for.
+ * Feature lines for a tier: the limits every plan has, then whichever flags
+ * the plan holds from the catalogue in `plan-features.ts`. Flags marked not
+ * built are left out, because a price table is the one place an unbuilt
+ * feature turns into a promise someone paid for.
  */
 export function featureLines(plan: Pick<Plan, "maxCodes" | "historyDays" | "features">): string[] {
-  const features: PlanFeatures = plan.features;
-  const lines = [
+  return [
     `${plan.maxCodes.toLocaleString("en-NG")} dynamic codes`,
     "Unlimited static codes",
     `${historyLabel(plan.historyDays)} of scan history`,
-    features.csv_export === true ? "CSV export of scans" : "No CSV export",
+    ...advertisedFeatures(plan.features),
   ];
-  if (features.custom_codes === true) lines.push("Custom links, like /yourname");
-  const support = typeof features.support === "string" ? SUPPORT_LABEL[features.support] : undefined;
-  if (support) lines.push(support);
-  return lines;
 }
 
 /** `pro-monthly` and `pro-annual` both belong to tier `pro`. */

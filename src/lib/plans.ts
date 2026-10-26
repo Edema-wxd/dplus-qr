@@ -113,6 +113,11 @@ export async function listAllPlans(): Promise<Plan[]> {
   return rows.map(toPlan);
 }
 
+export async function getPlanById(id: number): Promise<Plan | null> {
+  const row = await queryOne<Row>(`select ${COLUMNS} from qr_plans where id = $1`, [id]);
+  return row ? toPlan(row) : null;
+}
+
 export async function getPlanBySlug(slug: string): Promise<Plan | null> {
   const row = await queryOne<Row>(
     `select ${COLUMNS} from qr_plans where slug = $1`,

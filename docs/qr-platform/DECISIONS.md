@@ -650,6 +650,55 @@ the existing block power).
 - Shorter links also mean fewer QR modules, so a custom code scans a little
   more easily at small sizes.
 
+## Pricing page, plan meter and the staff admin, 26 October 2026
+
+**`/pricing` is public and reads `qr_plans`** (Francis, 26 Oct 2026). One
+price table (`PlanTiers`) serves `/pricing` and `/billing`, folded from the
+plan rows by `src/lib/plan-tiers.ts`, so the public page cannot advertise a
+price checkout would not take. It shows paid plans whether or not Paystack
+has a code for them; the billing page disables the button on one that has
+none. The table streams behind Suspense, so the build needs no database.
+
+**Feature flags have a catalogue**, `PLAN_FEATURES` in
+`src/lib/plan-features.ts`. Which plan carries which flag is data in
+`qr_plans.features`; what a flag does is code, so the set of flags is code.
+A flag marked `built: false` (`analytics`, `team_seats`, `bulk_creation`)
+can be stored and assigned but is never advertised.
+
+**The staff admin is at `/admin`**, for accounts whose Neon Auth role
+includes `admin`, read from `neon_auth."user"` on every request rather than
+from the session, and refused to banned accounts. Everyone else, signed out
+included, gets the ordinary 404. `/admin` is deliberately not in the proxy
+matcher, which would redirect a signed-out visitor to sign-in and so reveal
+the page exists. Granting the role is SQL, never a screen:
+
+    update neon_auth."user" set role = 'admin' where email = '...';
+
+It shows revenue (MRR from active paid plans, annual spread over twelve),
+overdue accounts, unapplied Paystack events, the plan catalogue and every
+customer. Every page view, search and change writes `qr_admin_audit`.
+
+**Staff can edit plans** (Francis, 26 Oct 2026: "dynamically assign them"):
+name, limits, grace, sort order, on-sale, and feature flags. Rules, enforced
+in `src/lib/plan-admin.ts`:
+
+- Price and interval are editable only until the plan is connected to
+  Paystack. Paystack charges its own copy of the price, so changing ours
+  afterwards would show one price and charge another. A new price is a new
+  plan, and the old one is retired.
+- Slugs are fixed once created. Plans are retired, never deleted.
+- "Connect to Paystack" on a plan's page adopts a matching Paystack plan or
+  creates one, the same rule as `npm run plans:sync`, which still works.
+
+**Staff can assign a plan to an account** without a payment, for comped
+accounts and manual invoices. This is the **second exception** to "webhooks
+are the only writer of `qr_subscriptions`" (the free-plan grant is the
+first), confined the same way: it is refused for an account with a live
+Paystack subscription, which is changed in Paystack instead, and it never
+assigns a plan smaller than the codes the account holds. An assigned plan has
+no end date; it runs until staff change it or the customer pays through
+checkout, whose `activate` supersedes it exactly as it supersedes Free.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
