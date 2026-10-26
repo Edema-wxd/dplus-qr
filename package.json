@@ -23,6 +23,7 @@
     "@neon/config": "^1.9.3",
     "@neon/env": "^1.6.4",
     "@neondatabase/auth": "^0.6.0-beta",
+    "@uploadthing/react": "^7.3.3",
     "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.39.0",
     "@vercel/functions": "^3.10.2",
@@ -32,7 +33,9 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "resend": "^6.34.1",
+    "sharp": "^0.35.5",
     "ua-parser-js": "^2.0.10",
+    "uploadthing": "^7.7.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -46,6 +49,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
     "jest": "^30.5.2",
+    "jsqr": "^1.4.0",
     "tailwindcss": "^4",
     "ts-jest": "^29.4.15",
     "tsx": "^4.23.15",

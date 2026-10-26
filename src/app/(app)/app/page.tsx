@@ -8,8 +8,18 @@ import { getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { qrStyleVars } from "@/lib/qr-style";
+import { listLogos } from "@/lib/logos";
+import { uploadsEnabled } from "@/lib/uploads";
+import {
+  applyListQuery,
+  CODE_SORTS,
+  isDefaultListQuery,
+  parseListQuery,
+  STATUS_FILTERS,
+  type ListQuery,
+} from "@/lib/code-list";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
-import { DashShell } from "./DashShell";
+import { DashShell, inputClass, secondaryButtonClass } from "./DashShell";
 import { StatusPill } from "./StatusPill";
 import { NewCodeForm } from "./NewCodeForm";
 import { VerifyBanner } from "./VerifyBanner";
@@ -21,7 +31,11 @@ export const metadata: Metadata = { title: "Your codes" };
 // blocking route, the same choice the account page makes.
 export const instant = false;
 
-export default async function CodesPage() {
+export default async function CodesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   // Before the session read, not after: `auth` validates its env vars on
   // first use and throws when they are absent, so without this `next build`
   // tries to prerender the page and fails on a secret it should never need.
@@ -34,10 +48,20 @@ export default async function CodesPage() {
   // actually serve traffic. See ensureFreeSubscription.
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
 
-  const [codes, entitlement] = await Promise.all([
+  const [codes, entitlement, library, params] = await Promise.all([
     listCodes(user.id),
     getEntitlement(user.id),
+    listLogos(user.id),
+    searchParams,
   ]);
+
+  const listQuery = parseListQuery(params);
+  const shown = applyListQuery(codes, listQuery);
+  const filtered = !isDefaultListQuery(listQuery);
+
+  // Plain objects for the client picker: no Dates across the boundary.
+  const logos = library.map(({ id, url, name }) => ({ id, url, name }));
+  const uploads = uploadsEnabled();
 
   const atLimit = entitlement !== null && codes.length >= entitlement.maxCodes;
 
@@ -64,7 +88,11 @@ export default async function CodesPage() {
           </span>
         ) : null
       }
-      action={hasCodes ? <NewCodeForm disabled={atLimit} /> : null}
+      action={
+        hasCodes ? (
+          <NewCodeForm disabled={atLimit} logos={logos} uploads={uploads} />
+        ) : null
+      }
     >
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
 
@@ -72,14 +100,27 @@ export default async function CodesPage() {
 
       {hasCodes ? <Totals codes={codes} /> : null}
 
+      {hasCodes ? (
+        <ListControls query={listQuery} shown={shown.length} total={codes.length} />
+      ) : null}
+
       {codes.length === 0 ? (
-        <EmptyState />
+        <EmptyState logos={logos} uploads={uploads} />
+      ) : shown.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-10 text-center text-sm text-[var(--paper-soft)]">
+          No codes match.{" "}
+          <Link href="/app" className="underline underline-offset-4">
+            Show all codes
+          </Link>
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-[var(--paper-rule)] bg-white">
           <table className="w-full min-w-[46rem] border-collapse text-sm">
             <caption className="sr-only">
-              Your QR codes, newest first, with scans today, over seven days and
-              over thirty days.
+              {filtered
+                ? `Your QR codes matching the filters above, ${shown.length} of ${codes.length}, `
+                : "Your QR codes, newest first, "}
+              with scans today, over seven days and over thirty days.
             </caption>
             <thead>
               <tr className="border-b border-[var(--paper-rule)] text-left text-xs uppercase tracking-[0.1em] text-[var(--paper-soft)]">
@@ -104,7 +145,7 @@ export default async function CodesPage() {
               </tr>
             </thead>
             <tbody>
-              {codes.map((code) => (
+              {shown.map((code) => (
                 <tr
                   key={code.id}
                   className="dash-row border-b border-[var(--paper-rule)] last:border-b-0"
@@ -127,6 +168,7 @@ export default async function CodesPage() {
                           value={codeUrl(code.shortCode)}
                           px={44}
                           title={`QR code for ${code.name}`}
+                          logoUrl={code.logo?.url}
                           className="block h-auto w-11"
                         />
                       </span>
@@ -251,7 +293,94 @@ function Figure({ value }: { value: number }) {
   );
 }
 
-function EmptyState() {
+/**
+ * Search, status and sort, as a plain GET form: the view lives in the URL, so
+ * it survives a reload and works before any JavaScript has loaded.
+ */
+function ListControls({
+  query,
+  shown,
+  total,
+}: {
+  query: ListQuery;
+  shown: number;
+  total: number;
+}) {
+  const filtered = !isDefaultListQuery(query);
+  const select = `${inputClass} sm:w-auto`;
+
+  return (
+    <form
+      method="get"
+      action="/app"
+      role="search"
+      aria-label="Filter codes"
+      className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end"
+    >
+      <div className="min-w-0 sm:flex-1">
+        <label htmlFor="codes-q" className="mb-1 block text-xs text-[var(--paper-soft)]">
+          Search
+        </label>
+        <input
+          id="codes-q"
+          name="q"
+          type="search"
+          defaultValue={query.q}
+          maxLength={100}
+          placeholder="Name, short code or link"
+          className={inputClass}
+        />
+      </div>
+      <div>
+        <label htmlFor="codes-status" className="mb-1 block text-xs text-[var(--paper-soft)]">
+          Status
+        </label>
+        <select id="codes-status" name="status" defaultValue={query.status} className={select}>
+          {Object.entries(STATUS_FILTERS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label htmlFor="codes-sort" className="mb-1 block text-xs text-[var(--paper-soft)]">
+          Sort
+        </label>
+        <select id="codes-sort" name="sort" defaultValue={query.sort} className={select}>
+          {Object.entries(CODE_SORTS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center gap-2">
+        <button type="submit" className={secondaryButtonClass}>
+          Apply
+        </button>
+        {filtered ? (
+          <Link href="/app" className="px-2 text-sm text-[var(--paper-soft)] underline underline-offset-4">
+            Clear
+          </Link>
+        ) : null}
+      </div>
+      {filtered ? (
+        <p aria-live="polite" className="dash-num text-xs text-[var(--paper-soft)] sm:basis-full">
+          Showing {shown.toLocaleString("en-NG")} of {total.toLocaleString("en-NG")} codes
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+function EmptyState({
+  logos,
+  uploads,
+}: {
+  logos: { id: string; url: string; name: string }[];
+  uploads: boolean;
+}) {
   return (
     <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-14 text-center">
       <p className="mx-auto max-w-[42ch] text-[15px] leading-relaxed text-[var(--paper-soft)]">
@@ -259,7 +388,7 @@ function EmptyState() {
         as long as the printed thing exists.
       </p>
       <div className="mt-6 flex justify-center">
-        <NewCodeForm />
+        <NewCodeForm logos={logos} uploads={uploads} />
       </div>
     </div>
   );

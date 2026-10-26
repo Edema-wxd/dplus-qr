@@ -111,8 +111,8 @@ staging; `/health` returns `200`; migrations run cleanly on a fresh database.
 - [ ] Redirect handler: format check, cache, `302`, paused and blocked pages
 - [ ] Scan recording in `after()`: Redis counters, `qr_scans` row, UA parsing,
       bot flag, geo lookup, hashed IP
-- [ ] QR downloads: SVG and PNG (1024 and 2048 px), colours, logo with error
-      correction H
+- [x] QR downloads: SVG and PNG (1024 and 2048 px), colours, logo with error
+      correction H — 26 Oct 2026. Logos via UploadThing; see DECISIONS.md
 - [ ] Dashboard: code list, per-code scan totals for today, 7 and 30 days
 
 **Done when:** a code printed on paper scans on an iPhone and an older Android;

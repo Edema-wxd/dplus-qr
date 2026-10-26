@@ -9,6 +9,7 @@ import {
   type StaticKind,
 } from "@/lib/static-payload";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "./DashShell";
+import { LogoPicker, type PickerLogo } from "./LogoPicker";
 
 /**
  * Create a code.
@@ -33,7 +34,16 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from "./DashShel
  */
 type Mode = "choose" | "dynamic" | "static";
 
-export function NewCodeForm({ disabled }: { disabled?: boolean }) {
+export function NewCodeForm({
+  disabled,
+  logos,
+  uploads,
+}: {
+  disabled?: boolean;
+  /** The account's logo library, offered so a logo is uploaded only once. */
+  logos: PickerLogo[];
+  uploads: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("choose");
   const [state, action, pending] = useActionState(
@@ -174,6 +184,14 @@ export function NewCodeForm({ disabled }: { disabled?: boolean }) {
             time without reprinting.
           </p>
         </div>
+
+        {/*
+          Shown when there is anything to pick or a way to add something. With
+          neither, it would be a fieldset holding only "None".
+        */}
+        {uploads || logos.length > 0 ? (
+          <LogoPicker logos={logos} uploads={uploads} idPrefix="new-code-logo" />
+        ) : null}
 
         {state.error ? (
           <p role="alert" className="text-sm text-[var(--struck-ink)]">

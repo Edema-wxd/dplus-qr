@@ -125,6 +125,7 @@ describe("helpers", () => {
     expect(qrStyleVars({ dark: "#0B3D5C", light: "#FFF8EC" })).toEqual({
       "--qr-ink": "#0B3D5C",
       "--qr-ground": "#FFF8EC",
+      "--qr-ground-solid": "#FFF8EC",
     });
   });
 });

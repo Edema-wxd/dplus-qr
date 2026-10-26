@@ -18,6 +18,9 @@ import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";
 import { StyleForm, StyleScope } from "./StyleControls";
 import { CopyLink } from "../CopyLink";
+import { LogoForm } from "./LogoForm";
+import { listLogos } from "@/lib/logos";
+import { uploadsEnabled } from "@/lib/uploads";
 
 export const metadata: Metadata = { title: "Code" };
 export const instant = false;
@@ -44,9 +47,10 @@ export default async function CodePage({
   const code = await getCode(user.id, id);
   if (!code) notFound();
 
-  const [history, entitlement, windows] = await Promise.all([
+  const [history, entitlement, library, windows] = await Promise.all([
     destinationHistory(user.id, id),
     getEntitlement(user.id),
+    listLogos(user.id),
     Promise.all(
       ANALYTICS_WINDOWS.map(async (days) => ({
         days,
@@ -57,6 +61,13 @@ export default async function CodePage({
 
   const exportable = canExportCsv(entitlement);
   const url = codeUrl(code.shortCode);
+
+  // The code's own logo is offered even after it leaves the library, so the
+  // picker never shows a code as having no logo when it has one.
+  const logos = library.map(({ id, url, name }) => ({ id, url, name }));
+  if (code.logo && !logos.some((logo) => logo.id === code.logo?.id)) {
+    logos.unshift({ id: code.logo.id, url: code.logo.url, name: "Current logo" });
+  }
 
   return (
     <DashShell
@@ -99,6 +110,7 @@ export default async function CodePage({
               value={url}
               px={248}
               title={`QR code for ${code.name}`}
+              logoUrl={code.logo?.url}
               className="mx-auto block h-auto w-full max-w-[248px]"
             />
           </div>
@@ -141,6 +153,12 @@ export default async function CodePage({
           />
           <RenameForm id={code.id} current={code.name} />
           <StyleForm id={code.id} saved={code.style} />
+          <LogoForm
+            id={code.id}
+            current={code.logo?.id ?? null}
+            logos={logos}
+            uploads={uploadsEnabled()}
+          />
           {code.status === "blocked" ? null : (
             <StatusForm id={code.id} status={code.status} />
           )}

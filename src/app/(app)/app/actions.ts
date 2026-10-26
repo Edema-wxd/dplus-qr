@@ -13,6 +13,7 @@ import {
   setStatus,
 } from "@/lib/user-codes";
 import { checkQrStyle, qrStyleSchema } from "@/lib/qr-style";
+import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
 
 /**
  * Dashboard mutations.
@@ -46,6 +47,15 @@ const idSchema = z
   .string()
   .refine((value) => parseCodeId(value) !== null, "That code could not be found.");
 
+// Empty means "no logo": that is what the picker's "None" option posts.
+const logoIdSchema = z
+  .string()
+  .refine(
+    (value) => value === "" || parseLogoId(value) !== null,
+    "That logo could not be found."
+  )
+  .transform((value) => (value === "" ? null : value));
+
 export type CreateCodeState = { error?: string };
 
 export async function createCodeAction(
@@ -55,10 +65,15 @@ export async function createCodeAction(
   const userId = await requireUserId();
 
   const parsed = z
-    .object({ name: nameSchema, destinationUrl: destinationSchema })
+    .object({
+      name: nameSchema,
+      destinationUrl: destinationSchema,
+      logoId: logoIdSchema,
+    })
     .safeParse({
       name: formData.get("name"),
       destinationUrl: formData.get("destinationUrl"),
+      logoId: formData.get("logoId") ?? "",
     });
 
   if (!parsed.success) {
@@ -214,5 +229,58 @@ export async function setStyleAction(
 
   revalidatePath(`/app/${parsed.data.id}`);
   revalidatePath("/app");
+  return { saved: true };
+}
+
+export async function setLogoAction(
+  _previous: CodeState,
+  formData: FormData
+): Promise<CodeState> {
+  const userId = await requireUserId();
+
+  const parsed = z
+    .object({ id: idSchema, logoId: logoIdSchema })
+    .safeParse({ id: formData.get("id"), logoId: formData.get("logoId") ?? "" });
+
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  try {
+    const ok = await setCodeLogo(userId, parsed.data.id, parsed.data.logoId);
+    if (!ok) {
+      return {
+        error: "That logo is no longer in your library. Pick another, or upload it again.",
+      };
+    }
+  } catch (error) {
+    console.error("[dashboard] logo change failed", error);
+    return { error: "We could not save that. Please try again." };
+  }
+
+  revalidatePath(`/app/${parsed.data.id}`);
+  revalidatePath("/app");
+  return { saved: true };
+}
+
+/**
+ * Remove a logo from the picker. Codes already drawn with it keep it; see
+ * `archiveLogo`.
+ */
+export async function archiveLogoAction(logoId: string): Promise<CodeState> {
+  const userId = await requireUserId();
+
+  const id = parseLogoId(String(logoId));
+  if (!id) return { error: "That logo could not be found." };
+
+  try {
+    const ok = await archiveLogo(userId, id);
+    if (!ok) return { error: "That logo could not be found." };
+  } catch (error) {
+    console.error("[dashboard] logo archive failed", error);
+    return { error: "We could not remove that. Please try again." };
+  }
+
+  revalidatePath("/app", "layout");
   return { saved: true };
 }

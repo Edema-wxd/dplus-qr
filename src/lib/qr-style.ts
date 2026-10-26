@@ -119,6 +119,15 @@ export function isDefaultQrStyle(style: QrStyle): boolean {
  * landing page's symbol untouched and lets a client wrapper preview a change
  * on a symbol that was rendered on the server.
  */
-export function qrStyleVars(style: QrStyle): Record<"--qr-ink" | "--qr-ground", string> {
-  return { "--qr-ink": style.dark, "--qr-ground": style.light };
+export function qrStyleVars(
+  style: QrStyle
+): Record<"--qr-ink" | "--qr-ground" | "--qr-ground-solid", string> {
+  // `--qr-ground-solid` is what a logo box paints with. It is separate because
+  // the dashboard's default `--qr-ground` is transparent, and a transparent
+  // box would leave the modules under the logo showing through it.
+  return {
+    "--qr-ink": style.dark,
+    "--qr-ground": style.light,
+    "--qr-ground-solid": style.light,
+  };
 }

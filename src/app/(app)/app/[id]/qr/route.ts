@@ -1,7 +1,10 @@
 import QRCode from "qrcode";
+import sharp from "sharp";
 import { auth } from "@/lib/auth/server";
 import { codeUrl } from "@/lib/brand";
 import { getCode, parseCodeId } from "@/lib/user-codes";
+import { loadLogo } from "@/lib/logos";
+import { renderQrSvg } from "@/lib/qr-render";
 
 /**
  * The downloadable artwork for one code.
@@ -19,7 +22,8 @@ import { getCode, parseCodeId } from "@/lib/user-codes";
  * download cannot encode different hosts.
  *
  * Error correction is Q, the level a printed code without a centred logo
- * wants. Logo-in-QR (which needs H) is not offered yet.
+ * wants. A code with a logo is drawn at H by `renderQrSvg`, the same renderer
+ * whose geometry the on-screen specimen uses.
  *
  * Colours come from the code's saved style through `readQrStyle`, which is
  * also what the on-screen specimen uses, so the download matches what the
@@ -50,6 +54,41 @@ export async function GET(
 
   const content = codeUrl(code.shortCode);
   const filename = `${code.shortCode}.${format}`;
+  const headers = {
+    "Content-Type": format === "png" ? "image/png" : "image/svg+xml",
+    "Content-Disposition": `attachment; filename="${filename}"`,
+    // Someone else's artwork must never be served from a shared cache, and
+    // the owner may re-download after changing nothing but their mind.
+    "Cache-Control": "private, no-store",
+  };
+
+  if (code.logo) {
+    // Fetched and embedded, never linked: an SVG that points at a URL loses
+    // its logo the moment a print shop opens it offline.
+    let logo: Buffer;
+    try {
+      logo = await loadLogo(code.logo.url);
+    } catch (error) {
+      console.error("[qr] logo fetch failed", error);
+      // Refused rather than quietly drawn without the logo, which would hand
+      // the owner artwork that differs from what they previewed.
+      return new Response(
+        "The logo for this code could not be loaded. Please try the download again.",
+        { status: 503, headers: { "Cache-Control": "no-store" } }
+      );
+    }
+
+    const svg = renderQrSvg({
+      content,
+      style: code.style,
+      px: size,
+      logoHref: `data:image/png;base64,${logo.toString("base64")}`,
+    });
+
+    const body =
+      format === "png" ? await sharp(Buffer.from(svg)).png().toBuffer() : svg;
+    return new Response(body as BodyInit, { headers });
+  }
 
   const common = {
     errorCorrectionLevel: "Q" as const,
@@ -63,13 +102,5 @@ export async function GET(
       ? await QRCode.toBuffer(content, { ...common, type: "png", width: size })
       : await QRCode.toString(content, { ...common, type: "svg", width: size });
 
-  return new Response(body as BodyInit, {
-    headers: {
-      "Content-Type": format === "png" ? "image/png" : "image/svg+xml",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      // Someone else's artwork must never be served from a shared cache, and
-      // the owner may re-download after changing nothing but their mind.
-      "Cache-Control": "private, no-store",
-    },
-  });
+  return new Response(body as BodyInit, { headers });
 }
