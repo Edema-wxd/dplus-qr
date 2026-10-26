@@ -71,13 +71,23 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
   const check = checkQrStyle(style);
   const ratio = contrastRatio(style.dark, style.light);
   const dirty = style.dark !== saved.dark || style.light !== saved.light;
+  const message = check.ok
+    ? `Contrast ${ratio.toFixed(1)}:1. This will scan once printed.`
+    : check.reason;
+
+  // The pair the last save was about. A server message describes those
+  // colours, so it is hidden as soon as the owner picks different ones rather
+  // than sitting under a pair it no longer applies to.
+  const [submitted, setSubmitted] = useState<QrStyle | null>(null);
+  const current =
+    submitted !== null && submitted.dark === style.dark && submitted.light === style.light;
 
   // `<input type="color">` reports lowercase; the stored form is uppercase.
   const pick = (key: keyof QrStyle) => (event: React.ChangeEvent<HTMLInputElement>) =>
     setStyle({ ...style, [key]: event.target.value.toUpperCase() });
 
   return (
-    <form action={action}>
+    <form action={action} onSubmit={() => setSubmitted(style)}>
       <input type="hidden" name="id" value={id} />
       <fieldset>
         <legend className="mb-2 block text-sm">Colours</legend>
@@ -99,16 +109,23 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
         </div>
       </fieldset>
 
-      <p
-        aria-live="polite"
-        className={`mt-3 text-xs leading-relaxed ${
-          check.ok ? "text-[var(--paper-soft)]" : "text-[var(--struck-ink)]"
-        }`}
-      >
-        {check.ok
-          ? `Contrast ${ratio.toFixed(1)}:1. This will scan once printed.`
-          : check.reason}
-      </p>
+      {/*
+        The live region persists so screen readers keep announcing it; the
+        line inside is keyed on its text, so each change inserts a new node
+        rather than editing one in place. Safari, with its colour panel open,
+        repainted the recoloured specimen but left an edited text node showing
+        the old message.
+      */}
+      <div aria-live="polite" className="mt-3">
+        <p
+          key={message}
+          className={`text-xs leading-relaxed ${
+            check.ok ? "text-[var(--paper-soft)]" : "text-[var(--struck-ink)]"
+          }`}
+        >
+          {message}
+        </p>
+      </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button
@@ -129,7 +146,7 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
         )}
       </div>
 
-      {state.error ? (
+      {state.error && current ? (
         <p role="alert" className="mt-2 text-sm text-[var(--struck-ink)]">
           {state.error}
         </p>
