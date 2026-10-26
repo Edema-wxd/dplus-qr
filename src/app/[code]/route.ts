@@ -1,5 +1,5 @@
 import { after, type NextRequest } from "next/server";
-import { isValidCodeFormat } from "@/lib/short-code";
+import { normaliseCode } from "@/lib/short-code";
 import { DEMO_CODE, DEMO_DESTINATION } from "@/lib/demo-code";
 import { lookupDestination, decide } from "@/lib/codes";
 import { recordScan, scanContext } from "@/lib/scans";
@@ -32,11 +32,14 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ code: string }> }
 ) {
-  const { code } = await params;
+  const { code: raw } = await params;
 
-  // Cheapest possible rejection: anything not 7 base-58 characters is noise
-  // (a crawler, a typo, a probe) and gets the not-found page without a query.
-  if (!isValidCodeFormat(code)) {
+  // Cheapest possible rejection: anything that is neither a generated code
+  // nor a well-formed custom one is noise (a crawler, a typo, a probe) and
+  // gets the not-found page without a query. A custom code comes back
+  // lowercased, the form it is stored in.
+  const code = normaliseCode(raw);
+  if (!code) {
     return notFound();
   }
 

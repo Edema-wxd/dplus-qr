@@ -7,6 +7,7 @@ import { auth } from "@/lib/auth/server";
 import {
   changeDestination,
   createCode,
+  customCodeAvailable,
   parseCodeId,
   renameCode,
   setCodeStyle,
@@ -17,6 +18,8 @@ import {
 import { isDynamicKind, isLinkKind } from "@/lib/qr-types";
 import { checkQrStyle, qrStyleSchema } from "@/lib/qr-style";
 import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
+import { canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
+import { checkCustomCode } from "@/lib/short-code";
 
 /**
  * Dashboard mutations.
@@ -89,11 +92,15 @@ export async function createCodeAction(
       name: nameSchema,
       kind: z.string().refine(isDynamicKind, "Choose a kind of code."),
       logoId: logoIdSchema,
+      // Optional; the format and the plan are checked in `createCode`, where
+      // the save happens, so a tampered form meets the same rules.
+      customCode: z.string().trim().max(64).default(""),
     })
     .safeParse({
       name: formData.get("name"),
       kind: formData.get("kind") ?? "url",
       logoId: formData.get("logoId") ?? "",
+      customCode: formData.get("customCode") ?? "",
     });
 
   if (!common.success) {
@@ -101,19 +108,20 @@ export async function createCodeAction(
   }
 
   const { name, kind, logoId } = common.data;
+  const customCode = common.data.customCode || null;
   let input: CreateInput;
   if (isLinkKind(kind)) {
     const destination = destinationSchema.safeParse(formData.get("destinationUrl"));
     if (!destination.success) {
       return { error: destination.error.issues[0]?.message ?? "Check the form." };
     }
-    input = { kind, name, logoId, destinationUrl: destination.data };
+    input = { kind, name, logoId, customCode, destinationUrl: destination.data };
   } else {
     const content = contentSchema.safeParse(formData.get("content"));
     if (!content.success) {
       return { error: content.error.issues[0]?.message ?? "Check the form." };
     }
-    input = { kind, name, logoId, content: content.data };
+    input = { kind, name, logoId, customCode, content: content.data };
   }
 
   let created;
@@ -345,4 +353,32 @@ export async function archiveLogoAction(logoId: string): Promise<CodeState> {
 
   revalidatePath("/app", "layout");
   return { saved: true };
+}
+
+export type CustomCodeHint =
+  | { state: "available"; code: string }
+  | { state: "taken" | "invalid" | "unavailable"; reason: string };
+
+/**
+ * The live hint under the custom link field: allowed, free, or why not.
+ * Read-only and advisory; the save decides (see `customCodeAvailable`).
+ */
+export async function checkCustomCodeAction(raw: string): Promise<CustomCodeHint> {
+  const userId = await requireUserId();
+
+  const permitted = canUseCustomCodes(await getEntitlement(userId));
+  if (!permitted.ok) return { state: "unavailable", reason: permitted.reason };
+
+  const checked = checkCustomCode(String(raw ?? ""));
+  if (!checked.ok) return { state: "invalid", reason: checked.reason };
+
+  try {
+    if (!(await customCodeAvailable(checked.code))) {
+      return { state: "taken", reason: "Someone already has that link. Try another." };
+    }
+  } catch (error) {
+    console.error("[dashboard] custom code check failed", error);
+    return { state: "unavailable", reason: "Could not check that link just now." };
+  }
+  return { state: "available", code: checked.code };
 }

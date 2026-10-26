@@ -111,6 +111,27 @@ export function canExportCsv(
   return { ok: true };
 }
 
+/**
+ * Whether this account may choose its own short code (`qriateplus.com/dplus`)
+ * instead of a generated one. A paid capability from `qr_plans.features`,
+ * read the way `canExportCsv` reads `csv_export`, so the form that offers the
+ * field and the save that honours it ask the same question.
+ */
+export function canUseCustomCodes(
+  entitlement: Entitlement | null
+): { ok: true } | { ok: false; reason: string } {
+  if (!entitlement) {
+    return { ok: false, reason: "Your account has no active plan yet." };
+  }
+  if (entitlement.features.custom_codes !== true) {
+    return {
+      ok: false,
+      reason: `Custom links are not part of the ${entitlement.planName} plan. They come with Pro and Business.`,
+    };
+  }
+  return { ok: true };
+}
+
 /** Whether another code may be created, and why not when it may not. */
 export function canCreateCode(
   entitlement: Entitlement | null

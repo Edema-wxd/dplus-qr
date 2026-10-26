@@ -91,6 +91,7 @@ export default async function BillingPage() {
     maxCodes: plan.maxCodes,
     historyLabel: historyLabel(plan.historyDays),
     csvExport: plan.features.csv_export === true,
+    customLinks: plan.features.custom_codes === true,
     isCurrent: state.planSlug === plan.slug,
   }));
 

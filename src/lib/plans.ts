@@ -33,6 +33,8 @@ export type PlanFeatures = {
   months_free?: number;
   team_seats?: boolean;
   bulk_creation?: boolean;
+  /** Owner-chosen short codes, such as `qriateplus.com/dplus`. */
+  custom_codes?: boolean;
 } & Record<string, unknown>;
 
 type Row = {

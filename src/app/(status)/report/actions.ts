@@ -6,10 +6,13 @@ import { query, queryOne } from "@/lib/db";
 import { notifyAdmin } from "@/lib/email";
 import { clientIp, ipRateKey } from "@/lib/ip";
 import { allowReport } from "@/lib/ratelimit";
-import { isValidCodeFormat } from "@/lib/short-code";
+import { normaliseCode } from "@/lib/short-code";
 
 const schema = z.object({
-  code: z.string().refine(isValidCodeFormat, "That is not a valid code."),
+  code: z
+    .string()
+    .refine((value) => normaliseCode(value) !== null, "That is not a valid code.")
+    .transform((value) => normaliseCode(value)!),
   // Optional: someone reporting a scam should not have to identify themselves.
   reporterEmail: z.union([z.string().email(), z.literal("")]).optional(),
   reason: z.string().trim().min(10, "Please say a little more.").max(2000),

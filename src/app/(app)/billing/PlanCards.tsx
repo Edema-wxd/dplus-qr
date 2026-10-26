@@ -12,6 +12,7 @@ export type PlanOption = {
   maxCodes: number;
   historyLabel: string;
   csvExport: boolean;
+  customLinks: boolean;
   isCurrent: boolean;
 };
 
@@ -64,6 +65,7 @@ export function PlanCards({ plans }: { plans: PlanOption[] }) {
               <li>{plan.maxCodes} dynamic codes</li>
               <li>{plan.historyLabel} of scan history</li>
               <li>{plan.csvExport ? "CSV export" : "No CSV export"}</li>
+              {plan.customLinks ? <li>Custom links, like /yourname</li> : null}
             </ul>
 
             <button

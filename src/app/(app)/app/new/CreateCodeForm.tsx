@@ -6,6 +6,7 @@ import { isLinkKind, type DynamicKind, type LinkKind } from "@/lib/qr-types";
 import { inputClass, primaryButtonClass } from "../DashShell";
 import { LogoPicker, type PickerLogo } from "../LogoPicker";
 import { ContentEditor, emptyDraft, type Draft } from "../ContentEditor";
+import { CustomLinkField } from "./CustomLinkField";
 
 /** What the destination field asks for, per link type. */
 const LINK_FIELD: Record<LinkKind, { label: string; placeholder: string; hint: string }> = {
@@ -37,11 +38,14 @@ export function CreateCodeForm({
   kind,
   logos,
   uploads,
+  customLinks,
 }: {
   kind: DynamicKind;
   /** The account's logo library, offered so a logo is uploaded only once. */
   logos: PickerLogo[];
   uploads: boolean;
+  /** Whether the plan includes custom links, and why not when it does not. */
+  customLinks: { ok: true } | { ok: false; reason: string };
 }) {
   const [state, action, pending] = useActionState(createCodeAction, {} as CreateCodeState);
   const [draft, setDraft] = useState<Draft>(() => (isLinkKind(kind) ? {} : emptyDraft(kind)));
@@ -96,6 +100,11 @@ export function CreateCodeForm({
           <input type="hidden" name="content" value={JSON.stringify(draft)} />
         </section>
       )}
+
+      <CustomLinkField
+        allowed={customLinks.ok}
+        reason={customLinks.ok ? undefined : customLinks.reason}
+      />
 
       {/*
         Shown when there is anything to pick or a way to add something. With

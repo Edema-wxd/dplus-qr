@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
-import { getEntitlement } from "@/lib/entitlement";
+import { canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { listLogos } from "@/lib/logos";
 import { uploadsEnabled } from "@/lib/uploads";
@@ -71,6 +71,7 @@ export default async function NewCodePage({
           kind={dynamic}
           logos={library.map(({ id, url, name }) => ({ id, url, name }))}
           uploads={uploads}
+          customLinks={canUseCustomCodes(entitlement)}
         />
       </DashShell>
     );
