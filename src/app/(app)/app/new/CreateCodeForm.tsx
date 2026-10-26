@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { createCodeAction, type CreateCodeState } from "../actions";
 import { isLinkKind, type DynamicKind, type LinkKind } from "@/lib/qr-types";
-import { inputClass, primaryButtonClass } from "../DashShell";
+import { inputClass, primaryButtonClass } from "@/components/controls";
 import { LogoPicker, type PickerLogo } from "../LogoPicker";
 import { ContentEditor, emptyDraft, type Draft } from "../ContentEditor";
 import { CustomLinkField } from "./CustomLinkField";

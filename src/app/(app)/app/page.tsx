@@ -18,12 +18,8 @@ import {
   type ListQuery,
 } from "@/lib/code-list";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
-import {
-  DashShell,
-  inputClass,
-  primaryButtonClass,
-  secondaryButtonClass,
-} from "./DashShell";
+import { DashShell } from "./DashShell";
+import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "./StatusPill";
 import { VerifyBanner } from "./VerifyBanner";
 

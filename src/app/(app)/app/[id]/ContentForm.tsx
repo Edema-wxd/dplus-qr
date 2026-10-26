@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { updateContentAction, type CodeState } from "../actions";
 import type { PageKind } from "@/lib/qr-types";
-import { primaryButtonClass } from "../DashShell";
+import { primaryButtonClass } from "@/components/controls";
 import { ContentEditor, type Draft } from "../ContentEditor";
 
 /**

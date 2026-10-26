@@ -2,37 +2,34 @@
 
 import { useActionState } from "react";
 import { startCheckoutAction, type CheckoutFormState } from "./actions";
-import { primaryButtonClass, secondaryButtonClass } from "../app/DashShell";
-
-export type PlanOption = {
-  slug: string;
-  name: string;
-  priceNgn: string;
-  interval: "monthly" | "annually";
-  maxCodes: number;
-  historyLabel: string;
-  csvExport: boolean;
-  customLinks: boolean;
-  isCurrent: boolean;
-};
+import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
+import { PlanTiers } from "@/components/PlanTiers";
+import type { Tier } from "@/lib/plan-tiers";
 
 /**
- * The plan chooser.
+ * The plan chooser: the shared price table, with each card's button posting a
+ * checkout.
  *
- * One form for the whole list rather than one per card, so the pending state
+ * One form for the whole table rather than one per card, so the pending state
  * is shared: with a form each, every button would have to track its own
  * pending flag and a second click during the redirect could start a second
  * checkout.
- *
- * The cards and buttons use the shapes `DashShell` exports, so choosing a plan
- * looks like the rest of the signed-in surface rather than like a page from
- * another product: same radius, same ink, same pressed response.
  */
-export function PlanCards({ plans }: { plans: PlanOption[] }) {
+export function PlanCards({
+  tiers,
+  currentSlug,
+}: {
+  tiers: Tier[];
+  currentSlug: string | null;
+}) {
   const [state, action, pending] = useActionState<CheckoutFormState, FormData>(
     startCheckoutAction,
     {}
   );
+
+  // Open on the interval the customer already pays at, so "Current plan" is on
+  // screen rather than behind the switch.
+  const onAnnual = tiers.some((tier) => tier.annual?.slug === currentSlug);
 
   return (
     <form action={action}>
@@ -42,46 +39,30 @@ export function PlanCards({ plans }: { plans: PlanOption[] }) {
         </p>
       ) : null}
 
-      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {plans.map((plan) => (
-          <li
-            key={plan.slug}
-            className="flex flex-col rounded-lg border border-[var(--paper-rule)] bg-white p-5"
-          >
-            <h3 className="text-base font-medium">{plan.name}</h3>
-            <p className="mt-1 text-2xl">
-              ₦{plan.priceNgn}
-              <span className="text-sm text-[var(--paper-soft)]">
-                {plan.interval === "annually" ? " / year" : " / month"}
-              </span>
-            </p>
-            {plan.interval === "annually" ? (
-              <p className="mt-0.5 text-xs text-[var(--paper-soft)]">
-                Two months free
-              </p>
-            ) : null}
-
-            <ul className="mt-4 flex-1 space-y-1 text-sm text-[var(--paper-soft)]">
-              <li>{plan.maxCodes} dynamic codes</li>
-              <li>{plan.historyLabel} of scan history</li>
-              <li>{plan.csvExport ? "CSV export" : "No CSV export"}</li>
-              {plan.customLinks ? <li>Custom links, like /yourname</li> : null}
-            </ul>
-
+      <PlanTiers
+        tiers={tiers}
+        initialInterval={onAnnual ? "annual" : "monthly"}
+        action={(price) => {
+          const isCurrent = price.slug === currentSlug;
+          return (
             <button
               type="submit"
               name="plan"
-              value={plan.slug}
-              disabled={pending || plan.isCurrent}
-              className={`mt-5 ${
-                plan.isCurrent ? secondaryButtonClass : primaryButtonClass
-              }`}
+              value={price.slug}
+              disabled={pending || isCurrent || !price.purchasable}
+              className={isCurrent || !price.purchasable ? secondaryButtonClass : primaryButtonClass}
             >
-              {plan.isCurrent ? "Current plan" : pending ? "Starting…" : "Choose"}
+              {isCurrent
+                ? "Current plan"
+                : !price.purchasable
+                  ? "Not available online yet"
+                  : pending
+                    ? "Starting…"
+                    : "Choose"}
             </button>
-          </li>
-        ))}
-      </ul>
+          );
+        }}
+      />
     </form>
   );
 }

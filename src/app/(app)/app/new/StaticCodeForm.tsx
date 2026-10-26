@@ -8,7 +8,7 @@ import {
   type StaticFields,
   type StaticKind,
 } from "@/lib/static-payload";
-import { inputClass, primaryButtonClass, secondaryButtonClass } from "../DashShell";
+import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { ContactImport } from "../ContactImport";
 
 function Field({

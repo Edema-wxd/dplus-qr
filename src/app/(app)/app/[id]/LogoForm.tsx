@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { setLogoAction, type CodeState } from "../actions";
 import { LogoPicker, type PickerLogo } from "../LogoPicker";
-import { primaryButtonClass } from "../DashShell";
+import { primaryButtonClass } from "@/components/controls";
 
 /**
  * Put a logo in the middle of this code, change it, or take it out.

@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { archiveLogoAction } from "./actions";
 import { useUploadThing } from "./uploadthing";
-import { secondaryButtonClass } from "./DashShell";
+import { secondaryButtonClass } from "@/components/controls";
 
 export type PickerLogo = { id: string; url: string; name: string };
 

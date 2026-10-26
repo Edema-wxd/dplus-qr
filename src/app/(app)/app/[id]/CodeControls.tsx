@@ -7,7 +7,7 @@ import {
   setStatusAction,
   type CodeState,
 } from "../actions";
-import { inputClass, primaryButtonClass, secondaryButtonClass } from "../DashShell";
+import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 
 /** Re-point the code. The one control the whole product exists for. */
 export function DestinationForm({

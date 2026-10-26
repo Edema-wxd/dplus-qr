@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { CODE_HOST } from "@/lib/brand";
 import { CUSTOM_MAX_LENGTH } from "@/lib/short-code";
 import { checkCustomCodeAction, type CustomCodeHint } from "../actions";
-import { inputClass } from "../DashShell";
+import { inputClass } from "@/components/controls";
 
 /**
  * Choose the code's link (`qriateplus.com/dplus`) instead of a generated one.

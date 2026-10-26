@@ -96,13 +96,22 @@ export default function Home() {
 
       <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-[var(--field-rule)] bg-[var(--field)]/92 px-7 py-3.5 backdrop-blur-sm sm:px-10 lg:hidden">
         <Wordmark on="field" width={112} />
-        <Link
-          href="/auth/sign-up"
-          className="rounded-lg bg-[var(--field-ink)] px-3.5 py-2 text-sm text-[var(--field)] no-underline"
-          data-plain
-        >
-          Create an account
-        </Link>
+        <div className="flex items-center gap-1">
+          <Link
+            href="/pricing"
+            className="rounded-lg px-3 py-2 text-sm text-[var(--field-soft)] no-underline transition-colors duration-150 hover:text-[var(--field-ink)]"
+            data-plain
+          >
+            Pricing
+          </Link>
+          <Link
+            href="/auth/sign-up"
+            className="rounded-lg bg-[var(--field-ink)] px-3.5 py-2 text-sm text-[var(--field)] no-underline"
+            data-plain
+          >
+            Create an account
+          </Link>
+        </div>
       </header>
 
       <main>
@@ -372,6 +381,12 @@ export default function Home() {
                 your codes pause. They are never deleted out from under your
                 printed material.
               </p>
+              <Link
+                href="/pricing"
+                className="mt-2 inline-block text-sm text-[var(--field-ink)]"
+              >
+                Compare plans
+              </Link>
 
               <div className="mt-7 flex flex-wrap items-center gap-3">
                 <Link
@@ -406,6 +421,12 @@ export default function Home() {
           <span>product: the studio that prints the thing your code lives on.</span>
         </div>
         <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
+          <Link
+            href="/pricing"
+            className="text-xs text-[var(--field-muted)] underline underline-offset-4 transition-colors duration-150 hover:text-[var(--field-ink)]"
+          >
+            Pricing
+          </Link>
           <LegalLinks tone="field" />
           <Wordmark on="field" width={104} className="opacity-85" />
         </div>

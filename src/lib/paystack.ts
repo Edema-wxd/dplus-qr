@@ -141,3 +141,54 @@ export function disableSubscription(code: string, emailToken: string): Promise<u
     body: { code, token: emailToken },
   });
 }
+
+export type PaystackPlan = {
+  id: number;
+  name: string;
+  plan_code: string;
+  amount: number;
+  interval: string;
+};
+
+/** What the customer sees on their Paystack receipt for one of our plans. */
+export function paystackPlanTitle(plan: { name: string; interval: string }): string {
+  const period = plan.interval === "annually" ? "Annual" : "Monthly";
+  return `QRiate+ ${plan.name} ${period}`;
+}
+
+/**
+ * A Paystack plan is "the same" as ours when the name, the amount and the
+ * interval all match. Name alone is not enough: Starter exists twice, monthly
+ * and annual, and adopting the wrong one would bill a year as a month. The
+ * same rule as `scripts/sync-paystack-plans.ts`, which predates this.
+ */
+export function paystackPlanMatches(
+  remote: PaystackPlan,
+  local: { name: string; amountKobo: number; interval: string }
+): boolean {
+  return (
+    remote.name.trim().toLowerCase() === paystackPlanTitle(local).toLowerCase() &&
+    remote.amount === local.amountKobo &&
+    remote.interval === local.interval
+  );
+}
+
+export function listPaystackPlans(): Promise<PaystackPlan[]> {
+  return call<PaystackPlan[]>("/plan?perPage=100");
+}
+
+export function createPaystackPlan(input: {
+  name: string;
+  amountKobo: number;
+  interval: "monthly" | "annually";
+}): Promise<PaystackPlan> {
+  return call<PaystackPlan>("/plan", {
+    method: "POST",
+    body: {
+      name: paystackPlanTitle(input),
+      amount: input.amountKobo,
+      interval: input.interval,
+      currency: "NGN",
+    },
+  });
+}

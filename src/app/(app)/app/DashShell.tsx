@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { LegalLinks } from "@/components/LegalLinks";
+import { Suspense } from "react";
 import { DashNav } from "./DashNav";
+import { PlanUsage } from "./PlanUsage";
 
 /**
  * The dashboard shell.
@@ -31,7 +33,13 @@ export function DashShell({
 }) {
   return (
     <div className="dash min-h-dvh lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
-      <DashNav />
+      <DashNav
+        usage={
+          <Suspense fallback={null}>
+            <PlanUsage />
+          </Suspense>
+        }
+      />
 
       <main className="mx-auto w-full max-w-6xl px-5 py-9 sm:px-8 sm:py-12">
         {back ? (
@@ -73,13 +81,3 @@ export function DashShell({
     </div>
   );
 }
-
-/** Shared control styles, so every form on the surface agrees. */
-export const inputClass =
-  "w-full rounded-md border border-[var(--paper-rule)] bg-white px-3 py-2 text-sm text-[var(--paper-ink)] placeholder:text-[var(--paper-soft)] transition-colors duration-150 focus:border-[var(--pin-ink)]";
-
-export const primaryButtonClass =
-  "inline-flex items-center justify-center rounded-md bg-[var(--paper-ink)] px-4 py-2 text-sm font-medium text-[var(--paper)] transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.97] disabled:opacity-60 disabled:active:scale-100";
-
-export const secondaryButtonClass =
-  "inline-flex items-center justify-center rounded-md border border-[var(--paper-rule)] bg-white px-3.5 py-2 text-sm text-[var(--paper-ink)] transition-colors duration-150 hover:border-[var(--paper-ink)] disabled:opacity-60";

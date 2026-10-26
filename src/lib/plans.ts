@@ -91,6 +91,33 @@ export async function listPurchasablePlans(): Promise<Plan[]> {
   return rows.map(toPlan);
 }
 
+/**
+ * Paid plans for the public pricing page, whether or not Paystack has a code
+ * for them yet. Prices are decided (decision 17) before checkout is wired, and
+ * the page says which ones can be bought online rather than hiding the rest.
+ */
+export async function listPublicPlans(): Promise<Plan[]> {
+  const rows = await query<Row>(
+    `select ${COLUMNS} from qr_plans
+     where is_active and amount_kobo > 0
+     order by sort_order, amount_kobo`
+  );
+  return rows.map(toPlan);
+}
+
+/** Every row, retired and free included, for the staff admin. */
+export async function listAllPlans(): Promise<Plan[]> {
+  const rows = await query<Row>(
+    `select ${COLUMNS} from qr_plans order by sort_order, amount_kobo`
+  );
+  return rows.map(toPlan);
+}
+
+export async function getPlanById(id: number): Promise<Plan | null> {
+  const row = await queryOne<Row>(`select ${COLUMNS} from qr_plans where id = $1`, [id]);
+  return row ? toPlan(row) : null;
+}
+
 export async function getPlanBySlug(slug: string): Promise<Plan | null> {
   const row = await queryOne<Row>(
     `select ${COLUMNS} from qr_plans where slug = $1`,

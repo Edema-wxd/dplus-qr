@@ -8,7 +8,7 @@ import {
   type ContactFields,
   type PickedContact,
 } from "@/lib/vcard-import";
-import { secondaryButtonClass } from "./DashShell";
+import { secondaryButtonClass } from "@/components/controls";
 
 type ContactsManager = {
   getProperties(): Promise<string[]>;
