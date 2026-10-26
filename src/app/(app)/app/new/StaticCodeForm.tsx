@@ -9,7 +9,7 @@ import {
   type StaticKind,
 } from "@/lib/static-payload";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "../DashShell";
-import { ContactImport } from "./ContactImport";
+import { ContactImport } from "../ContactImport";
 
 function Field({
   id,

@@ -232,3 +232,25 @@ export function fromPickedContact(contact: PickedContact): ContactFields {
   }
   return fields;
 }
+
+/**
+ * A contact as the Profile Card's fields. The card has one address box and
+ * one phone, so the parts are joined and the mobile wins over a work number.
+ * Every contact field is returned, empty or not, so an import replaces the
+ * previous person; the photo, bio and links are left alone because no
+ * contact card carries them in a form the page can use.
+ */
+export function toProfileFields(contact: ContactFields) {
+  const join = (parts: string[]) => parts.map((p) => p.trim()).filter(Boolean).join(", ");
+  return {
+    name:
+      [contact.firstName, contact.lastName].map((p) => p.trim()).filter(Boolean).join(" ") ||
+      contact.organisation,
+    title: contact.title,
+    company: contact.organisation,
+    mobile: contact.mobile || contact.phone,
+    email: contact.email,
+    website: contact.website,
+    address: join([contact.street, contact.city, contact.region, contact.postcode, contact.country]),
+  };
+}

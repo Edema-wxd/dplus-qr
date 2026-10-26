@@ -3,7 +3,9 @@ import {
   looksLikeVCard,
   parseVCard,
   splitName,
+  toProfileFields,
 } from "@/lib/vcard-import";
+import { parsePageContent } from "@/lib/page-content";
 import { buildStaticPayload } from "@/lib/static-payload";
 
 // Shaped like an iPhone "Share Contact": grouped properties, folded lines.
@@ -109,5 +111,26 @@ describe("contact picker results", () => {
 
   it("treats a single word as a first name", () => {
     expect(splitName("Tunde")).toEqual({ firstName: "Tunde", lastName: "" });
+  });
+});
+
+describe("toProfileFields", () => {
+  it("fits a contact into a valid Profile Card", () => {
+    const profile = toProfileFields(parseVCard(APPLE));
+    expect(profile).toEqual({
+      name: "Ada Obi",
+      title: "Founder",
+      company: "Obi & Sons",
+      mobile: "+234 801 234 5678",
+      email: "ada@obi.ng",
+      website: "https://obi.ng",
+      address: "12 Allen Avenue, Ikeja, Lagos, 100271, Nigeria",
+    });
+    expect(parsePageContent("profile", { ...profile, links: [] }).ok).toBe(true);
+  });
+
+  it("names a company-only contact after the company", () => {
+    const contact = parseVCard("BEGIN:VCARD\nVERSION:3.0\nORG:Obi & Sons\nEND:VCARD");
+    expect(toProfileFields(contact).name).toBe("Obi & Sons");
   });
 });
