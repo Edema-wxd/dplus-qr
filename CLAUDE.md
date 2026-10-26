@@ -106,6 +106,22 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Production needs custom SMTP and `neon neon-auth domain add <origin>` for
   each deployed origin. Localhost is pre-approved.
 
+**Realtime (live dashboard)**
+
+- Neon Realtime is enabled on `production`. `codesQuery()` in
+  `src/lib/user-codes.ts` is both the server read and the live query sealed
+  in `src/lib/live-codes.ts`, so it must stay deterministic: **no `now()`** —
+  window starts are parameters built from a UTC day. `live-codes.test.ts`
+  fails if a clock function creeps in.
+- Live is an enhancement. Without `NEON_REALTIME_URL`/`NEON_REALTIME_SECRET`,
+  or if sealing fails, the dashboard renders server rows and is not live.
+- A sealed query is a bearer token: never in a URL, a log or browser storage.
+  Renewals go through `POST /api/realtime/codes`, which refuses a session
+  that is not the user the page was rendered for.
+- A new deployed origin needs adding to Realtime's allowed origins as well as
+  to Managed Auth. Schema-only branches do not inherit Realtime; run
+  `neon realtime enable --branch <name>` on them.
+
 **Security**
 
 - Validate all input with `zod` on the server.

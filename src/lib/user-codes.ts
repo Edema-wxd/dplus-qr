@@ -3,6 +3,15 @@ import { purgeDestination } from "@/lib/codes";
 import { generateCode } from "@/lib/short-code";
 import { screenUrl } from "@/lib/screening";
 import { canCreateCode, getEntitlement } from "@/lib/entitlement";
+import {
+  toOwnedCode,
+  type CodeRow,
+  type OwnedCode,
+  type OwnerStatus,
+} from "@/lib/user-codes-shape";
+
+// Re-exported so existing callers keep importing the shape from here.
+export { toOwnedCode, type CodeRow, type OwnedCode, type OwnerStatus };
 
 /**
  * Everything the signed-in owner can do to their own codes.
@@ -32,54 +41,6 @@ export function parseCodeId(raw: string): string | null {
   return /^[1-9]\d{0,18}$/.test(raw) ? raw : null;
 }
 
-/** A code as its owner sees it, with the scan counts the list needs. */
-export type OwnedCode = {
-  id: string;
-  shortCode: string;
-  name: string;
-  destinationUrl: string;
-  status: "active" | "paused" | "blocked";
-  blockedReason: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  scansToday: number;
-  scans7d: number;
-  scans30d: number;
-};
-
-/** The owner may move a code between these two. `blocked` is an admin verdict. */
-export type OwnerStatus = "active" | "paused";
-
-type CodeRow = {
-  id: string;
-  short_code: string;
-  name: string;
-  destination_url: string;
-  status: OwnedCode["status"];
-  blocked_reason: string | null;
-  created_at: Date;
-  updated_at: Date;
-  scans_today: string;
-  scans_7d: string;
-  scans_30d: string;
-};
-
-function toOwnedCode(row: CodeRow): OwnedCode {
-  return {
-    id: String(row.id),
-    shortCode: row.short_code,
-    name: row.name,
-    destinationUrl: row.destination_url,
-    status: row.status,
-    blockedReason: row.blocked_reason,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    scansToday: Number(row.scans_today),
-    scans7d: Number(row.scans_7d),
-    scans30d: Number(row.scans_30d),
-  };
-}
-
 /**
  * Scan totals, counted from `qr_scans` rather than the `qr_scan_daily` rollup.
  *
@@ -90,50 +51,111 @@ function toOwnedCode(row: CodeRow): OwnedCode {
  * `(qr_id, scanned_at desc)` index serves well at this scale.
  *
  * Bots are excluded everywhere. A WhatsApp link preview is not a scan.
+ *
+ * **No `now()` anywhere in this query.** It is also a Neon Realtime live
+ * query, and live queries must be deterministic, so the window boundaries are
+ * parameters computed by `scanWindows()`. The windows are whole UTC days --
+ * "7 days" is today plus the six before it -- matching the analytics chart and
+ * the `qr_scan_daily` rollup, so a scan never lands in one window here and
+ * another there.
+ *
+ * The time filter sits in the join rather than the aggregate, so the join only
+ * ever touches the last 30 days of scans. `count(s.id)` rather than `count(*)`
+ * because a code with no scans still joins one all-null row, which `count(*)`
+ * would count as a scan.
+ *
+ * `$1::uuid` and `$5::bigint` are cast explicitly: Realtime sends untyped
+ * parameters as text, and `uuid = text` has no operator.
  */
-const COUNTS = `
-  coalesce(count(*) filter (
-    where not s.is_bot and s.scanned_at >= date_trunc('day', now())
-  ), 0) as scans_today,
-  coalesce(count(*) filter (
-    where not s.is_bot and s.scanned_at >= now() - interval '7 days'
-  ), 0) as scans_7d,
-  coalesce(count(*) filter (
-    where not s.is_bot and s.scanned_at >= now() - interval '30 days'
-  ), 0) as scans_30d
-`;
-
-export async function listCodes(userId: string): Promise<OwnedCode[]> {
-  const rows = await query<CodeRow>(
-    `select
+function codesSql(single: boolean): string {
+  return `select
        c.id, c.short_code, c.name, c.destination_url, c.status,
        c.blocked_reason, c.created_at, c.updated_at,
-       ${COUNTS}
+       count(s.id) filter (where s.scanned_at >= $2::timestamptz) as scans_today,
+       count(s.id) filter (where s.scanned_at >= $3::timestamptz) as scans_7d,
+       count(s.id) as scans_30d
      from qr_codes c
-     left join qr_scans s on s.qr_id = c.id
-     where c.user_id = $1
+     left join qr_scans s
+       on s.qr_id = c.id
+      and not s.is_bot
+      and s.scanned_at >= $4::timestamptz
+     where c.user_id = $1::uuid${single ? " and c.id = $5::bigint" : ""}
      group by c.id
-     order by c.created_at desc`,
-    [userId]
-  );
-  return rows.map(toOwnedCode);
+     order by c.created_at desc`;
+}
+
+/** The three window starts for one UTC day, as `codesSql` takes them. */
+export type ScanWindows = { today: Date; since7d: Date; since30d: Date };
+
+/** A UTC calendar day, `YYYY-MM-DD`. The only input `scanWindows` accepts. */
+export type UtcDay = string;
+
+export function utcDay(at: Date = new Date()): UtcDay {
+  return at.toISOString().slice(0, 10);
+}
+
+/**
+ * The window starts for a given UTC day.
+ *
+ * Keyed by day rather than by instant on purpose: a live query can only be
+ * renewed with exactly the parameters it was sealed with, so the renewal
+ * endpoint must be able to rebuild them. A day is something the browser can
+ * send back and the server can validate; an instant would drift by the
+ * milliseconds between the page render and the renewal.
+ */
+export function scanWindows(day: UtcDay): ScanWindows {
+  const today = new Date(`${day}T00:00:00.000Z`);
+  const daysBefore = (n: number) => new Date(today.getTime() - n * 86_400_000);
+  return { today, since7d: daysBefore(6), since30d: daysBefore(29) };
+}
+
+/**
+ * The list query as SQL and parameters, so `src/lib/live-codes.ts` can seal
+ * precisely what the server render ran.
+ */
+export function codesQuery(
+  userId: string,
+  day: UtcDay,
+  id?: string
+): { text: string; windows: ScanWindows; params: [string, ...unknown[]] } {
+  const windows = scanWindows(day);
+  const base: [string, Date, Date, Date] = [
+    userId,
+    windows.today,
+    windows.since7d,
+    windows.since30d,
+  ];
+  return id === undefined
+    ? { text: codesSql(false), windows, params: base }
+    : { text: codesSql(true), windows, params: [...base, id] };
+}
+
+export async function listCodeRows(
+  userId: string,
+  day: UtcDay = utcDay()
+): Promise<CodeRow[]> {
+  const { text, params } = codesQuery(userId, day);
+  return query<CodeRow>(text, params);
+}
+
+export async function listCodes(userId: string): Promise<OwnedCode[]> {
+  return (await listCodeRows(userId)).map(toOwnedCode);
+}
+
+export async function getCodeRow(
+  userId: string,
+  id: string,
+  day: UtcDay = utcDay()
+): Promise<CodeRow | null> {
+  const { text, params } = codesQuery(userId, day, id);
+  return queryOne<CodeRow>(text, params);
 }
 
 export async function getCode(
   userId: string,
   id: string
 ): Promise<OwnedCode | null> {
-  const row = await queryOne<CodeRow>(
-    `select
-       c.id, c.short_code, c.name, c.destination_url, c.status,
-       c.blocked_reason, c.created_at, c.updated_at,
-       ${COUNTS}
-     from qr_codes c
-     left join qr_scans s on s.qr_id = c.id
-     where c.user_id = $1 and c.id = $2
-     group by c.id`,
-    [userId, id]
-  );
+  const row = await getCodeRow(userId, id);
   return row ? toOwnedCode(row) : null;
 }
 

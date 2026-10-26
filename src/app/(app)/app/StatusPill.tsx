@@ -1,4 +1,4 @@
-import type { OwnedCode } from "@/lib/user-codes";
+import type { OwnedCode } from "@/lib/user-codes-shape";
 
 const TONE: Record<OwnedCode["status"], { label: string; className: string }> = {
   active: {

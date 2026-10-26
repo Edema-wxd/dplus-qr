@@ -69,6 +69,19 @@ describe("redirect route isolation", () => {
     expect(forbidden).toEqual([]);
   });
 
+  // Both are `lib/` modules, so "only lib modules" below would let them in.
+  // The dashboard's data layer and its Realtime sealing have no business on
+  // the path a printed code takes, and live-codes holds the Realtime secret.
+  it("never reaches the dashboard data layer or Realtime", () => {
+    const reached = [...transitiveLocalImports(REDIRECT_ROUTE)].map((f) =>
+      path.relative(ROOT, f)
+    );
+
+    expect(
+      reached.filter((f) => /^lib\/(user-codes|live-codes)\b/.test(f))
+    ).toEqual([]);
+  });
+
   it("reaches only lib modules", () => {
     const reached = [...transitiveLocalImports(REDIRECT_ROUTE)].map((f) =>
       path.relative(ROOT, f)
