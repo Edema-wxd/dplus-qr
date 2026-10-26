@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { getBillingState } from "@/lib/checkout";
 import { SUPPORT_EMAIL } from "@/lib/brand";
@@ -23,6 +24,10 @@ export const instant = false;
  * whether anyone is watching.
  */
 export default async function ConfirmingPage() {
+  // Before the session read, not after: `auth` validates its env vars on
+  // first use and throws when they are absent, so without this `next build`
+  // tries to prerender the page and fails on a secret it should never need.
+  await connection();
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");

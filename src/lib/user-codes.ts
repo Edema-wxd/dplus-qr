@@ -3,6 +3,8 @@ import { purgeDestination } from "@/lib/codes";
 import { generateCode } from "@/lib/short-code";
 import { screenUrl } from "@/lib/screening";
 import { canCreateCode, getEntitlement } from "@/lib/entitlement";
+import { readQrStyle, type QrStyle } from "@/lib/qr-style";
+import { ownsLiveLogo } from "@/lib/logos";
 
 /**
  * Everything the signed-in owner can do to their own codes.
@@ -40,6 +42,10 @@ export type OwnedCode = {
   destinationUrl: string;
   status: "active" | "paused" | "blocked";
   blockedReason: string | null;
+  /** Always safe to draw: a missing or invalid stored value reads as the default. */
+  style: QrStyle;
+  /** The logo drawn in the middle, if any. Still shown if since archived. */
+  logo: { id: string; url: string } | null;
   createdAt: Date;
   updatedAt: Date;
   scansToday: number;
@@ -57,6 +63,9 @@ type CodeRow = {
   destination_url: string;
   status: OwnedCode["status"];
   blocked_reason: string | null;
+  style: unknown;
+  logo_id: string | null;
+  logo_url: string | null;
   created_at: Date;
   updated_at: Date;
   scans_today: string;
@@ -72,6 +81,11 @@ function toOwnedCode(row: CodeRow): OwnedCode {
     destinationUrl: row.destination_url,
     status: row.status,
     blockedReason: row.blocked_reason,
+    style: readQrStyle(row.style),
+    logo:
+      row.logo_id && row.logo_url
+        ? { id: String(row.logo_id), url: row.logo_url }
+        : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     scansToday: Number(row.scans_today),
@@ -103,16 +117,25 @@ const COUNTS = `
   ), 0) as scans_30d
 `;
 
+/**
+ * The code's logo, joined on the owner as well as the id, so a row pointing
+ * at another account's logo (which `setCodeLogo` never writes) would draw no
+ * logo rather than someone else's.
+ */
+const LOGO_JOIN = `left join qr_logos l on l.id = c.logo_id and l.user_id = c.user_id`;
+
 export async function listCodes(userId: string): Promise<OwnedCode[]> {
   const rows = await query<CodeRow>(
     `select
        c.id, c.short_code, c.name, c.destination_url, c.status,
-       c.blocked_reason, c.created_at, c.updated_at,
+       c.blocked_reason, c.style, c.created_at, c.updated_at,
+       l.id as logo_id, l.url as logo_url,
        ${COUNTS}
      from qr_codes c
+     ${LOGO_JOIN}
      left join qr_scans s on s.qr_id = c.id
      where c.user_id = $1
-     group by c.id
+     group by c.id, l.id
      order by c.created_at desc`,
     [userId]
   );
@@ -126,12 +149,14 @@ export async function getCode(
   const row = await queryOne<CodeRow>(
     `select
        c.id, c.short_code, c.name, c.destination_url, c.status,
-       c.blocked_reason, c.created_at, c.updated_at,
+       c.blocked_reason, c.style, c.created_at, c.updated_at,
+       l.id as logo_id, l.url as logo_url,
        ${COUNTS}
      from qr_codes c
+     ${LOGO_JOIN}
      left join qr_scans s on s.qr_id = c.id
      where c.user_id = $1 and c.id = $2
-     group by c.id`,
+     group by c.id, l.id`,
     [userId, id]
   );
   return row ? toOwnedCode(row) : null;
@@ -150,7 +175,7 @@ export type CreateResult =
  */
 export async function createCode(
   userId: string,
-  input: { name: string; destinationUrl: string }
+  input: { name: string; destinationUrl: string; logoId?: string | null }
 ): Promise<CreateResult> {
   const screened = screenUrl(input.destinationUrl);
   if (!screened.ok) return { ok: false, reason: screened.reason };
@@ -158,16 +183,24 @@ export async function createCode(
   const allowed = canCreateCode(await getEntitlement(userId));
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
 
+  const logoId = input.logoId ?? null;
+  if (logoId && !(await ownsLiveLogo(userId, logoId))) {
+    return {
+      ok: false,
+      reason: "That logo is no longer in your library. Pick another, or upload it again.",
+    };
+  }
+
   const name = input.name.trim();
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const shortCode = generateCode();
     try {
       const row = await queryOne<{ id: string }>(
-        `insert into qr_codes (user_id, short_code, name, destination_url)
-         values ($1, $2, $3, $4)
+        `insert into qr_codes (user_id, short_code, name, destination_url, logo_id)
+         values ($1, $2, $3, $4, $5::bigint)
          returning id`,
-        [userId, shortCode, name, screened.normalised]
+        [userId, shortCode, name, screened.normalised, logoId]
       );
       // A fresh code has no history row: there is no previous destination to
       // record, and inventing one would make the log lie about a change that
@@ -199,6 +232,32 @@ export async function renameCode(
     [userId, id, name.trim()]
   );
   // The name is never on the redirect path, so no cache purge is needed.
+  return row !== null;
+}
+
+/**
+ * Save the colours a code's artwork is drawn in.
+ *
+ * Merged into the `style` object rather than replacing it, so a later key
+ * (a logo's placement, say) is not wiped by a colour change. The caller has
+ * already run `checkQrStyle`; this only writes.
+ *
+ * No cache purge: `style` is never read by the redirect path, and changing it
+ * changes the image, not where a scan goes.
+ */
+export async function setCodeStyle(
+  userId: string,
+  id: string,
+  style: QrStyle
+): Promise<boolean> {
+  const row = await queryOne<{ id: string }>(
+    `update qr_codes
+       set style = style || jsonb_build_object('dark', $3::text, 'light', $4::text),
+           updated_at = now()
+     where user_id = $1 and id = $2
+     returning id`,
+    [userId, id, style.dark, style.light]
+  );
   return row !== null;
 }
 

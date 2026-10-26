@@ -376,6 +376,106 @@ before live payments are taken. The NDPC registration question stays open, so
 the Privacy Policy names a contact for data requests and claims no
 registration.
 
+## Code colours and dashboard totals, 26 October 2026
+
+**Owners can colour their codes** from `/app/{id}`. The pair is stored in
+`qr_codes.style` as `{ dark, light }`, and the download route, the on-screen
+specimen and the list thumbnails all read it through `readQrStyle()` in
+`src/lib/qr-style.ts`. Colour changes the artwork only: the encoded content is
+still the code URL, `style` is never read by the redirect path, and nothing is
+purged on save.
+
+Two rules decide which pairs may be saved, and both are policy, not taste:
+
+- **Dark on light only.** An inverted code has the same contrast ratio, but a
+  share of scanner apps, older Android ones especially, only look for dark
+  finder patterns and never read it.
+- **Contrast of at least 4.5:1** (`MIN_QR_CONTRAST`). A printed code meets bad
+  light and glossy stock the owner never sees on a bright screen. This refuses
+  some mid-tone brand colours on white; they belong in a frame around the
+  code, not in it. Lowering it is a one-line change, but every code printed
+  under a lower floor stays printed.
+
+The form runs the same check as the owner picks, and the Server Action runs it
+again. `readQrStyle()` falls back to black on white for any stored value that
+fails, so a row edited by hand still downloads a code that scans.
+
+Logos followed the same day; see the next section.
+
+**`/app` now shows account-wide totals** (scans today, 7 and 30 days, live
+codes), summed from the same rows as the table so the two cannot disagree, and
+**a notice when the plan is not active**, because every code on such an
+account is serving the paused page and the owner cannot otherwise tell.
+
+**The empty-environment build passes again.** `/account`, `/app`, `/billing`
+and `/billing/confirming` now `await connection()` before the session read.
+Without it `next build` tried to prerender them and failed on
+`NEON_AUTH_BASE_URL`, because the lazy `auth` throws on first use when the
+variable is absent. `instant = false` alone does not stop that prerender.
+
+## Logos, the logo library and list filters, 26 October 2026
+
+**All customer uploads go through UploadThing** (Francis, 26 Oct 2026). This
+replaces the Neon `assets` bucket that `src/lib/storage.ts` was built for, and
+matches the upload path `dplus` already uses. `storage.ts` stays in the repo
+for now because `/health` reports on it, but nothing uploads through it.
+`qr_codes.logo_key` from migration 005 was meant for that bucket; it was never
+written and is superseded by `logo_id`, not dropped.
+
+**Every upload joins the account's logo library** (migration `014`,
+`qr_logos`). A logo uploaded once is offered again in a picker whenever the
+owner makes a code or edits one, so a business with one mark uploads it once.
+"Remove" in the picker archives the row; it does not delete the file, because a
+code already drawn with that logo must still download with it. Deleting files
+no code references is left to a later sweep.
+
+- `/api/uploadthing` checks the session in the router's middleware, so the
+  account a file is attached to comes from the session, never the browser.
+  It sits outside the `proxy.ts` matcher on purpose: UploadThing's completion
+  callback comes from their servers, not a signed-in browser.
+- PNG, JPEG and WebP only, 1MB, one file. **No SVG**: it can carry script and
+  logos render inside the dashboard's own page.
+- Each upload is decoded with `sharp` before it is recorded; a file that is
+  not really an image is deleted from UploadThing and refused.
+- At most 50 live logos per account (`MAX_LOGOS`).
+- **UploadThing URLs are public**, though unguessable. Acceptable for a mark
+  that is going to be printed on public material anyway, but it is a change
+  from the private bucket `storage.ts` describes, and the privacy policy's
+  wording should be checked against it before launch.
+- The server only ever fetches logos from `*.ufs.sh` or `utfs.io`
+  (`isUploadThingUrl`), so a tampered row cannot point the download route at
+  an internal address.
+
+**A code with a logo is drawn at error correction H**, with the logo in a box
+22% of the symbol's width (about 5% of its area), snapped to whole modules and
+never reaching the finder patterns or the format information beside them.
+`src/lib/qr-render.ts` draws both the specimen's grid and the download, and
+`src/__tests__/qr-render.test.ts` **rasterises the real artwork, logo and
+brand colours included, and decodes it** with `jsqr`. That test is the
+evidence that a logo still scans; it is not an eyeball check.
+
+Downloads embed the logo as a data URI, so an SVG still has its logo when a
+print shop opens it offline. If the logo cannot be fetched the download
+answers 503 rather than quietly drawing the code without it.
+
+**`UPLOADTHING_TOKEN`** is a new variable, optional in `env()`. Without it the
+upload button is hidden; logos already uploaded keep rendering.
+
+**Uploads fail on protected preview URLs.** UploadThing confirms each upload
+by calling back to the origin it started from, and a per-deployment URL behind
+Deployment Protection answers with an SSO redirect. Test uploads on the
+production domain or locally.
+
+**Migration 014 must run before this deploys.** The dashboard pages now read
+`qr_logos` and `qr_codes.logo_id`, so deploying first breaks `/app`. Printed
+codes are unaffected either way: the redirect lookup names its columns.
+
+**`/app` has search, a status filter and a sort**, read from the URL as a plain
+GET form, so a filtered view survives a reload and needs no JavaScript.
+Applied in memory to the rows `listCodes` already returns (at most a plan's
+code limit), which keeps the account-wide totals summed from every code while
+the table shows the subset.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

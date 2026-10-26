@@ -50,6 +50,14 @@ const schema = z.object({
   // Bucket declared in neon.ts.
   QR_BUCKET: z.string().min(1).default("assets"),
 
+  // --- UploadThing ---
+  // Every file a customer uploads (today: logos) goes through UploadThing. The
+  // SDK reads this itself from process.env; it is listed here so the contract
+  // is complete, and so the dashboard can hide upload controls when it is
+  // absent instead of offering a button that fails. Logos already uploaded
+  // keep rendering without it -- their URLs are public.
+  UPLOADTHING_TOKEN: z.string().min(1).optional(),
+
   // Optional: without these, the cache falls back to in-process only and rate
   // limiting is disabled (logged once at startup).
   UPSTASH_REDIS_REST_URL: z.union([z.string().url(), z.literal("")]).optional(),

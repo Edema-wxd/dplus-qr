@@ -1,12 +1,18 @@
 import QRCode from "qrcode";
+import {
+  logoBox,
+  qrGeometry,
+  QUIET_ZONE,
+  type QrLevel,
+} from "@/lib/qr-render";
 
-type Geometry = { path: string; span: number; quiet: number };
+type Geometry = { path: string; size: number; span: number; quiet: number };
 
 /**
- * Generated symbols, kept by the string they encode.
+ * Generated symbols, kept by the string they encode and the level.
  *
- * A symbol is a pure function of its content at a fixed error-correction
- * level, so this can never go stale: a given URL has exactly one grid, for as
+ * A symbol is a pure function of its content and error-correction level, so
+ * this can never go stale: a given URL has exactly one grid, for as
  * long as the process lives. What it saves is real -- the code list renders
  * one symbol per row on a per-request page, and an account at the top tier's
  * limit would otherwise run a hundred encodes and build a hundred path strings
@@ -20,33 +26,25 @@ type Geometry = { path: string; span: number; quiet: number };
 const CACHE_LIMIT = 512;
 const cache = new Map<string, Geometry>();
 
-function geometry(value: string): Geometry {
-  const hit = cache.get(value);
+function geometry(value: string, level: QrLevel): Geometry {
+  const key = `${level}:${value}`;
+  const hit = cache.get(key);
   if (hit) return hit;
 
-  const qr = QRCode.create(value, { errorCorrectionLevel: "Q" });
-  const n = qr.modules.size;
-  const data = qr.modules.data;
-
-  // One path for every dark module. Cheaper than n² elements, and it keeps the
-  // symbol a single paint for the browser.
-  let path = "";
-  for (let y = 0; y < n; y += 1) {
-    for (let x = 0; x < n; x += 1) {
-      if (data[y * n + x]) path += `M${x} ${y}h1v1h-1z`;
-    }
-  }
+  // One path for every dark module, drawn by the same function the download
+  // route uses, so the on-screen grid and the printed one cannot differ.
+  const { path, size } = qrGeometry(value, level);
 
   // A quiet zone is part of the symbol, not padding around it: without four
   // modules of clear ground a scanner can fail to find the finder patterns.
-  const quiet = 4;
-  const built: Geometry = { path, quiet, span: n + quiet * 2 };
+  const quiet = QUIET_ZONE;
+  const built: Geometry = { path, size, quiet, span: size + quiet * 2 };
 
   if (cache.size >= CACHE_LIMIT) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
-  cache.set(value, built);
+  cache.set(key, built);
 
   return built;
 }
@@ -66,19 +64,25 @@ function geometry(value: string): Geometry {
  * case -- those pages set `instant = false`, so every symbol in a code list is
  * generated per request, one per row. Hence the cache below. Either way
  * nothing here is on a scanner's critical path.
+ *
+ * With `logoUrl`, the symbol is drawn at level H with the logo in the box
+ * `logoBox` gives, exactly as the download route draws it.
  */
 export function QrSymbol({
   value,
   px,
   className,
   title,
+  logoUrl,
 }: {
   value: string;
   px: number;
   className?: string;
   title?: string;
+  logoUrl?: string | null;
 }) {
-  const { path, span, quiet } = geometry(value);
+  const { path, size, span, quiet } = geometry(value, logoUrl ? "H" : "Q");
+  const box = logoUrl ? logoBox(size) : null;
 
   return (
     <svg
@@ -93,6 +97,29 @@ export function QrSymbol({
       <rect width={span} height={span} fill="var(--qr-ground)" />
       <g transform={`translate(${quiet} ${quiet})`}>
         <path d={path} fill="var(--qr-ink)" />
+        {box && logoUrl ? (
+          <>
+            {/*
+              Not `--qr-ground`, which is transparent on the dashboard: the
+              box has to hide the modules beneath it.
+            */}
+            <rect
+              x={box.offset}
+              y={box.offset}
+              width={box.side}
+              height={box.side}
+              fill="var(--qr-ground-solid, #FFFFFF)"
+            />
+            <image
+              href={logoUrl}
+              x={box.offset + 1}
+              y={box.offset + 1}
+              width={box.side - 2}
+              height={box.side - 2}
+              preserveAspectRatio="xMidYMid meet"
+            />
+          </>
+        ) : null}
       </g>
     </svg>
   );
