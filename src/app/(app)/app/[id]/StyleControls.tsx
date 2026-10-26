@@ -16,7 +16,7 @@ import {
   type QrStyle,
 } from "@/lib/qr-style";
 import { setStyleAction, type CodeState } from "../actions";
-import { primaryButtonClass, secondaryButtonClass } from "../DashShell";
+import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 
 /**
  * Live colour preview for the code page.

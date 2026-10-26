@@ -13,7 +13,8 @@ import {
   ANALYTICS_WINDOWS,
 } from "@/lib/user-codes";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
-import { DashShell, secondaryButtonClass } from "../DashShell";
+import { DashShell } from "../DashShell";
+import { secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "../StatusPill";
 import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";

@@ -81,15 +81,3 @@ export function DashShell({
     </div>
   );
 }
-
-/**
- * Shared control styles live in `@/components/controls` so a public page (the
- * pricing page) can match the dashboard without importing the dashboard.
- * Re-exported here because every dashboard form already imports them from this
- * file.
- */
-export {
-  inputClass,
-  primaryButtonClass,
-  secondaryButtonClass,
-} from "@/components/controls";

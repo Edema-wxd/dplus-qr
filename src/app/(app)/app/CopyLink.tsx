@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { secondaryButtonClass } from "./DashShell";
+import { secondaryButtonClass } from "@/components/controls";
 
 /**
  * Copy a code's URL, the thing an owner pastes into a print brief or a chat.

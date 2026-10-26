@@ -7,7 +7,7 @@ import { EVENT_OFFSETS } from "@/lib/page-helpers";
 import { toProfileFields } from "@/lib/vcard-import";
 import { useUploadThing } from "./uploadthing";
 import { ContactImport } from "./ContactImport";
-import { inputClass, secondaryButtonClass } from "./DashShell";
+import { inputClass, secondaryButtonClass } from "@/components/controls";
 
 /**
  * The editor for a hosted page's content, used both when a code is created

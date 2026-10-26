@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { cancelPlanAction, type CancelFormState } from "./actions";
-import { secondaryButtonClass } from "../app/DashShell";
+import { secondaryButtonClass } from "@/components/controls";
 
 /**
  * Cancelling.
