@@ -9,6 +9,7 @@ import {
   type StaticKind,
 } from "@/lib/static-payload";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "../DashShell";
+import { ContactImport } from "./ContactImport";
 
 function Field({
   id,
@@ -205,6 +206,9 @@ export function StaticCodeForm({ kind }: { kind: StaticKind }) {
 
         {kind === "vcard" ? (
           <>
+            <ContactImport
+              onImport={(contact) => setFields((prev) => ({ ...prev, ...contact }))}
+            />
             <div className="grid gap-4 sm:grid-cols-2">
               {input("firstName", "First name", { autoComplete: "off" })}
               {input("lastName", "Last name", { autoComplete: "off" })}
