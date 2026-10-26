@@ -19,7 +19,7 @@ export function DashShell({
   back,
   children,
 }: {
-  heading: string;
+  heading: React.ReactNode;
   /** Short status line under the heading — plan usage, or the code's URL. */
   meta?: React.ReactNode;
   /** The page's primary action, top right. */

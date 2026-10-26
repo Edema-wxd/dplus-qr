@@ -41,6 +41,14 @@ const schema = z.object({
   NEON_AUTH_BASE_URL: z.string().url().optional(),
   NEON_AUTH_COOKIE_SECRET: z.string().min(32).optional(),
 
+  // --- Neon Realtime (live queries for the dashboard) ---
+  // Both Neon-managed. The URL is public and handed to the browser as a prop;
+  // the secret seals queries and must never leave the server. Neither is on
+  // the redirect path, and a dashboard without them still renders, just not
+  // live.
+  NEON_REALTIME_URL: z.string().url().optional(),
+  NEON_REALTIME_SECRET: z.string().min(1).optional(),
+
   // --- Neon Object Storage (S3-compatible) ---
   // AWS-standard names, so the AWS SDK picks them up from the environment.
   AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
