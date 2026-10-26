@@ -125,10 +125,18 @@ export default function Home() {
               </>
             }
           >
+            {/*
+              The hero symbol encodes the code the caption beneath it prints,
+              not the bare origin. It said `qriateplus.com/Ab3kQ9x` while
+              encoding `qriateplus.com`, so a visitor who scanned the page's
+              central claim was returned to the page instead of being redirected
+              by it. The redirect path answers this code from a constant, so the
+              scan demonstrates the product rather than the home page.
+            */}
             <QrSymbol
-              value={CODE_ORIGIN}
+              value={codeUrl}
               px={312}
-              title={`${PRODUCT_NAME_SPOKEN} — scan to open ${CODE_HOST}`}
+              title={`${PRODUCT_NAME_SPOKEN} — scan to open ${CODE_HOST}/${DEMO_CODE}`}
               className="block h-auto w-[min(72vw,312px)]"
             />
           </CodeDemo>

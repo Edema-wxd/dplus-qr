@@ -1,3 +1,5 @@
+import { DEMO_CODE } from "./demo-code";
+
 /**
  * Everything the landing page says, in one place.
  *
@@ -14,11 +16,15 @@
  */
 
 /**
- * The code reference used throughout the page's demonstration material. Valid
- * under the real generator — 7 characters, base-58, no `0 O I l` — but
- * deliberately not a code anyone owns.
+ * The code reference used throughout the page's demonstration material.
+ *
+ * Defined in `demo-code.ts` and re-exported here, because the redirect path
+ * answers it and must not import this file: the specimen is printed on a
+ * public page, so a scan of it resolves rather than reaching the not-found
+ * page. Re-exported rather than relocated so the page's own imports keep
+ * reading from the one place that holds everything the page says.
  */
-export const DEMO_CODE = "Ab3kQ9x";
+export { DEMO_CODE };
 
 /**
  * Illustrative destination history for one code. The dates run backwards from
