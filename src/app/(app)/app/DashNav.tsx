@@ -18,7 +18,7 @@ import { signOutAction } from "../auth/sign-in/actions";
  * list's own `?status=` filter, not separate pages, so they add nothing to
  * the URL namespace a short code could collide with.
  */
-export function DashNav() {
+export function DashNav({ usage }: { usage?: React.ReactNode }) {
   const pathname = usePathname();
   // The drawer is open *on a path*, so any navigation closes it: a drawer left
   // open would cover the page just chosen. A tap on a link closes it too, which
@@ -112,6 +112,8 @@ export function DashNav() {
             </li>
           </Group>
         </nav>
+
+        {usage}
 
         <div className="border-t border-[var(--field-rule)] px-3 py-3">
           <form action={signOutAction}>

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { LegalLinks } from "@/components/LegalLinks";
+import { Suspense } from "react";
 import { DashNav } from "./DashNav";
+import { PlanUsage } from "./PlanUsage";
 
 /**
  * The dashboard shell.
@@ -31,7 +33,13 @@ export function DashShell({
 }) {
   return (
     <div className="dash min-h-dvh lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)]">
-      <DashNav />
+      <DashNav
+        usage={
+          <Suspense fallback={null}>
+            <PlanUsage />
+          </Suspense>
+        }
+      />
 
       <main className="mx-auto w-full max-w-6xl px-5 py-9 sm:px-8 sm:py-12">
         {back ? (

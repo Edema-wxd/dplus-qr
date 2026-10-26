@@ -1,4 +1,4 @@
-import { featureLines, groupTiers, historyLabel, naira, tierKey } from "@/lib/plan-tiers";
+import { featureLines, groupTiers, historyLabel, naira, tierKey, usageNudge } from "@/lib/plan-tiers";
 import type { Plan } from "@/lib/plans";
 
 function plan(overrides: Partial<Plan> = {}): Plan {
@@ -95,5 +95,23 @@ describe("featureLines", () => {
     expect(featureLines(SEEDED[2])).toEqual(
       expect.arrayContaining(["CSV export of scans", "Custom links, like /yourname", "Priority WhatsApp support"])
     );
+  });
+});
+
+describe("usageNudge", () => {
+  const usage = { planSlug: "pro-monthly", codesUsed: 3, maxCodes: 50, active: true };
+
+  it("says nothing to a paying customer with room", () => {
+    expect(usageNudge(usage)).toBe("none");
+  });
+
+  it("nudges on the free plan and near the limit", () => {
+    expect(usageNudge({ ...usage, planSlug: "free" })).toBe("upgrade");
+    expect(usageNudge({ ...usage, codesUsed: 40 })).toBe("upgrade");
+    expect(usageNudge({ ...usage, codesUsed: 39 })).toBe("none");
+  });
+
+  it("puts a lapsed plan ahead of everything", () => {
+    expect(usageNudge({ ...usage, planSlug: "free", active: false })).toBe("inactive");
   });
 });

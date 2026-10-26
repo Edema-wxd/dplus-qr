@@ -117,3 +117,24 @@ export function groupTiers(plans: Plan[]): Tier[] {
   }
   return [...tiers.values()];
 }
+
+/**
+ * What the dashboard sidebar says under the plan meter.
+ *
+ * `inactive` outranks everything: every code on such an account is serving
+ * the paused page. `upgrade` appears on the free plan and from 80% of the
+ * code limit, early enough to act before the limit refuses a code someone
+ * needed today. Otherwise the meter says nothing, because a paying customer
+ * with room to spare does not need to be sold to on every page.
+ */
+export function usageNudge(usage: {
+  planSlug: string;
+  codesUsed: number;
+  maxCodes: number;
+  active: boolean;
+}): "inactive" | "upgrade" | "none" {
+  if (!usage.active) return "inactive";
+  if (usage.planSlug === "free") return "upgrade";
+  if (usage.maxCodes > 0 && usage.codesUsed / usage.maxCodes >= 0.8) return "upgrade";
+  return "none";
+}
