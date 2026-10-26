@@ -608,6 +608,48 @@ are linked.
   Removing the footer on paid plans (white-label) is a possible upsell, not
   built.
 
+## Custom short codes, 26 October 2026
+
+Owners on Pro and Business can choose a code's link, such as
+`qriateplus.com/dplus`, instead of a generated one (Francis, 26 Oct 2026:
+fixed at creation, Pro and Business, minimum 4 characters, first come with
+the existing block power).
+
+- **Stored in `qr_codes.short_code`, lowercase, under the same unique index**
+  as generated codes. Taken is decided by the index at insert, never by
+  checking first; the form's live "available" hint is advice only. A chosen
+  code gets one insert attempt and a clear "taken" answer, never a silent
+  substitute.
+- **Format:** lowercase letters, digits and single inner hyphens, 4 to 30
+  characters. `normaliseCode` in `src/lib/short-code.ts` is now the format
+  check on every path that reads a code from a URL (the redirect, `/p`, its
+  files, the paused and report pages). A generated code is matched exactly,
+  as base-58 is case-sensitive; anything else is lowercased, so `/DPlus` typed
+  off a poster reaches `dplus`. The one miss: a 7-letter custom code typed in
+  capitals looks like a generated code and is matched exactly. Scanned, it
+  always arrives as printed. Still one lookup, and a malformed path still
+  never reaches the database.
+- **Fixed once created.** A printed link can never change, so there is no
+  edit; the field says so before the owner commits.
+- **Every route on this host is reserved.** Before custom codes only
+  7-character route names could collide; now any can. `acceptable-use`,
+  `not-found-code`, `opengraph-image` and `icon` were added, and
+  `src/__tests__/custom-codes.test.ts` walks `src/app` and fails if any
+  top-level route is missing from `RESERVED_CODES`. **Adding a route still
+  means reserving its name**; the test now enforces it.
+- **Impersonation fragments are refused anywhere in a custom code**: sign-in
+  and trust words, payment services and banks operating in Nigeria, the
+  government bodies most used in scams, and this platform's own names. A
+  printed `qriateplus.com/gtbank-login` is a phishing page whatever it points
+  at. Misuse that slips past is handled by blocking the code, as for any
+  other abuse.
+- **Plan gate:** `custom_codes` in `qr_plans.features`, set on the four Pro
+  and Business rows by migration `016` (data only), read by
+  `canUseCustomCodes`. Safe in either deploy order: without the flag every
+  plan simply refuses a custom code. The billing cards list it.
+- Shorter links also mean fewer QR modules, so a custom code scans a little
+  more easily at small sizes.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

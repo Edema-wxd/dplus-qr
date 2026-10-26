@@ -1,6 +1,7 @@
 import { query, queryOne } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
-import { generateCode } from "@/lib/short-code";
+import { checkCustomCode, generateCode } from "@/lib/short-code";
+import { CODE_HOST } from "@/lib/brand";
 import { linkDestination, parsePageContent, type PageContent } from "@/lib/page-content";
 import { resolveFiles } from "@/lib/files";
 import {
@@ -11,7 +12,7 @@ import {
   type LinkKind,
   type PageKind,
 } from "@/lib/qr-types";
-import { canCreateCode, getEntitlement } from "@/lib/entitlement";
+import { canCreateCode, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
 
@@ -194,9 +195,26 @@ export type CreateResult =
  * first, because checking races. Insert against the unique index and retry on
  * violation. Five attempts against a 58^7 space is already far past paranoid.
  */
+/**
+ * `customCode`, when given, is the owner's chosen short code. It is fixed
+ * once the code exists: a printed link can never change, so there is no way
+ * to edit it afterwards, only to make another code.
+ */
 export type CreateInput =
-  | { kind: LinkKind; name: string; destinationUrl: string; logoId?: string | null }
-  | { kind: PageKind; name: string; content: unknown; logoId?: string | null };
+  | {
+      kind: LinkKind;
+      name: string;
+      destinationUrl: string;
+      logoId?: string | null;
+      customCode?: string | null;
+    }
+  | {
+      kind: PageKind;
+      name: string;
+      content: unknown;
+      logoId?: string | null;
+      customCode?: string | null;
+    };
 
 /**
  * Validate what a page type will show: files resolved against the account's
@@ -237,8 +255,18 @@ export async function createCode(
     content = checked.content;
   }
 
-  const allowed = canCreateCode(await getEntitlement(userId));
+  const entitlement = await getEntitlement(userId);
+  const allowed = canCreateCode(entitlement);
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
+
+  let customCode: string | null = null;
+  if (input.customCode) {
+    const permitted = canUseCustomCodes(entitlement);
+    if (!permitted.ok) return { ok: false, reason: permitted.reason };
+    const checked = checkCustomCode(input.customCode);
+    if (!checked.ok) return { ok: false, reason: checked.reason };
+    customCode = checked.code;
+  }
 
   const logoId = input.logoId ?? null;
   if (logoId && !(await ownsLiveLogo(userId, logoId))) {
@@ -250,8 +278,12 @@ export async function createCode(
 
   const name = input.name.trim();
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const shortCode = generateCode();
+  // A chosen code gets one attempt: if the unique index says it is taken,
+  // that is the answer, and generating something else would hand the owner a
+  // link they did not ask for. A generated code retries, as it always has.
+  const attempts = customCode ? 1 : 5;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const shortCode = customCode ?? generateCode();
     try {
       const row = await queryOne<{ id: string }>(
         `insert into qr_codes
@@ -277,6 +309,9 @@ export async function createCode(
         error instanceof Error &&
         error.message.includes("qr_codes_short_code_key");
       if (!collided) throw error;
+      if (customCode) {
+        return { ok: false, reason: `${CODE_HOST}/${customCode} is already taken. Try another.` };
+      }
     }
   }
 
@@ -684,4 +719,19 @@ export async function scanRows(
     os: r.os,
     browser: r.browser,
   }));
+}
+
+/**
+ * Whether a custom code is free right now, for the form's live hint.
+ *
+ * Advice only. Someone else can take the code between this answer and the
+ * save, and the save's unique index is what decides; this just spares the
+ * owner a round trip for the common case.
+ */
+export async function customCodeAvailable(code: string): Promise<boolean> {
+  const row = await queryOne<{ id: string }>(
+    `select id from qr_codes where short_code = $1`,
+    [code]
+  );
+  return row === null;
 }

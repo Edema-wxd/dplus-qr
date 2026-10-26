@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { isValidCodeFormat } from "@/lib/short-code";
+import { normaliseCode } from "@/lib/short-code";
 import { loadPublicPage } from "@/lib/public-page";
 import type { PageContent } from "@/lib/page-content";
 import { buildIcs, eventInstant } from "@/lib/page-helpers";
@@ -15,8 +15,9 @@ export async function GET(
   { params }: { params: Promise<{ code: string; file: string }> }
 ) {
   await connection();
-  const { code, file } = await params;
-  if (!isValidCodeFormat(code)) return new Response("Not found", { status: 404 });
+  const { code: raw, file } = await params;
+  const code = normaliseCode(raw);
+  if (!code) return new Response("Not found", { status: 404 });
 
   let page;
   try {

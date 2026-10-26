@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { StatusShell, CodeFooter, DetailFallback } from "../StatusShell";
 import { lookupDestination } from "@/lib/codes";
-import { isValidCodeFormat } from "@/lib/short-code";
+import { normaliseCode } from "@/lib/short-code";
 
 export const metadata: Metadata = { title: "This code is paused" };
 
@@ -32,10 +32,11 @@ export default function PausedPage({ searchParams }: Props) {
  * Streamed, so an unreachable database delays this line rather than the page.
  */
 async function PausedDetail({ searchParams }: Props) {
-  const { code } = await searchParams;
+  const { code: raw } = await searchParams;
+  const code = typeof raw === "string" ? normaliseCode(raw) : null;
 
   let ownerName: string | null = null;
-  if (code && isValidCodeFormat(code)) {
+  if (code) {
     try {
       const { destination } = await lookupDestination(code);
       ownerName = destination?.ownerName ?? null;
@@ -52,7 +53,7 @@ async function PausedDetail({ searchParams }: Props) {
           unavailable.
         </p>
       ) : null}
-      <CodeFooter code={code} />
+      <CodeFooter code={code ?? undefined} />
     </div>
   );
 }

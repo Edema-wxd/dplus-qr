@@ -5,7 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { PRODUCT_NAME } from "@/lib/brand";
-import { isValidCodeFormat } from "@/lib/short-code";
+import { normaliseCode } from "@/lib/short-code";
 import { loadPublicPage, type PublicPage } from "@/lib/public-page";
 import type { PageContent } from "@/lib/page-content";
 import { LegalLinks } from "@/components/LegalLinks";
@@ -30,8 +30,9 @@ export const instant = false;
  */
 export default async function HostedPage({ params }: { params: Promise<{ code: string }> }) {
   await connection();
-  const { code } = await params;
-  if (!isValidCodeFormat(code)) redirect("/not-found-code");
+  const { code: raw } = await params;
+  const code = normaliseCode(raw);
+  if (!code) redirect("/not-found-code");
 
   // Read outside any try/catch around `redirect`, which works by throwing.
   let page: PublicPage;

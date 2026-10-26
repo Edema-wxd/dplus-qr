@@ -5,10 +5,13 @@ import { z } from "zod";
 import { clientIp, ipRateKey } from "@/lib/ip";
 import { allowFeedback } from "@/lib/ratelimit";
 import { saveFeedback } from "@/lib/public-page";
-import { isValidCodeFormat } from "@/lib/short-code";
+import { normaliseCode } from "@/lib/short-code";
 
 const schema = z.object({
-  code: z.string().refine(isValidCodeFormat, "That is not a valid code."),
+  code: z
+    .string()
+    .refine((value) => normaliseCode(value) !== null, "That is not a valid code.")
+    .transform((value) => normaliseCode(value)!),
   rating: z.coerce
     .number({ error: "Choose a rating." })
     .int()
