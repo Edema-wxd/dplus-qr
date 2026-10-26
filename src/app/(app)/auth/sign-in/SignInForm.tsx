@@ -2,50 +2,37 @@
 
 import { useActionState } from "react";
 import { signInAction, type SignInState } from "./actions";
-import { fieldClass, buttonClass } from "../../AuthShell";
+import { Field, PasswordField, FormError, SubmitButton } from "../../AuthFields";
 
 export function SignInForm() {
   const [state, action, pending] = useActionState(signInAction, {} as SignInState);
+  const failed = Boolean(state.error);
 
   return (
-    <form action={action} className="space-y-4">
-      <div>
-        <label htmlFor="email" className="block text-sm mb-1">
-          Email
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          required
-          autoComplete="email"
-          className={fieldClass}
-        />
-      </div>
+    <form action={action} className="space-y-5">
+      <Field
+        label="Email"
+        name="email"
+        type="email"
+        required
+        autoComplete="email"
+        inputMode="email"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        invalid={failed}
+      />
+      <PasswordField
+        label="Password"
+        name="password"
+        required
+        autoComplete="current-password"
+        invalid={failed}
+      />
 
-      <div>
-        <label htmlFor="password" className="block text-sm mb-1">
-          Password
-        </label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          required
-          autoComplete="current-password"
-          className={fieldClass}
-        />
-      </div>
+      <FormError message={state.error} />
 
-      {state.error ? (
-        <p role="alert" className="text-sm text-dsp-red">
-          {state.error}
-        </p>
-      ) : null}
-
-      <button type="submit" disabled={pending} className={buttonClass}>
-        {pending ? "Signing in…" : "Sign in"}
-      </button>
+      <SubmitButton pending={pending} idle="Sign in" busy="Signing in…" />
     </form>
   );
 }
