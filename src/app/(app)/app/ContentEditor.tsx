@@ -4,7 +4,9 @@ import { useId, useRef, useState, type Dispatch, type SetStateAction } from "rea
 import type { PageKind } from "@/lib/qr-types";
 import { SOCIAL_NETWORKS, type FileRef } from "@/lib/page-content";
 import { EVENT_OFFSETS } from "@/lib/page-helpers";
+import { toProfileFields } from "@/lib/vcard-import";
 import { useUploadThing } from "./uploadthing";
+import { ContactImport } from "./ContactImport";
 import { inputClass, secondaryButtonClass } from "./DashShell";
 
 /**
@@ -156,6 +158,9 @@ export function ContentEditor({
     case "profile":
       return (
         <Stack>
+          <ContactImport
+            onImport={(contact) => onChange((prev) => ({ ...prev, ...toProfileFields(contact) }))}
+          />
           {text("name", "Your name", { required: true })}
           <Pair>
             {text("title", "Job title (optional)")}

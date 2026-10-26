@@ -8,7 +8,7 @@ import {
   type ContactFields,
   type PickedContact,
 } from "@/lib/vcard-import";
-import { secondaryButtonClass } from "../DashShell";
+import { secondaryButtonClass } from "./DashShell";
 
 type ContactsManager = {
   getProperties(): Promise<string[]>;
@@ -56,7 +56,7 @@ export function ContactImport({ onImport }: { onImport: (fields: ContactFields) 
       // Dismissing the picker resolves with nothing: not an error.
       if (!contact) return;
       onImport(fromPickedContact(contact));
-      setNote({ error: false, text: "Filled in from your contacts. Check it before downloading." });
+      setNote({ error: false, text: "Filled in from your contacts. Check the details below." });
     } catch {
       setNote({ error: true, text: "Your contacts could not be opened. Try a .vcf file instead." });
     }
@@ -78,7 +78,7 @@ export function ContactImport({ onImport }: { onImport: (fields: ContactFields) 
     onImport(parseVCard(text));
     setNote({
       error: false,
-      text: `Filled in from ${file.name}. Check it before downloading.`,
+      text: `Filled in from ${file.name}. Check the details below.`,
     });
   }
 
