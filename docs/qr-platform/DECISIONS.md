@@ -757,6 +757,52 @@ userinfo (`https://paystack.com@evil.ng/x`), which browsers send to `evil.ng`.
 Fixed separately in PR #15, which refuses userinfo outright. Codes saved
 before it can be found by searching `@` here and re-screened.
 
+## Code design: patterns, corners and colours, 27 October 2026
+
+Owners can design a code's artwork when they create it and on its page
+afterwards (Francis, 27 Oct 2026: every plan; frames with custom text and
+preset logos follow in a second PR).
+
+- **Six patterns** (square, dots, rounded, extra-rounded, classy,
+  classy-rounded), **corner frames** (match the pattern, square, rounded,
+  circle), **corner dots** (match, square, dot), separate colours for the
+  dots, background, corner frames and corner dots, a swap button and a
+  transparent background.
+- **No migration.** It all lives in `qr_codes.style`. Every new key is
+  optional and defaults, so a code saved before this reads, previews and
+  downloads exactly as it did. `readQrStyle` keeps each key only if it is
+  valid and the whole still scans, so one bad key costs that key, not the
+  design.
+- **One drawing for everything.** `src/lib/qr-artwork.ts` is pure and
+  encoder-free. The download route, the server-rendered specimens and the
+  live preview in the browser all draw with it from a module matrix the
+  server encodes; the browser never runs a QR encoder. What the owner
+  previews is what they print. Downloads now always go through this one
+  renderer, logo or not.
+- **Every colour is held to the scan rule**: darker than the background and
+  at least 4.5:1, corner colours included, since the corners are how a
+  scanner finds the code. The swap button is disabled when swapping would
+  make the code light on dark.
+- **A transparent background** is checked against the background colour,
+  which the form says is then the surface the owner must print on.
+
+**Scan testing, and the choice of reader.** Every pattern × corner frame ×
+corner dot combination (72) is rendered and decoded in the test suite: small
+and plain, with a deliberately hostile checkerboard logo, in four brand
+colours with a long custom link, and transparent. The gate is **ZXing**
+(`@zxing/library`, test-only), the engine many Android scanner apps are built
+on, which reads all of them. **jsQR**, which the suite already used, failed
+130 of 504 styled cases: it is far stricter about non-square corner shapes
+than phone cameras, and is kept for the default artwork only, which it reads
+as before. Apple's and Google's camera readers cannot be run here, so a
+phone test of a styled code before a large print run is still advised. If
+real scans of a combination ever fail, remove it from `QR_PATTERNS` /
+`CORNER_FRAMES` / `CORNER_DOTS` and the tests follow.
+
+The one size where ZXing failed was 300px with the checkerboard logo, and it
+fails there for the default style too: an artefact of that test logo's fine
+pattern, not of any design.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

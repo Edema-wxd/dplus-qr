@@ -1,4 +1,3 @@
-import QRCode from "qrcode";
 import sharp from "sharp";
 import { auth } from "@/lib/auth/server";
 import { codeUrl } from "@/lib/brand";
@@ -22,12 +21,12 @@ import { renderQrSvg } from "@/lib/qr-render";
  * download cannot encode different hosts.
  *
  * Error correction is Q, the level a printed code without a centred logo
- * wants. A code with a logo is drawn at H by `renderQrSvg`, the same renderer
- * whose geometry the on-screen specimen uses.
+ * wants. A code with a logo is drawn at H by `renderQrSvg`, which draws with
+ * the same artwork function as the on-screen specimen and the live preview.
  *
- * Colours come from the code's saved style through `readQrStyle`, which is
- * also what the on-screen specimen uses, so the download matches what the
- * owner previewed. A stored pair that would not scan reads as the default.
+ * The design comes from the code's saved style through `readQrStyle`, so the
+ * download matches what the owner previewed. A stored style that would not
+ * scan reads as the default, never as unscannable artwork.
  */
 export async function GET(
   request: Request,
@@ -62,12 +61,12 @@ export async function GET(
     "Cache-Control": "private, no-store",
   };
 
+  let logoHref: string | undefined;
   if (code.logo) {
     // Fetched and embedded, never linked: an SVG that points at a URL loses
     // its logo the moment a print shop opens it offline.
-    let logo: Buffer;
     try {
-      logo = await loadLogo(code.logo.url);
+      logoHref = `data:image/png;base64,${(await loadLogo(code.logo.url)).toString("base64")}`;
     } catch (error) {
       console.error("[qr] logo fetch failed", error);
       // Refused rather than quietly drawn without the logo, which would hand
@@ -77,30 +76,12 @@ export async function GET(
         { status: 503, headers: { "Cache-Control": "no-store" } }
       );
     }
-
-    const svg = renderQrSvg({
-      content,
-      style: code.style,
-      px: size,
-      logoHref: `data:image/png;base64,${logo.toString("base64")}`,
-    });
-
-    const body =
-      format === "png" ? await sharp(Buffer.from(svg)).png().toBuffer() : svg;
-    return new Response(body as BodyInit, { headers });
   }
 
-  const common = {
-    errorCorrectionLevel: "Q" as const,
-    margin: 4,
-    // `qrcode` takes RGBA hex; the style is opaque RGB, so append full alpha.
-    color: { dark: `${code.style.dark}FF`, light: `${code.style.light}FF` },
-  };
-
-  const body =
-    format === "png"
-      ? await QRCode.toBuffer(content, { ...common, type: "png", width: size })
-      : await QRCode.toString(content, { ...common, type: "svg", width: size });
-
+  // One renderer for every download, logo or not, so a pattern, corners and
+  // colours come out exactly as previewed. A transparent style leaves the
+  // ground out, and the PNG keeps the transparency.
+  const svg = renderQrSvg({ content, style: code.style, px: size, logoHref });
+  const body = format === "png" ? await sharp(Buffer.from(svg)).png().toBuffer() : svg;
   return new Response(body as BodyInit, { headers });
 }

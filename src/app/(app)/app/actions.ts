@@ -63,6 +63,23 @@ const logoIdSchema = z
   .transform((value) => (value === "" ? null : value));
 
 /**
+ * A code's design, posted as one JSON field by the design panel, then held
+ * to the same schema as anything read back from the database.
+ */
+const styleFieldSchema = z
+  .string({ error: "Choose a design first." })
+  .max(2_000, "That design could not be read.")
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      ctx.addIssue({ code: "custom", message: "That design could not be read. Please try again." });
+      return z.NEVER;
+    }
+  })
+  .pipe(qrStyleSchema);
+
+/**
  * A page type's content, posted as one JSON field by the editor. Parsed here
  * only as far as "is it JSON, and not huge"; its shape is the kind's schema's
  * job, in `createCode` and `updateCodeContent`.
@@ -95,33 +112,43 @@ export async function createCodeAction(
       // Optional; the format and the plan are checked in `createCode`, where
       // the save happens, so a tampered form meets the same rules.
       customCode: z.string().trim().max(64).default(""),
+      // Optional, so a form without the design panel still creates a plain code.
+      style: styleFieldSchema.optional(),
     })
     .safeParse({
       name: formData.get("name"),
       kind: formData.get("kind") ?? "url",
       logoId: formData.get("logoId") ?? "",
       customCode: formData.get("customCode") ?? "",
+      style: formData.get("style") ?? undefined,
     });
 
   if (!common.success) {
     return { error: common.error.issues[0]?.message ?? "Check the form." };
   }
 
-  const { name, kind, logoId } = common.data;
+  const { name, kind, logoId, style } = common.data;
   const customCode = common.data.customCode || null;
+
+  // The panel runs this same check as the owner designs, but a Server Action
+  // is an endpoint anyone can post to, so the server decides.
+  if (style) {
+    const scannable = checkQrStyle(style);
+    if (!scannable.ok) return { error: scannable.reason };
+  }
   let input: CreateInput;
   if (isLinkKind(kind)) {
     const destination = destinationSchema.safeParse(formData.get("destinationUrl"));
     if (!destination.success) {
       return { error: destination.error.issues[0]?.message ?? "Check the form." };
     }
-    input = { kind, name, logoId, customCode, destinationUrl: destination.data };
+    input = { kind, name, logoId, customCode, style, destinationUrl: destination.data };
   } else {
     const content = contentSchema.safeParse(formData.get("content"));
     if (!content.success) {
       return { error: content.error.issues[0]?.message ?? "Check the form." };
     }
-    input = { kind, name, logoId, customCode, content: content.data };
+    input = { kind, name, logoId, customCode, style, content: content.data };
   }
 
   let created;
@@ -274,11 +301,8 @@ export async function setStyleAction(
   const userId = await requireUserId();
 
   const parsed = z
-    .object({ id: idSchema, style: qrStyleSchema })
-    .safeParse({
-      id: formData.get("id"),
-      style: { dark: formData.get("dark"), light: formData.get("light") },
-    });
+    .object({ id: idSchema, style: styleFieldSchema })
+    .safeParse({ id: formData.get("id"), style: formData.get("style") });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Check the form." };
