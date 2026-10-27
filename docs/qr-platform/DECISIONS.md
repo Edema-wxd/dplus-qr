@@ -757,6 +757,45 @@ userinfo (`https://paystack.com@evil.ng/x`), which browsers send to `evil.ng`.
 Fixed separately in PR #15, which refuses userinfo outright. Codes saved
 before it can be found by searching `@` here and re-screened.
 
+## Migrations apply on production deploys, 27 October 2026
+
+**What happened.** Migration 017 (moderation) was merged and deployed without
+being run. The redirect path's single query had gained `c.archived_at`, so it
+failed on every scan, and every printed code showed the unavailable page until
+`npm run db:migrate` was run by hand. The dashboard failed the same way. It was
+the third merge in two days that needed a manual migration before its code
+could work, and the first to reach the scan path.
+
+**What changed** (Francis, 27 Oct 2026: automatic migrations on deploy):
+
+- `npm run build` is now `tsx scripts/migrate.ts --deploy && next build`, and
+  `vercel.json` pins `buildCommand` so a dashboard override cannot skip it.
+  `migrationModeFor` (`src/lib/migration-mode.ts`, tested) decides:
+  **apply** on a Vercel production build, **check** (report, write nothing) on
+  any other Vercel build, **skip** off Vercel. `env -i ... next build` and a
+  local `npm run build` still need no database.
+- **Previews never apply.** They share the production database, so applying
+  from one would push an unmerged PR's schema into production. A preview whose
+  database is unreachable or unconfigured warns and carries on; an edited,
+  already-applied migration still fails it, because that is a real defect in
+  the change.
+- **A failed migration fails the build.** The previous deployment keeps
+  serving, and since migrations are additive the old code is fine on whatever
+  did apply.
+- **Overlapping deploys queue.** A session advisory lock serialises runners;
+  two simultaneous production runs were tested: one applied all 17 migrations,
+  the other waited and found nothing to do.
+- **`lock_timeout = 5s` per migration.** `alter table qr_codes` needs a brief
+  exclusive lock on the table every scan reads; an ALTER waiting on a long
+  query would queue every scan behind it. Tested: with a read held on
+  `qr_codes`, the probe migration gave up at 5s, applied nothing, and exited 1.
+- Requires `DATABASE_URL_UNPOOLED` in the Vercel Production environment. If it
+  is missing or stale, production builds fail loudly at the migrate step,
+  which is the safe failure.
+
+`npm run db:migrate` still works by hand and is still the way to apply a
+migration ahead of a deploy.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
