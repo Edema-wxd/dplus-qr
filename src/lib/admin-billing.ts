@@ -194,6 +194,8 @@ export type CustomerRow = {
   name: string;
   createdAt: Date;
   suspended: boolean;
+  archived: boolean;
+  erased: boolean;
   planName: string | null;
   interval: "monthly" | "annually" | null;
   status: string | null;
@@ -204,15 +206,18 @@ export type CustomerRow = {
 
 /**
  * Accounts, newest first, optionally filtered by email or name. Each carries
- * its live subscription if it has one, else its most recent.
+ * its live subscription if it has one, else its most recent. Archived and
+ * erased accounts are left out unless asked for.
  */
-export async function listCustomers(search: string, limit = 50): Promise<CustomerRow[]> {
+export async function listCustomers(search: string, includeArchived = false, limit = 50): Promise<CustomerRow[]> {
   const rows = await query<{
     id: string;
     email: string;
     name: string;
     created_at: Date;
     suspended_at: Date | null;
+    archived: boolean;
+    erased: boolean;
     plan_name: string | null;
     interval: "monthly" | "annually" | null;
     status: string | null;
@@ -221,6 +226,7 @@ export async function listCustomers(search: string, limit = 50): Promise<Custome
     codes: string;
   }>(
     `select u.id, u.email, u.name, u.created_at, u.suspended_at,
+            u.archived_at is not null as archived, u.erased_at is not null as erased,
             p.name as plan_name, p.interval, s.status, s.current_period_end, s.cancel_at_period_end,
             (select count(*) from qr_codes c where c.user_id = u.id) as codes
      from qr_users u
@@ -231,10 +237,11 @@ export async function listCustomers(search: string, limit = 50): Promise<Custome
        limit 1
      ) s on true
      left join qr_plans p on p.id = s.plan_id
-     where $1 = '' or u.email ilike $2 or u.name ilike $2
+     where ($1 = '' or u.email ilike $2 or u.name ilike $2)
+       and ($4 or u.archived_at is null)
      order by u.created_at desc
      limit $3`,
-    [search, likeContains(search), limit]
+    [search, likeContains(search), limit, includeArchived]
   );
   return rows.map((row) => ({
     id: row.id,
@@ -242,6 +249,8 @@ export async function listCustomers(search: string, limit = 50): Promise<Custome
     name: row.name,
     createdAt: row.created_at,
     suspended: row.suspended_at !== null,
+    archived: row.archived,
+    erased: row.erased,
     planName: row.plan_name,
     interval: row.interval,
     status: row.status,
@@ -257,6 +266,8 @@ export type CustomerDetail = {
   name: string;
   createdAt: Date;
   suspendedAt: Date | null;
+  archivedAt: Date | null;
+  erasedAt: Date | null;
   hasPaystackCustomer: boolean;
   subscriptions: {
     id: number;
@@ -270,7 +281,14 @@ export type CustomerDetail = {
     createdAt: Date;
     updatedAt: Date;
   }[];
-  codes: { id: number; name: string; shortCode: string; status: string; createdAt: Date }[];
+  codes: {
+    id: number;
+    name: string;
+    shortCode: string;
+    status: "active" | "paused" | "blocked";
+    archived: boolean;
+    createdAt: Date;
+  }[];
 };
 
 /** One account, every subscription it has held, and its codes. */
@@ -281,9 +299,11 @@ export async function getCustomer(userId: string): Promise<CustomerDetail | null
     name: string;
     created_at: Date;
     suspended_at: Date | null;
+    archived_at: Date | null;
+    erased_at: Date | null;
     paystack_customer_code: string | null;
   }>(
-    `select id, email, name, created_at, suspended_at, paystack_customer_code
+    `select id, email, name, created_at, suspended_at, archived_at, erased_at, paystack_customer_code
      from qr_users where id = $1`,
     [userId]
   );
@@ -311,8 +331,15 @@ export async function getCustomer(userId: string): Promise<CustomerDetail | null
        order by s.created_at desc`,
       [userId]
     ),
-    query<{ id: string; name: string; short_code: string; status: string; created_at: Date }>(
-      `select id, name, short_code, status, created_at
+    query<{
+      id: string;
+      name: string;
+      short_code: string;
+      status: "active" | "paused" | "blocked";
+      archived: boolean;
+      created_at: Date;
+    }>(
+      `select id, name, short_code, status, archived_at is not null as archived, created_at
        from qr_codes where user_id = $1
        order by created_at desc
        limit 200`,
@@ -326,6 +353,8 @@ export async function getCustomer(userId: string): Promise<CustomerDetail | null
     name: profile.name,
     createdAt: profile.created_at,
     suspendedAt: profile.suspended_at,
+    archivedAt: profile.archived_at,
+    erasedAt: profile.erased_at,
     hasPaystackCustomer: profile.paystack_customer_code !== null,
     subscriptions: subscriptions.map((row) => ({
       id: Number(row.id),
@@ -344,6 +373,7 @@ export async function getCustomer(userId: string): Promise<CustomerDetail | null
       name: row.name,
       shortCode: row.short_code,
       status: row.status,
+      archived: row.archived,
       createdAt: row.created_at,
     })),
   };

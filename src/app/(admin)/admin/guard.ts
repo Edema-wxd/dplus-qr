@@ -51,3 +51,23 @@ export function audit(staff: Staff, entry: Omit<AdminAuditEntry, "actorId">): vo
     }
   });
 }
+
+/**
+ * Record a change staff made, before answering. Awaited, unlike `audit`, so
+ * the row lands with the change; but a failed write does not fail the
+ * request: the change has been made, and failing now would only make staff
+ * repeat it. Logged loudly instead, so the gap can be filled by hand.
+ */
+export async function recordChange(
+  staff: Staff,
+  action: string,
+  targetType: string,
+  targetId: string,
+  detail: Record<string, unknown>
+): Promise<void> {
+  try {
+    await recordAdminAudit({ actorId: staff.id, action, targetType, targetId, detail });
+  } catch (error) {
+    console.error("[admin] change made but audit row not written", { action, targetId, error });
+  }
+}

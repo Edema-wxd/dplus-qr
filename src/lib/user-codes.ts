@@ -156,7 +156,7 @@ export async function listCodes(userId: string): Promise<OwnedCode[]> {
      from qr_codes c
      ${LOGO_JOIN}
      left join qr_scans s on s.qr_id = c.id
-     where c.user_id = $1
+     where c.user_id = $1 and c.archived_at is null
      group by c.id, l.id
      order by c.created_at desc`,
     [userId]
@@ -177,7 +177,7 @@ export async function getCode(
      from qr_codes c
      ${LOGO_JOIN}
      left join qr_scans s on s.qr_id = c.id
-     where c.user_id = $1 and c.id = $2
+     where c.user_id = $1 and c.id = $2 and c.archived_at is null
      group by c.id, l.id`,
     [userId, id]
   );
@@ -489,7 +489,8 @@ export async function codeFeedback(
  * verdict about a destination, not a preference — hence `OwnerStatus`.
  *
  * A blocked code is also refused here: lifting a block is an admin action and
- * must not be reachable from the owner's own dashboard.
+ * must not be reachable from the owner's own dashboard. So is an archived
+ * one, for the same reason.
  */
 export async function setStatus(
   userId: string,
@@ -498,7 +499,7 @@ export async function setStatus(
 ): Promise<boolean> {
   const row = await queryOne<{ short_code: string }>(
     `update qr_codes set status = $3, updated_at = now()
-     where user_id = $1 and id = $2 and status <> 'blocked'
+     where user_id = $1 and id = $2 and status <> 'blocked' and archived_at is null
      returning short_code`,
     [userId, id, status]
   );

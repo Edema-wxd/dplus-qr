@@ -52,6 +52,10 @@ export async function ensureProfile(user: {
        set email      = excluded.email,
            name       = excluded.name,
            updated_at = now()
+       -- An erased profile stays anonymous. Staff erase it before removing
+       -- the sign-in account, so a session still open in between must not
+       -- copy the name and email straight back.
+       where qr_users.erased_at is null
      returning id, email, name, paystack_customer_code, suspended_at`,
     [user.id, user.email, user.name?.trim() || user.email]
   );
@@ -61,6 +65,13 @@ export async function ensureProfile(user: {
   // grant failed once, is fixed the next time its owner opens a page.
   await ensureFreeSubscription(user.id);
 
+  // No row back means the update was skipped because the profile is erased.
+  // It still exists, so read it as it stands.
+  if (!rows[0]) {
+    const erased = await getProfile(user.id);
+    if (!erased) throw new Error(`[profile] ${user.id} vanished during ensureProfile`);
+    return erased;
+  }
   return toProfile(rows[0]);
 }
 

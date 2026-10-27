@@ -85,6 +85,21 @@ describe("decide", () => {
     expect(decide(stale)).toEqual({ kind: "redirect", url: "https://example.com" });
   });
 
+  it("answers an archived code as unknown, whatever its status or billing", () => {
+    expect(decide(destination({ archived: true }))).toEqual({ kind: "not_found" });
+    expect(decide(destination({ archived: true, status: "paused" }))).toEqual({ kind: "not_found" });
+  });
+
+  it("prefers blocked over archived, so a safety block keeps saying so", () => {
+    expect(decide(destination({ archived: true, status: "blocked" }))).toEqual({ kind: "blocked" });
+  });
+
+  it("treats an absent archived flag as not archived", () => {
+    const stale = destination();
+    delete (stale as { archived?: boolean }).archived;
+    expect(decide(stale)).toEqual({ kind: "redirect", url: "https://example.com" });
+  });
+
   it("never returns a redirect without a url", () => {
     const result = decide(destination());
     if (result.kind === "redirect") {

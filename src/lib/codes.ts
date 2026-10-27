@@ -29,6 +29,13 @@ export type Destination = {
    * runs on suspension anyway so the real value arrives at once.
    */
   ownerSuspended?: boolean;
+  /**
+   * Archived by staff (migration 017): out of service and out of the owner's
+   * dashboard. Optional for the same reason as `ownerSuspended`, and absent
+   * reads as "not archived"; archiving sets the code `paused` as well, so an
+   * entry cached without this field still never redirects.
+   */
+  archived?: boolean;
 };
 
 type Row = {
@@ -39,6 +46,7 @@ type Row = {
   owner_name: string;
   subscription_ok: boolean;
   owner_suspended: boolean;
+  archived: boolean;
 };
 
 /**
@@ -56,6 +64,7 @@ const LOOKUP_SQL = `
     c.destination_url,
     u.name as owner_name,
     u.suspended_at is not null as owner_suspended,
+    c.archived_at is not null as archived,
     coalesce(
       s.status = 'active'
       or (s.status = 'past_due' and s.grace_until > now()),
@@ -85,6 +94,7 @@ export async function lookupDestination(
       ownerName: row.owner_name,
       subscriptionOk: row.subscription_ok,
       ownerSuspended: row.owner_suspended,
+      archived: row.archived,
     };
   });
 
@@ -111,6 +121,10 @@ export type RedirectDecision =
 export function decide(destination: Destination | null): RedirectDecision {
   if (!destination) return { kind: "not_found" };
   if (destination.status === "blocked") return { kind: "blocked" };
+  // Archived by staff. Answered as an unknown code rather than a pause: the
+  // code is retired, and there is no business left to name. After the blocked
+  // check, so a code that was blocked for safety keeps saying so.
+  if (destination.archived) return { kind: "not_found" };
   if (destination.status === "paused") {
     return { kind: "paused", ownerName: destination.ownerName };
   }

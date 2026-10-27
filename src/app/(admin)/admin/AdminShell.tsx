@@ -6,6 +6,7 @@ const NAV = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/plans", label: "Plans" },
   { href: "/admin/customers", label: "Customers" },
+  { href: "/admin/codes", label: "Codes" },
 ];
 
 /**
@@ -20,7 +21,7 @@ export function AdminShell({
   children,
 }: {
   heading: string;
-  current: "/admin" | "/admin/plans" | "/admin/customers";
+  current: "/admin" | "/admin/plans" | "/admin/customers" | "/admin/codes";
   meta?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -108,4 +109,65 @@ export const tdClass = "px-4 py-2.5 align-top";
 /** Dates as staff read them: day, short month, year. */
 export function day(date: Date | null): string {
   return date ? date.toLocaleDateString("en-NG", { dateStyle: "medium" }) : "—";
+}
+
+/** A small outlined label, for states that sit beside a status pill. */
+export function Tag({ children, tone = "soft" }: { children: React.ReactNode; tone?: "soft" | "struck" }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+        tone === "struck"
+          ? "border-[var(--struck-ink)] text-[var(--struck-ink)]"
+          : "border-[var(--paper-rule)] text-[var(--paper-soft)]"
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** What an audit action is called on screen. Unknown actions show as stored. */
+const ACTION_LABELS: Record<string, string> = {
+  "code.block": "Blocked",
+  "code.unblock": "Unblocked",
+  "code.pause": "Paused",
+  "code.resume": "Resumed",
+  "code.archive": "Archived",
+  "code.unarchive": "Unarchived",
+  "code.rescreen": "Re-screened",
+  "customer.suspend": "Suspended",
+  "customer.unsuspend": "Suspension lifted",
+  "customer.block_all": "Blocked every code",
+  "customer.archive": "Archived",
+  "customer.unarchive": "Unarchived",
+  "customer.erase": "Erased",
+  "customer.remove_sign_in": "Sign-in account removed",
+  "subscription.assign": "Plan assigned",
+};
+
+/** The history of what staff changed on one code or account. */
+export function StaffHistory({
+  entries,
+}: {
+  entries: { action: string; actor: string | null; detail: Record<string, unknown>; createdAt: Date }[];
+}) {
+  if (entries.length === 0) {
+    return <p className="mt-4 text-sm text-[var(--paper-soft)]">No staff changes yet.</p>;
+  }
+  return (
+    <ol className="mt-4 space-y-2.5 text-sm">
+      {entries.map((entry, index) => (
+        <li key={index} className="flex flex-wrap gap-x-3 gap-y-0.5">
+          <span className="dash-num whitespace-nowrap text-[var(--paper-soft)]">
+            {entry.createdAt.toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" })}
+          </span>
+          <span className="font-medium">{ACTION_LABELS[entry.action] ?? entry.action}</span>
+          {typeof entry.detail.reason === "string" ? (
+            <span className="text-[var(--paper-soft)]">“{entry.detail.reason}”</span>
+          ) : null}
+          <span className="text-[var(--paper-soft)]">by {entry.actor || "a removed staff account"}</span>
+        </li>
+      ))}
+    </ol>
+  );
 }

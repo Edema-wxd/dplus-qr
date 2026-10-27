@@ -63,7 +63,7 @@ export async function startCheckout(input: {
   // let someone start a checkout against another account's address.
   const owner = await queryOne<{ email: string; codes_held: string }>(
     `select u.email,
-            (select count(*) from qr_codes where user_id = u.id) as codes_held
+            (select count(*) from qr_codes where user_id = u.id and archived_at is null) as codes_held
      from qr_users u where u.id = $1`,
     [input.userId]
   );

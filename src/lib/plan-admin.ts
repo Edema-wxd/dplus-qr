@@ -234,7 +234,7 @@ export async function assignPlan(
       [userId]
     );
     const held = await run<{ n: string }>(
-      `select count(*) as n from qr_codes where user_id = $1`,
+      `select count(*) as n from qr_codes where user_id = $1 and archived_at is null`,
       [userId]
     );
     const current = live[0] ?? null;

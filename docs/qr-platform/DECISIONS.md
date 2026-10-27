@@ -699,6 +699,63 @@ assigns a plan smaller than the codes the account holds. An assigned plan has
 no end date; it runs until staff change it or the customer pays through
 checkout, whose `activate` supersedes it exactly as it supersedes Free.
 
+## Staff moderation: codes, block, suspend, archive, erase, 27 October 2026
+
+Staff can now see and act on every code and account (Francis, 27 Oct 2026:
+"view all accounts, all codes and where they point, as well as deleting them,
+warning users and monitoring QR codes"). Split in two: this part is the code
+list and the moderation actions; warnings and monitoring follow.
+
+**"Deleting" is three actions, each harder to undo than the last**, because a
+deleted code row frees its short code for reissue while the old artwork is
+still in circulation, and the Terms promise codes are paused and accounts
+suspended, never deleted to settle a dispute:
+
+1. **Block a code / suspend an account.** The everyday "take it down".
+   Blocked shows the disabled-for-safety page and the owner sees the reason;
+   suspended shows the paused page and the owner can still sign in.
+2. **Archive.** A code stops serving, answers as an unknown code, leaves the
+   owner's dashboard and stops counting against their plan. An archived
+   account is suspended and every code archived with the same timestamp, so
+   unarchiving brings back exactly those codes, paused, and keeps the
+   suspension until staff lift it. Reversible.
+3. **Erase.** For erasure requests and junk accounts. Personal data and
+   content are deleted or blanked in one transaction (scans and rollup,
+   destination history, feedback, files, logos, each code's name,
+   destination, content and style, the profile's name, email and Paystack
+   code), then the UploadThing files, then the Neon Auth user via
+   `auth.admin.removeUser`. The profile and code rows stay as anonymous
+   skeletons, so the foreign keys hold and **every short code stays reserved
+   by the unique index**. Subscription rows, abuse reports and the audit trail
+   are kept. Refused for staff accounts, for yourself, and while Paystack is
+   still charging the account. Staff type the account's email to confirm.
+   The audit row records counts, never the email.
+
+**No migration deletes or reshapes anything.** Migration `017` adds
+`qr_codes.archived_at`, `qr_users.archived_at` and `qr_users.erased_at`
+(nullable, no default, so no long lock on the redirect table) and an index for
+the staff list. **It must run before this deploys**: the redirect lookup now
+selects `archived_at`.
+
+- **The redirect path gains one column**, on the same single indexed lookup.
+  `decide()` answers an archived code as `not_found`, after the blocked check
+  so a safety block keeps saying so. Archiving also sets `paused`, so a
+  cache entry or a build from before 017 still never redirects it.
+- **Erased profiles stay erased.** `ensureProfile` skips its update for an
+  erased row, because the data is erased before the sign-in account is
+  removed and a session open in between would otherwise copy the name and
+  email straight back.
+- `/admin/codes` lists every code with owner, destination (host set apart, so
+  a userinfo look-alike such as `paystack.com@evil.ng` reads as what it is),
+  status, 7-day scans, open reports and "changed in 24h", with search and
+  filters. `/admin/codes/{id}` adds the scan chart, destination history,
+  reports and staff changes. Every action re-checks staff, validates with
+  zod, purges the redirect cache and writes `qr_admin_audit`.
+
+**Found while building this, not fixed here:** `screenUrl` accepts a
+destination with userinfo (`https://paystack.com@evil.ng/x`). Browsers visit
+`evil.ng`. Screening should refuse userinfo outright.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
