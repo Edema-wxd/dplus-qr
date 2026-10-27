@@ -3,6 +3,7 @@ import { LegalLinks } from "@/components/LegalLinks";
 import { Suspense } from "react";
 import { DashNav } from "./DashNav";
 import { PlanUsage } from "./PlanUsage";
+import { StaffLink } from "./StaffLink";
 
 /**
  * The dashboard shell.
@@ -37,6 +38,11 @@ export function DashShell({
         usage={
           <Suspense fallback={null}>
             <PlanUsage />
+          </Suspense>
+        }
+        staff={
+          <Suspense fallback={null}>
+            <StaffLink />
           </Suspense>
         }
       />

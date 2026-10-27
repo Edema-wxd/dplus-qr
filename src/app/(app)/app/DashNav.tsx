@@ -18,7 +18,14 @@ import { signOutAction } from "../auth/sign-in/actions";
  * list's own `?status=` filter, not separate pages, so they add nothing to
  * the URL namespace a short code could collide with.
  */
-export function DashNav({ usage }: { usage?: React.ReactNode }) {
+export function DashNav({
+  usage,
+  staff,
+}: {
+  usage?: React.ReactNode;
+  /** The staff admin link, rendered by the server only for admins. */
+  staff?: React.ReactNode;
+}) {
   const pathname = usePathname();
   // The drawer is open *on a path*, so any navigation closes it: a drawer left
   // open would cover the page just chosen. A tap on a link closes it too, which
@@ -111,6 +118,8 @@ export function DashNav({ usage }: { usage?: React.ReactNode }) {
               </a>
             </li>
           </Group>
+
+          {staff}
         </nav>
 
         {usage}
@@ -125,6 +134,22 @@ export function DashNav({ usage }: { usage?: React.ReactNode }) {
         </div>
       </aside>
     </>
+  );
+}
+
+/**
+ * The way into the staff admin. Exported for `StaffLink`, the server
+ * component that decides whether to render it; nothing here checks the role,
+ * and the admin pages check it again on every request.
+ */
+export function StaffGroup() {
+  const pathname = usePathname();
+  return (
+    <Group label="Staff">
+      <NavItem href="/admin" icon={ICONS.admin} active={pathname.startsWith("/admin")}>
+        Staff admin
+      </NavItem>
+    </Group>
   );
 }
 
@@ -223,6 +248,7 @@ const ICONS = {
   settings: "M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
   contact: "M2 3.5h12v9H2zM2 4l6 5 6-5",
   signOut: "M6 2.5H3v11h3M10 5l3 3-3 3M13 8H6",
+  admin: "M8 1.5l5 2v4c0 3.2-2.1 5.6-5 7-2.9-1.4-5-3.8-5-7v-4z",
 };
 
 function Icon({ d }: { d: string }) {
