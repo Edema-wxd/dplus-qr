@@ -159,6 +159,19 @@ env -i PATH="$PATH" HOME="$HOME" npx next build   # must pass
 Project `francis-woods-projects/dplus-qr`, linked to the GitHub repo, so a push
 to `main` deploys. Env vars are set in the project (production and preview).
 
+- **Production deploys apply migrations before building.** `npm run build` is
+  `tsx scripts/migrate.ts --deploy && next build`, pinned in `vercel.json`. On
+  a production build it applies anything pending, so code can never go live
+  ahead of its schema: on 27 Oct 2026 migration 017 was merged but not run, the
+  redirect's one query named its new column, and every scan fell to the
+  unavailable page. A failed migration fails the build, and the previous
+  deploy keeps serving. Preview builds **only report**, because previews share
+  the production database and must never apply an unmerged PR's schema.
+  Locally the step does nothing. It needs `DATABASE_URL_UNPOOLED` in the
+  Vercel project's Production environment (`npm run env:sync`). Each
+  migration runs with a 5s `lock_timeout`: an `alter table qr_codes` that
+  cannot get its lock fails the deploy rather than queueing every scan behind
+  it.
 - **`.env` values can be quoted, and piping them elsewhere strips nothing.**
   `neon deploy` writes `DATABASE_URL="postgres://…"` with quotes because the
   value contains `?` and `&`. Local loaders strip them; `vercel env add` does
