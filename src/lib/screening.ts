@@ -88,6 +88,17 @@ export function screenUrl(input: string): ScreenResult {
     return { ok: false, reason: "Only https:// and http:// links can be used." };
   }
 
+  // `https://paystack.com@evil.ng/login` visits evil.ng: everything before the
+  // `@` is a username, and it is there only to make the link read as another
+  // site. No legitimate destination needs credentials in a printed code, so
+  // any userinfo at all is refused rather than judged.
+  if (url.username || url.password) {
+    return {
+      ok: false,
+      reason: "Links with a name and @ before the domain cannot be used. Link straight to the site.",
+    };
+  }
+
   const host = url.hostname.toLowerCase();
 
   if (isIpHost(host)) {

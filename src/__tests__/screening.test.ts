@@ -49,6 +49,23 @@ describe("screenUrl", () => {
     expect(screenUrl("https://192.168.1.1/login").ok).toBe(false);
   });
 
+  it.each([
+    "https://paystack.com@evil.ng/login",
+    "paystack.com@evil.ng",
+    "https://user:secret@example.com/",
+    "https://:secret@example.com/",
+    "http://www.gtbank.com%40evil.ng@evil.ng/",
+  ])("rejects userinfo, which disguises the real host: %j", (input) => {
+    const result = screenUrl(input);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/@/);
+  });
+
+  it("still accepts an @ in the path or query, which is not userinfo", () => {
+    expect(screenUrl("https://example.com/@shop").ok).toBe(true);
+    expect(screenUrl("https://example.com/contact?to=ada@example.com").ok).toBe(true);
+  });
+
   it("rejects an IPv6 literal host", () => {
     expect(screenUrl("https://[2001:db8::1]/").ok).toBe(false);
   });
