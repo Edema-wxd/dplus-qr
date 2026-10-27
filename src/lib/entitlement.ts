@@ -50,7 +50,9 @@ type Row = {
  *
  * Counts every code the account owns, including paused and blocked ones: the
  * limit is on codes held, not codes serving. A paused code still occupies a
- * short code that can never be reissued.
+ * short code that can never be reissued. The one exception is a code staff
+ * archived: it is gone from the owner's dashboard, so counting it would spend
+ * their allowance on a code they can no longer see.
  */
 export async function getEntitlement(userId: string): Promise<Entitlement | null> {
   const row = await queryOne<Row>(
@@ -60,7 +62,7 @@ export async function getEntitlement(userId: string): Promise<Entitlement | null
        p.max_codes,
        p.history_days,
        p.features,
-       (select count(*) from qr_codes where user_id = $1) as codes_used,
+       (select count(*) from qr_codes where user_id = $1 and archived_at is null) as codes_used,
        (s.status = 'active'
          or (s.status = 'past_due' and s.grace_until > now()))  as active
      from qr_subscriptions s

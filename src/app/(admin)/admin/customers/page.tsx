@@ -4,7 +4,7 @@ import { z } from "zod";
 import { listCustomers } from "@/lib/admin-billing";
 import { inputClass, secondaryButtonClass } from "@/components/controls";
 import { audit, requireStaff } from "../guard";
-import { AdminShell, day, tableClass, tdClass, thClass } from "../AdminShell";
+import { AdminShell, Tag, day, tableClass, tdClass, thClass } from "../AdminShell";
 import { SubscriptionStatus } from "./SubscriptionStatus";
 
 export const metadata: Metadata = { title: "Customers · Admin" };
@@ -20,6 +20,7 @@ export default async function AdminCustomers({
   const staff = await requireStaff();
   const params = await searchParams;
   const q = searchSchema.parse(Array.isArray(params.q) ? params.q[0] : params.q ?? "");
+  const includeArchived = params.archived === "1";
 
   // A search is a look at personal data, so the term goes in the audit too.
   audit(staff, {
@@ -29,13 +30,13 @@ export default async function AdminCustomers({
     detail: q ? { q } : {},
   });
 
-  const customers = await listCustomers(q);
+  const customers = await listCustomers(q, includeArchived);
 
   return (
     <AdminShell
       heading="Customers"
       current="/admin/customers"
-      meta={q ? `Matching “${q}”, newest first, up to 50.` : "Newest first, up to 50."}
+      meta={`${q ? `Matching “${q}”, newest` : "Newest"} first, up to 50${includeArchived ? ", archived and erased included" : ""}.`}
     >
       <form method="get" action="/admin/customers" role="search" className="mb-5 flex max-w-xl gap-2">
         <label htmlFor="customers-q" className="sr-only">
@@ -50,6 +51,10 @@ export default async function AdminCustomers({
           placeholder="Email or name"
           className={inputClass}
         />
+        <label className="flex shrink-0 items-center gap-1.5 text-sm text-[var(--paper-soft)]">
+          <input type="checkbox" name="archived" value="1" defaultChecked={includeArchived} />
+          Archived too
+        </label>
         <button type="submit" className={secondaryButtonClass}>
           Search
         </button>
@@ -75,8 +80,11 @@ export default async function AdminCustomers({
                 <tr key={customer.id} className="dash-row border-b border-[var(--paper-rule)] last:border-b-0">
                   <td className={tdClass}>
                     <Link href={`/admin/customers/${customer.id}`} className="block no-underline">
-                      <span className="block font-medium text-[var(--paper-ink)]">{customer.email}</span>
+                      <span className="block font-medium text-[var(--paper-ink)]">
+                        {customer.erased ? "Erased account" : customer.email}
+                      </span>
                       <span className="block text-xs text-[var(--paper-soft)]">{customer.name}</span>
+                      {customer.erased ? <Tag>Erased</Tag> : customer.archived ? <Tag>Archived</Tag> : null}
                     </Link>
                   </td>
                   <td className={tdClass}>

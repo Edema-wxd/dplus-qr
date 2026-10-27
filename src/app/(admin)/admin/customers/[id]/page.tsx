@@ -9,15 +9,19 @@ import { z } from "zod";
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import { getCustomer } from "@/lib/admin-billing";
+import { isAdmin } from "@/lib/admin";
+import { hasSignInAccount, staffActions } from "@/lib/moderation";
 import { getEntitlement } from "@/lib/entitlement";
 import { listAllPlans } from "@/lib/plans";
 import { naira } from "@/lib/plan-tiers";
 import { CODE_HOST } from "@/lib/brand";
 import { StatusPill } from "@/app/(app)/app/StatusPill";
 import { audit, requireStaff } from "../../guard";
-import { AdminShell, SectionHeading, Stat, day, tableClass, tdClass, thClass } from "../../AdminShell";
+import { AdminShell, SectionHeading, StaffHistory, Stat, Tag, day, tableClass, tdClass, thClass } from "../../AdminShell";
 import { SubscriptionStatus } from "../SubscriptionStatus";
 import { AssignPlan } from "../AssignPlan";
+import { AccountActions } from "../AccountActions";
+import { EraseAccount, RetryRemoveSignIn } from "../EraseAccount";
 
 export const metadata: Metadata = { title: "Customer · Admin" };
 export const instant = false;
@@ -34,12 +38,17 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
   const parsed = idSchema.safeParse((await params).id);
   if (!parsed.success) notFound();
 
-  const [customer, entitlement, plans] = await Promise.all([
+  const [customer, entitlement, plans, actions, signIn, staffAccount] = await Promise.all([
     getCustomer(parsed.data),
     getEntitlement(parsed.data),
     listAllPlans(),
+    staffActions("customer", parsed.data),
+    hasSignInAccount(parsed.data),
+    isAdmin(parsed.data),
   ]);
   if (!customer) notFound();
+  const erased = customer.erasedAt !== null;
+  const isSelf = customer.id === staff.id;
 
   const live = customer.subscriptions.find((sub) => sub.status === "active" || sub.status === "past_due");
   const assignable = plans
@@ -58,7 +67,11 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
   audit(staff, { action: "view", targetType: "customer", targetId: customer.id });
 
   return (
-    <AdminShell heading={customer.name || customer.email} current="/admin/customers" meta={customer.email}>
+    <AdminShell
+      heading={erased ? "Erased account" : customer.name || customer.email}
+      current="/admin/customers"
+      meta={erased ? `Erased ${day(customer.erasedAt)}` : customer.email}
+    >
       <Link
         href="/admin/customers"
         className="-mt-4 mb-6 inline-block text-sm text-[var(--paper-soft)] hover:text-[var(--paper-ink)]"
@@ -80,28 +93,60 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
           <Stat label="Joined" value={day(customer.createdAt)} />
           <Stat
             label="Account"
-            value={customer.suspendedAt ? "Suspended" : "In good standing"}
+            value={
+              erased ? "Erased" : customer.archivedAt ? "Archived" : customer.suspendedAt ? "Suspended" : "In good standing"
+            }
             note={
-              customer.suspendedAt
-                ? `Since ${day(customer.suspendedAt)}`
-                : customer.hasPaystackCustomer
-                  ? "Known to Paystack"
-                  : "Never paid through Paystack"
+              erased
+                ? `On ${day(customer.erasedAt)}`
+                : customer.archivedAt
+                  ? `Since ${day(customer.archivedAt)}, and suspended`
+                  : customer.suspendedAt
+                    ? `Since ${day(customer.suspendedAt)}`
+                    : customer.hasPaystackCustomer
+                      ? "Known to Paystack"
+                      : "Never paid through Paystack"
             }
           />
         </dl>
 
-        <section aria-labelledby="assign-heading">
-          <SectionHeading id="assign-heading">Assign a plan</SectionHeading>
+        <section aria-labelledby="moderate-heading">
+          <SectionHeading id="moderate-heading">Moderate</SectionHeading>
           <div className="mt-4">
-            <AssignPlan
-              userId={customer.id}
-              plans={assignable}
-              currentSlug={live?.planSlug ?? null}
-              paysThroughPaystack={live?.viaPaystack === true}
-            />
+            {erased ? (
+              signIn ? (
+                <RetryRemoveSignIn userId={customer.id} />
+              ) : (
+                <p className="text-sm text-[var(--paper-soft)]">
+                  Erased. Nothing remains to moderate: its codes answer as unknown and its short codes stay reserved.
+                </p>
+              )
+            ) : isSelf ? (
+              <p className="text-sm text-[var(--paper-soft)]">This is your own account.</p>
+            ) : (
+              <AccountActions
+                userId={customer.id}
+                suspended={customer.suspendedAt !== null}
+                archived={customer.archivedAt !== null}
+                activeCodes={customer.codes.filter((code) => code.status !== "blocked").length}
+              />
+            )}
           </div>
         </section>
+
+        {erased ? null : (
+          <section aria-labelledby="assign-heading">
+            <SectionHeading id="assign-heading">Assign a plan</SectionHeading>
+            <div className="mt-4">
+              <AssignPlan
+                userId={customer.id}
+                plans={assignable}
+                currentSlug={live?.planSlug ?? null}
+                paysThroughPaystack={live?.viaPaystack === true}
+              />
+            </div>
+          </section>
+        )}
 
         <section aria-labelledby="subs-heading">
           <SectionHeading id="subs-heading">Subscriptions, newest first</SectionHeading>
@@ -162,13 +207,18 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
                   {customer.codes.map((code) => (
                     <tr key={code.id} className="border-b border-[var(--paper-rule)] last:border-b-0">
                       <td className={tdClass}>
-                        {code.name}
-                        <span className="block font-mono text-xs text-[var(--paper-soft)]">
-                          {CODE_HOST}/{code.shortCode}
-                        </span>
+                        <Link href={`/admin/codes/${code.id}`} className="block no-underline">
+                          <span className="block text-[var(--paper-ink)]">{code.name}</span>
+                          <span className="block font-mono text-xs text-[var(--paper-soft)]">
+                            {CODE_HOST}/{code.shortCode}
+                          </span>
+                        </Link>
                       </td>
                       <td className={tdClass}>
-                        <StatusPill status={code.status as "active" | "paused" | "blocked"} />
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          <StatusPill status={code.status} />
+                          {code.archived ? <Tag>Archived</Tag> : null}
+                        </span>
                       </td>
                       <td className={`${tdClass} dash-num whitespace-nowrap`}>{day(code.createdAt)}</td>
                     </tr>
@@ -178,6 +228,31 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
             </div>
           )}
         </section>
+
+        <section aria-labelledby="staff-heading">
+          <SectionHeading id="staff-heading">Staff changes</SectionHeading>
+          <StaffHistory entries={actions} />
+        </section>
+
+        {erased || isSelf ? null : (
+          <section aria-labelledby="erase-heading">
+            <SectionHeading id="erase-heading">Erase</SectionHeading>
+            <div className="mt-4">
+              {staffAccount ? (
+                <p className="text-sm text-[var(--paper-soft)]">
+                  This is a staff account. Remove its admin role in the database before it can be erased.
+                </p>
+              ) : live?.viaPaystack ? (
+                <p className="max-w-[70ch] text-sm text-[var(--paper-soft)]">
+                  This account pays through Paystack. Cancel the subscription in Paystack first, or it keeps charging
+                  an account that no longer exists.
+                </p>
+              ) : (
+                <EraseAccount userId={customer.id} email={customer.email} />
+              )}
+            </div>
+          </section>
+        )}
       </div>
     </AdminShell>
   );

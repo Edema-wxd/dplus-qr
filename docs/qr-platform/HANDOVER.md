@@ -136,6 +136,8 @@ does not count as a scan; the redirect responds in under 100 ms when cached.
 - [ ] Destination screening (scheme rules, shortener block, Web Risk) and weekly
       re-check cron
 - [ ] Admin tools: search, block code, suspend account, abuse reports, audit log
+      (27 Oct 2026: search, block, suspend, archive, erase and per-target audit
+      history done; abuse-report queue and warnings to follow)
 - [x] Privacy Policy, Terms and acceptable-use pages at `/privacy`, `/terms`
       and `/acceptable-use` — 25 Oct 2026. Drafts, not legally reviewed; no
       entity details yet, and the 6-month post-lapse deletion they promise

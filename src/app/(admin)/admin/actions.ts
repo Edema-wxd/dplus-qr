@@ -9,7 +9,6 @@ import { z } from "zod";
  * and variant, and so would 404 a valid id the database happily stores.
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-import { recordAdminAudit } from "@/lib/admin";
 import { getPlanById, getPlanBySlug } from "@/lib/plans";
 import {
   assignPlan,
@@ -21,7 +20,7 @@ import {
   pricingSchema,
   updatePlan,
 } from "@/lib/plan-admin";
-import { staffForAction, type Staff } from "./guard";
+import { recordChange as record, staffForAction } from "./guard";
 
 /**
  * Staff changes. Each action re-checks that the caller is an admin, validates
@@ -32,16 +31,6 @@ import { staffForAction, type Staff } from "./guard";
 export type AdminFormState = { error?: string; notice?: string };
 
 const REFUSED: AdminFormState = { error: "Only staff can do that." };
-
-async function record(staff: Staff, action: string, targetType: string, targetId: string, detail: Record<string, unknown>) {
-  try {
-    await recordAdminAudit({ actorId: staff.id, action, targetType, targetId, detail });
-  } catch (error) {
-    // The change has been made; failing the request now would only make staff
-    // repeat it. Logged loudly instead, so the gap can be filled by hand.
-    console.error("[admin] change made but audit row not written", { action, targetId, error });
-  }
-}
 
 function fields(form: FormData) {
   return {
