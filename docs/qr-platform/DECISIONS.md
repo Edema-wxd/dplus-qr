@@ -752,9 +752,10 @@ selects `archived_at`.
   reports and staff changes. Every action re-checks staff, validates with
   zod, purges the redirect cache and writes `qr_admin_audit`.
 
-**Found while building this, not fixed here:** `screenUrl` accepts a
-destination with userinfo (`https://paystack.com@evil.ng/x`). Browsers visit
-`evil.ng`. Screening should refuse userinfo outright.
+**Found while building this:** `screenUrl` accepted a destination with
+userinfo (`https://paystack.com@evil.ng/x`), which browsers send to `evil.ng`.
+Fixed separately in PR #15, which refuses userinfo outright. Codes saved
+before it can be found by searching `@` here and re-screened.
 
 ## Still open
 
