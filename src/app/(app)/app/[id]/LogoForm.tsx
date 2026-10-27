@@ -35,7 +35,7 @@ export function LogoForm({
         defaultSelected={current ?? ""}
         uploads={uploads}
         idPrefix="code-logo"
-        onChange={setChoice}
+        onChange={(logoId) => setChoice(logoId)}
       />
       <div className="mt-3">
         <button type="submit" disabled={pending || !dirty} className={primaryButtonClass}>

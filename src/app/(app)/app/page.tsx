@@ -7,7 +7,6 @@ import { ensureProfile } from "@/lib/profile";
 import { getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
-import { qrStyleVars } from "@/lib/qr-style";
 import { dynamicType, isPageKind } from "@/lib/qr-types";
 import {
   applyListQuery,
@@ -150,15 +149,13 @@ export default async function CodesPage({
                         code's own short code, at every scale the product shows.
                         Not an icon standing in for a code.
                       */}
-                      <span
-                        className="block shrink-0"
-                        style={qrStyleVars(code.style) as React.CSSProperties}
-                      >
+                      <span className="block shrink-0">
                         <QrSymbol
                           value={codeUrl(code.shortCode)}
                           px={44}
                           title={`QR code for ${code.name}`}
                           logoUrl={code.logo?.url}
+                          style={code.style}
                           className="block h-auto w-11"
                         />
                       </span>

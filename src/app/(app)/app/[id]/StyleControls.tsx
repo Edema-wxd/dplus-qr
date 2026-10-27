@@ -1,35 +1,35 @@
 "use client";
 
+import { createContext, useActionState, useContext, useState } from "react";
 import {
-  createContext,
-  useActionState,
-  useContext,
-  useState,
-  type CSSProperties,
-} from "react";
-import {
-  checkQrStyle,
-  contrastRatio,
   DEFAULT_QR_STYLE,
+  checkQrStyle,
   isDefaultQrStyle,
-  qrStyleVars,
+  sameQrStyle,
   type QrStyle,
 } from "@/lib/qr-style";
+import type { QrMatrix } from "@/lib/qr-artwork";
 import { setStyleAction, type CodeState } from "../actions";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
+import { DesignFields, DesignPreview } from "../DesignPanel";
 
 /**
- * Live colour preview for the code page.
+ * Live design preview for the code page.
  *
- * The specimen is rendered on the server and paints with CSS custom
- * properties, so previewing a change needs no second QR encoder in the
- * browser: this scope sets the properties on a wrapper and the server-rendered
- * symbol inside it recolours as the owner picks. The form below reads and
- * writes the same state.
+ * The scope holds the style being previewed, so the specimen in one column
+ * redraws as the form in the other changes. The specimen draws from the
+ * matrix the server encoded for this code, with the same function the
+ * download uses: what the owner previews is what they print.
  */
 type Scope = { style: QrStyle; setStyle: (style: QrStyle) => void };
 
 const StyleContext = createContext<Scope | null>(null);
+
+function useScope(): Scope {
+  const scope = useContext(StyleContext);
+  if (!scope) throw new Error("Design controls must sit inside StyleScope");
+  return scope;
+}
 
 export function StyleScope({
   initial,
@@ -41,107 +41,71 @@ export function StyleScope({
   children: React.ReactNode;
 }) {
   const [style, setStyle] = useState(initial);
-
   return (
     <StyleContext.Provider value={{ style, setStyle }}>
-      <div className={className} style={qrStyleVars(style) as CSSProperties}>
-        {children}
-      </div>
+      <div className={className}>{children}</div>
     </StyleContext.Provider>
   );
 }
 
-/**
- * Pick the code's colours.
- *
- * The contrast check here is the same function the Server Action runs, so the
- * form refuses exactly what the server would refuse, before a round trip. It
- * is a convenience; the server's check is the one that counts.
- */
-export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
-  const scope = useContext(StyleContext);
-  if (!scope) throw new Error("StyleForm must sit inside StyleScope");
-  const { style, setStyle } = scope;
-
-  const [state, action, pending] = useActionState(
-    setStyleAction,
-    {} as CodeState
+/** The code's specimen, in the style being previewed. */
+export function LiveSymbol({
+  matrix,
+  logoUrl,
+  title,
+}: {
+  matrix: QrMatrix;
+  logoUrl?: string | null;
+  title: string;
+}) {
+  const { style } = useScope();
+  return (
+    <DesignPreview
+      matrix={matrix}
+      style={style}
+      logoUrl={logoUrl}
+      px={248}
+      title={title}
+      className="mx-auto block h-auto w-full max-w-[248px]"
+    />
   );
+}
 
-  const check = checkQrStyle(style);
-  const ratio = contrastRatio(style.dark, style.light);
-  const dirty = style.dark !== saved.dark || style.light !== saved.light;
-  const message = check.ok
-    ? `Contrast ${ratio.toFixed(1)}:1. This will scan once printed.`
-    : check.reason;
+/**
+ * The design form. The colour check here is the one the Server Action runs
+ * again, so the form refuses exactly what the server would, before a round
+ * trip. It is a convenience; the server's check is the one that counts.
+ */
+export function StyleForm({ id, saved, matrix }: { id: string; saved: QrStyle; matrix: QrMatrix }) {
+  const { style, setStyle } = useScope();
+  const [state, action, pending] = useActionState(setStyleAction, {} as CodeState);
 
-  // The pair the last save was about. A server message describes those
-  // colours, so it is hidden as soon as the owner picks different ones rather
-  // than sitting under a pair it no longer applies to.
+  const ok = checkQrStyle(style).ok;
+  const dirty = !sameQrStyle(style, saved);
+
+  // The style the last save was about. A server message describes that
+  // style, so it is hidden as soon as the owner changes anything.
   const [submitted, setSubmitted] = useState<QrStyle | null>(null);
-  const current =
-    submitted !== null && submitted.dark === style.dark && submitted.light === style.light;
-
-  // `<input type="color">` reports lowercase; the stored form is uppercase.
-  const pick = (key: keyof QrStyle) => (event: React.ChangeEvent<HTMLInputElement>) =>
-    setStyle({ ...style, [key]: event.target.value.toUpperCase() });
+  const current = submitted !== null && sameQrStyle(submitted, style);
 
   return (
     <form action={action} onSubmit={() => setSubmitted(style)}>
       <input type="hidden" name="id" value={id} />
-      <fieldset>
-        <legend className="mb-2 block text-sm">Colours</legend>
-        <div className="flex flex-wrap gap-x-6 gap-y-3">
-          <ColourField
-            id="qr-dark"
-            name="dark"
-            label="Code"
-            value={style.dark}
-            onChange={pick("dark")}
-          />
-          <ColourField
-            id="qr-light"
-            name="light"
-            label="Background"
-            value={style.light}
-            onChange={pick("light")}
-          />
-        </div>
-      </fieldset>
+      <input type="hidden" name="style" value={JSON.stringify(style)} />
+      <DesignFields style={style} onChange={setStyle} matrix={matrix} idPrefix="code-design" />
 
-      {/*
-        The live region persists so screen readers keep announcing it; the
-        line inside is keyed on its text, so each change inserts a new node
-        rather than editing one in place. Safari, with its colour panel open,
-        repainted the recoloured specimen but left an edited text node showing
-        the old message.
-      */}
-      <div aria-live="polite" className="mt-3">
-        <p
-          key={message}
-          className={`text-xs leading-relaxed ${
-            check.ok ? "text-[var(--paper-soft)]" : "text-[var(--struck-ink)]"
-          }`}
-        >
-          {message}
-        </p>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="submit"
-          disabled={pending || !dirty || !check.ok}
-          className={primaryButtonClass}
-        >
-          {pending ? "Saving…" : "Save colours"}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="submit" disabled={pending || !dirty || !ok} className={primaryButtonClass}>
+          {pending ? "Saving…" : "Save design"}
         </button>
+        {dirty ? (
+          <button type="button" onClick={() => setStyle(saved)} className={secondaryButtonClass}>
+            Undo changes
+          </button>
+        ) : null}
         {isDefaultQrStyle(style) ? null : (
-          <button
-            type="button"
-            onClick={() => setStyle(DEFAULT_QR_STYLE)}
-            className={secondaryButtonClass}
-          >
-            Reset to black on white
+          <button type="button" onClick={() => setStyle(DEFAULT_QR_STYLE)} className={secondaryButtonClass}>
+            Reset to plain black on white
           </button>
         )}
       </div>
@@ -151,47 +115,14 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
           {state.error}
         </p>
       ) : (
-        <p className="mt-2 max-w-[44ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+        <p className="mt-2 max-w-[48ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           {dirty
-            ? "Previewing. Downloads use the saved colours until you save."
+            ? "Previewing. Downloads use the saved design until you save."
             : state.saved
-              ? "Saved. Downloads now use these colours."
-              : "Colours change the artwork only. Codes already printed keep working whatever you pick here."}
+              ? "Saved. Downloads now use this design."
+              : "The design changes the artwork only. Codes already printed keep working whatever you pick here."}
         </p>
       )}
     </form>
-  );
-}
-
-function ColourField({
-  id,
-  name,
-  label,
-  value,
-  onChange,
-}: {
-  id: string;
-  name: string;
-  label: string;
-  value: string;
-  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <label htmlFor={id} className="flex items-center gap-2.5 text-sm">
-      <input
-        id={id}
-        name={name}
-        type="color"
-        value={value.toLowerCase()}
-        onChange={onChange}
-        className="h-9 w-11 cursor-pointer rounded-md border border-[var(--paper-rule)] bg-white p-1"
-      />
-      <span>
-        {label}
-        <span className="dash-num block font-mono text-xs text-[var(--paper-soft)]">
-          {value}
-        </span>
-      </span>
-    </label>
   );
 }

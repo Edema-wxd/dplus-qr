@@ -33,7 +33,8 @@ export function LogoPicker({
   /** Keeps radio ids unique when two pickers could share a page. */
   idPrefix: string;
   name?: string;
-  onChange?: (logoId: string) => void;
+  /** Called with the chosen id ("" for none) and that logo's URL, for a live preview. */
+  onChange?: (logoId: string, url: string | null) => void;
 }) {
   const [logos, setLogos] = useState(initial);
   const [selected, setSelected] = useState(defaultSelected);
@@ -41,9 +42,9 @@ export function LogoPicker({
   const [removing, startRemoving] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function select(id: string) {
+  function select(id: string, url: string | null = null) {
     setSelected(id);
-    onChange?.(id);
+    onChange?.(id, url);
   }
 
   const { startUpload, isUploading } = useUploadThing("logo", {
@@ -54,7 +55,7 @@ export function LogoPicker({
         { id: data.logoId, url: data.url, name: data.name },
         ...previous.filter((logo) => logo.id !== data.logoId),
       ]);
-      select(data.logoId);
+      select(data.logoId, data.url);
       setError(null);
     },
     onUploadError: (uploadError) => {
@@ -113,7 +114,7 @@ export function LogoPicker({
               name={name}
               value={logo.id}
               checked={selected === logo.id}
-              onChange={() => select(logo.id)}
+              onChange={() => select(logo.id, logo.url)}
               className="peer sr-only"
             />
             <label htmlFor={`${idPrefix}-${logo.id}`} className={option}>

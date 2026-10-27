@@ -1,22 +1,17 @@
 import QRCode from "qrcode";
-import {
-  logoBox,
-  qrGeometry,
-  QUIET_ZONE,
-  type QrLevel,
-} from "@/lib/qr-render";
-
-type Geometry = { path: string; size: number; span: number; quiet: number };
+import { qrMatrix, type QrLevel, type QrMatrix } from "@/lib/qr-render";
+import { inksFor, qrArtwork, type ArtworkInks } from "@/lib/qr-artwork";
+import { DEFAULT_QR_STYLE, type QrStyle } from "@/lib/qr-style";
+import { QrArtworkSvg } from "@/components/QrArtworkSvg";
 
 /**
- * Generated symbols, kept by the string they encode and the level.
+ * Generated matrices, kept by the string they encode and the level.
  *
- * A symbol is a pure function of its content and error-correction level, so
- * this can never go stale: a given URL has exactly one grid, for as
- * long as the process lives. What it saves is real -- the code list renders
- * one symbol per row on a per-request page, and an account at the top tier's
- * limit would otherwise run a hundred encodes and build a hundred path strings
- * before the page could stream.
+ * A matrix is a pure function of its content and error-correction level, so
+ * this can never go stale: a given URL has exactly one grid, for as long as
+ * the process lives. What it saves is real: the code list renders one symbol
+ * per row on a per-request page, and an account at the top tier's limit would
+ * otherwise run a hundred encodes before the page could stream.
  *
  * Bounded, and the bound is the point: this is a module-scope map in a
  * long-lived server process, which is a memory leak unless something stops it
@@ -24,34 +19,35 @@ type Geometry = { path: string; size: number; span: number; quiet: number };
  * and the useful entries on any one page are the ones just inserted.
  */
 const CACHE_LIMIT = 512;
-const cache = new Map<string, Geometry>();
+const cache = new Map<string, QrMatrix>();
 
-function geometry(value: string, level: QrLevel): Geometry {
+export function cachedMatrix(value: string, level: QrLevel): QrMatrix {
   const key = `${level}:${value}`;
   const hit = cache.get(key);
   if (hit) return hit;
-
-  // One path for every dark module, drawn by the same function the download
-  // route uses, so the on-screen grid and the printed one cannot differ.
-  const { path, size } = qrGeometry(value, level);
-
-  // A quiet zone is part of the symbol, not padding around it: without four
-  // modules of clear ground a scanner can fail to find the finder patterns.
-  const quiet = QUIET_ZONE;
-  const built: Geometry = { path, size, quiet, span: size + quiet * 2 };
-
+  const built = qrMatrix(value, level);
   if (cache.size >= CACHE_LIMIT) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
   cache.set(key, built);
-
   return built;
 }
 
 /**
- * A real QR symbol, drawn from the same library that will generate the
- * downloadable code artwork.
+ * Painted with the page's own CSS variables when no style is given, so the
+ * landing page's symbols follow its theme and dark mode.
+ */
+const THEME_INKS: ArtworkInks = {
+  dots: "var(--qr-ink)",
+  frame: "var(--qr-ink)",
+  eye: "var(--qr-ink)",
+  ground: "var(--qr-ground)",
+};
+
+/**
+ * A real QR symbol, drawn by the same code that draws the downloadable
+ * artwork.
  *
  * Deliberately not an image and not a decorative approximation: the page's
  * whole argument is that this exact grid is what gets printed, so drawing a
@@ -61,12 +57,13 @@ function geometry(value: string, level: QrLevel): Geometry {
  *
  * On the landing page this runs at build time: that page reads no request API,
  * so Next evaluates it once and ships the markup. The dashboard is the other
- * case -- those pages set `instant = false`, so every symbol in a code list is
- * generated per request, one per row. Hence the cache below. Either way
+ * case: those pages set `instant = false`, so every symbol in a code list is
+ * generated per request, one per row. Hence the cache above. Either way
  * nothing here is on a scanner's critical path.
  *
- * With `logoUrl`, the symbol is drawn at level H with the logo in the box
- * `logoBox` gives, exactly as the download route draws it.
+ * With `style`, the symbol is drawn in the code's saved pattern and colours.
+ * With `logoUrl`, it is drawn at level H with the logo in the box `logoBox`
+ * gives, exactly as the download route draws it.
  */
 export function QrSymbol({
   value,
@@ -74,54 +71,25 @@ export function QrSymbol({
   className,
   title,
   logoUrl,
+  style,
 }: {
   value: string;
   px: number;
   className?: string;
   title?: string;
   logoUrl?: string | null;
+  style?: QrStyle;
 }) {
-  const { path, size, span, quiet } = geometry(value, logoUrl ? "H" : "Q");
-  const box = logoUrl ? logoBox(size) : null;
-
+  const matrix = cachedMatrix(value, logoUrl ? "H" : "Q");
+  const art = qrArtwork(matrix, style ?? DEFAULT_QR_STYLE, style ? inksFor(style) : THEME_INKS, Boolean(logoUrl));
   return (
-    <svg
-      viewBox={`0 0 ${span} ${span}`}
-      width={px}
-      height={px}
+    <QrArtworkSvg
+      art={art}
+      px={px}
+      title={title ?? `QR code for ${value}`}
+      logoUrl={logoUrl}
       className={className}
-      shapeRendering="crispEdges"
-      role="img"
-      aria-label={title ?? `QR code for ${value}`}
-    >
-      <rect width={span} height={span} fill="var(--qr-ground)" />
-      <g transform={`translate(${quiet} ${quiet})`}>
-        <path d={path} fill="var(--qr-ink)" />
-        {box && logoUrl ? (
-          <>
-            {/*
-              Not `--qr-ground`, which is transparent on the dashboard: the
-              box has to hide the modules beneath it.
-            */}
-            <rect
-              x={box.offset}
-              y={box.offset}
-              width={box.side}
-              height={box.side}
-              fill="var(--qr-ground-solid, #FFFFFF)"
-            />
-            <image
-              href={logoUrl}
-              x={box.offset + 1}
-              y={box.offset + 1}
-              width={box.side - 2}
-              height={box.side - 2}
-              preserveAspectRatio="xMidYMid meet"
-            />
-          </>
-        ) : null}
-      </g>
-    </svg>
+    />
   );
 }
 

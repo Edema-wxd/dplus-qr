@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 /**
- * The colours a code's artwork is drawn in, as stored in `qr_codes.style`.
+ * How a code's artwork is drawn, as stored in `qr_codes.style`: colours, the
+ * shape of its dots, and the shape and colour of its three corner squares.
  *
  * Pure on purpose: the download route, the dashboard specimen and the client
  * form that previews a change all import this, and the client form runs the
@@ -12,15 +13,52 @@ import { z } from "zod";
  * the code URL, so no style can affect where a scan goes, and nothing here is
  * ever on the redirect path.
  */
+/** The shape of each data module. */
+export const QR_PATTERNS = ["square", "dots", "rounded", "extra-rounded", "classy", "classy-rounded"] as const;
+export type QrPattern = (typeof QR_PATTERNS)[number];
+
+/**
+ * The outer ring of each corner (finder) square. `auto` follows the pattern,
+ * so picking a pattern alone gives corners that match it.
+ */
+export const CORNER_FRAMES = ["auto", "square", "rounded", "circle"] as const;
+export type CornerFrame = (typeof CORNER_FRAMES)[number];
+
+/** The solid centre of each corner square. `auto` follows the pattern. */
+export const CORNER_DOTS = ["auto", "square", "dot"] as const;
+export type CornerDot = (typeof CORNER_DOTS)[number];
+
 export type QrStyle = {
-  /** The modules. */
+  /** The data modules. */
   dark: string;
-  /** The ground, including the quiet zone. */
+  /** The ground, including the quiet zone. Also the colour contrast is judged against. */
   light: string;
+  pattern: QrPattern;
+  cornerFrame: CornerFrame;
+  cornerDot: CornerDot;
+  /** The corner rings; null draws them in `dark`. */
+  cornerFrameColor: string | null;
+  /** The corner centres; null draws them in `dark`. */
+  cornerDotColor: string | null;
+  /**
+   * Leave the ground out of downloads, for artwork laid over a design. The
+   * contrast check still judges against `light`, which is then the surface
+   * the owner promises to print on; the form says so.
+   */
+  transparent: boolean;
 };
 
 /** What a code is drawn in until its owner says otherwise. */
-export const DEFAULT_QR_STYLE: QrStyle = { dark: "#1A1A1A", light: "#FFFFFF" };
+export const DEFAULT_QR_STYLE: QrStyle = {
+  dark: "#1A1A1A",
+  light: "#FFFFFF",
+  pattern: "square",
+  cornerFrame: "auto",
+  cornerDot: "auto",
+  cornerFrameColor: null,
+  cornerDotColor: null,
+  transparent: false,
+};
 
 /**
  * The lowest contrast ratio a saved pair may have.
@@ -39,7 +77,21 @@ const hex = z
   .regex(/^#[0-9a-fA-F]{6}$/, "Use a six-digit hex colour, like #1A1A1A.")
   .transform((value) => value.toUpperCase());
 
-export const qrStyleSchema = z.object({ dark: hex, light: hex });
+/**
+ * A style as posted or stored. Every key past the two colours is optional and
+ * defaults, so a row saved before patterns existed, which holds only `dark`
+ * and `light`, reads as exactly the artwork it always drew.
+ */
+export const qrStyleSchema = z.object({
+  dark: hex,
+  light: hex,
+  pattern: z.enum(QR_PATTERNS).default("square"),
+  cornerFrame: z.enum(CORNER_FRAMES).default("auto"),
+  cornerDot: z.enum(CORNER_DOTS).default("auto"),
+  cornerFrameColor: hex.nullable().default(null),
+  cornerDotColor: hex.nullable().default(null),
+  transparent: z.boolean().default(false),
+});
 
 /** WCAG relative luminance of a `#RRGGBB` colour. */
 function luminance(colour: string): number {
@@ -69,21 +121,39 @@ export type StyleCheck = { ok: true } | { ok: false; reason: string };
  * read it at all.
  */
 export function checkQrStyle(style: QrStyle): StyleCheck {
-  if (luminance(style.dark) >= luminance(style.light)) {
-    return {
-      ok: false,
-      reason:
-        "The code colour must be darker than the background. Many scanners cannot read a light code on a dark ground.",
-    };
-  }
-  const ratio = contrastRatio(style.dark, style.light);
-  if (ratio < MIN_QR_CONTRAST) {
-    return {
-      ok: false,
-      reason: `Those two colours are too close to scan reliably once printed (contrast ${ratio.toFixed(1)}:1, minimum ${MIN_QR_CONTRAST}:1). Darken the code colour or lighten the background.`,
-    };
+  // Every colour a scanner has to tell from the ground is held to the same
+  // rule. The corner squares matter most of all: they are how a scanner
+  // finds the code in the first place.
+  const inks: { colour: string; name: string }[] = [
+    { colour: style.dark, name: "The code colour" },
+    ...(style.cornerFrameColor ? [{ colour: style.cornerFrameColor, name: "The corner frame colour" }] : []),
+    ...(style.cornerDotColor ? [{ colour: style.cornerDotColor, name: "The corner dot colour" }] : []),
+  ];
+  for (const ink of inks) {
+    if (luminance(ink.colour) >= luminance(style.light)) {
+      return {
+        ok: false,
+        reason: `${ink.name} must be darker than the background. Many scanners cannot read a light code on a dark ground.`,
+      };
+    }
+    const ratio = contrastRatio(ink.colour, style.light);
+    if (ratio < MIN_QR_CONTRAST) {
+      return {
+        ok: false,
+        reason: `${ink.name} is too close to the background to scan reliably once printed (contrast ${ratio.toFixed(1)}:1, minimum ${MIN_QR_CONTRAST}:1). Darken it or lighten the background.`,
+      };
+    }
   }
   return { ok: true };
+}
+
+/** The weakest contrast among the style's inks, for the form to quote. */
+export function weakestContrast(style: QrStyle): number {
+  return Math.min(
+    ...[style.dark, style.cornerFrameColor, style.cornerDotColor]
+      .filter((colour): colour is string => colour !== null)
+      .map((colour) => contrastRatio(colour, style.light))
+  );
 }
 
 /**
@@ -98,16 +168,28 @@ export function checkQrStyle(style: QrStyle): StyleCheck {
 export function readQrStyle(stored: unknown): QrStyle {
   const source =
     stored && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
-  const parsed = qrStyleSchema.safeParse({ dark: source.dark, light: source.light });
-  if (!parsed.success || !checkQrStyle(parsed.data).ok) return DEFAULT_QR_STYLE;
-  return parsed.data;
+  const colours = qrStyleSchema.safeParse({ dark: source.dark, light: source.light });
+  if (!colours.success || !checkQrStyle(colours.data).ok) return DEFAULT_QR_STYLE;
+
+  // The colours stand; each further key is kept only if it is valid on its
+  // own and the whole still scans. A bad corner colour costs the corner
+  // colour, not the owner's chosen code colour.
+  let style: QrStyle = colours.data;
+  for (const key of ["pattern", "cornerFrame", "cornerDot", "cornerFrameColor", "cornerDotColor", "transparent"] as const) {
+    if (!(key in source)) continue;
+    const next = qrStyleSchema.safeParse({ ...style, [key]: source[key] });
+    if (next.success && checkQrStyle(next.data).ok) style = next.data;
+  }
+  return style;
 }
 
 /** True when a style is the default, so the UI can offer no reset. */
 export function isDefaultQrStyle(style: QrStyle): boolean {
-  return (
-    style.dark === DEFAULT_QR_STYLE.dark && style.light === DEFAULT_QR_STYLE.light
-  );
+  return sameQrStyle(style, DEFAULT_QR_STYLE);
+}
+
+export function sameQrStyle(a: QrStyle, b: QrStyle): boolean {
+  return (Object.keys(DEFAULT_QR_STYLE) as (keyof QrStyle)[]).every((key) => a[key] === b[key]);
 }
 
 /**

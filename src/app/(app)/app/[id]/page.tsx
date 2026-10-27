@@ -12,13 +12,13 @@ import {
   parseCodeId,
   ANALYTICS_WINDOWS,
 } from "@/lib/user-codes";
-import { QrSymbol } from "@/app/_landing/QrSymbol";
+import { cachedMatrix } from "@/app/_landing/QrSymbol";
 import { DashShell } from "../DashShell";
 import { secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "../StatusPill";
 import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";
-import { StyleForm, StyleScope } from "./StyleControls";
+import { LiveSymbol, StyleForm, StyleScope } from "./StyleControls";
 import { CopyLink } from "../CopyLink";
 import { LogoForm } from "./LogoForm";
 import { listLogos } from "@/lib/logos";
@@ -68,6 +68,9 @@ export default async function CodePage({
 
   const exportable = canExportCsv(entitlement);
   const url = codeUrl(code.shortCode);
+  // Encoded here, once: the live preview draws from this matrix in the
+  // browser, which runs no QR encoder of its own.
+  const matrix = cachedMatrix(url, code.logo ? "H" : "Q");
 
   // The code's own logo is offered even after it leaves the library, so the
   // picker never shows a code as having no logo when it has one.
@@ -114,24 +117,19 @@ export default async function CodePage({
       ) : null}
 
       {/*
-        The scope wraps both columns: it holds the colours being previewed, so
-        the specimen on the left recolours as the form on the right changes.
+        The scope wraps both columns: it holds the design being previewed, so
+        the specimen on the left redraws as the form on the right changes.
       */}
       <StyleScope
         initial={code.style}
         className="grid gap-10 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-14"
       >
-        {/* The specimen, built exactly as the landing page builds it. */}
-        <div>
-          <div className="rounded-lg border border-[var(--paper-rule)] bg-white p-6">
-            <QrSymbol
-              value={url}
-              px={248}
-              title={`QR code for ${code.name}`}
-              logoUrl={code.logo?.url}
-              className="mx-auto block h-auto w-full max-w-[248px]"
-            />
-          </div>
+        {/*
+          The specimen, drawn exactly as the download is. Sticky on wide
+          screens, so it stays in view while the design form is scrolled.
+        */}
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <LiveSymbol matrix={matrix} logoUrl={code.logo?.url} title={`QR code for ${code.name}`} />
 
           <div className="mt-4 flex flex-wrap gap-2">
             <a
@@ -180,7 +178,12 @@ export default async function CodePage({
             />
           )}
           <RenameForm id={code.id} current={code.name} />
-          <StyleForm id={code.id} saved={code.style} />
+          <section aria-labelledby="design-heading">
+            <h2 id="design-heading" className="mb-4 font-sarlotte text-2xl leading-none">
+              Design
+            </h2>
+            <StyleForm id={code.id} saved={code.style} matrix={matrix} />
+          </section>
           <LogoForm
             id={code.id}
             current={code.logo?.id ?? null}

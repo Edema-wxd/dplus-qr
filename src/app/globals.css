@@ -322,3 +322,13 @@ body {
 .legal-num {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * Behind a transparent code in the design preview: the usual checkerboard, so
+ * the owner can see the background really is left out of the download.
+ */
+.qr-checker {
+  background-color: #ffffff;
+  background-image: conic-gradient(#e8e8e8 25%, #ffffff 0 50%, #e8e8e8 0 75%, #ffffff 0);
+  background-size: 16px 16px;
+}
