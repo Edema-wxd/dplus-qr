@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
 import { getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
+import { ownerWarnings } from "@/lib/warnings";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { qrStyleVars } from "@/lib/qr-style";
 import { dynamicType, isPageKind } from "@/lib/qr-types";
@@ -22,6 +23,7 @@ import { DashShell } from "./DashShell";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "./StatusPill";
 import { VerifyBanner } from "./VerifyBanner";
+import { SuspendedNotice, WarningBanner } from "./WarningBanner";
 
 export const metadata: Metadata = { title: "Your codes" };
 
@@ -45,12 +47,13 @@ export default async function CodesPage({
 
   // Also grants the free plan on first load, so a code created here can
   // actually serve traffic. See ensureFreeSubscription.
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  const profile = await ensureProfile({ id: user.id, email: user.email, name: user.name });
 
-  const [codes, entitlement, params] = await Promise.all([
+  const [codes, entitlement, params, warnings] = await Promise.all([
     listCodes(user.id),
     getEntitlement(user.id),
     searchParams,
+    ownerWarnings(user.id),
   ]);
 
   const listQuery = parseListQuery(params);
@@ -84,6 +87,8 @@ export default async function CodesPage({
         hasCodes ? <NewCodeButton /> : null
       }
     >
+      {profile.suspendedAt ? <SuspendedNotice /> : null}
+      <WarningBanner warnings={warnings} />
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
 
       {lapsed && hasCodes ? <LapsedNotice /> : null}

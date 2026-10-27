@@ -7,7 +7,9 @@ const NAV = [
   { href: "/admin/plans", label: "Plans" },
   { href: "/admin/customers", label: "Customers" },
   { href: "/admin/codes", label: "Codes" },
-];
+  { href: "/admin/reports", label: "Reports" },
+  { href: "/admin/monitor", label: "Monitor" },
+] as const;
 
 /**
  * The staff admin's frame: the dashboard's materials, ink bar over paper, so
@@ -21,7 +23,7 @@ export function AdminShell({
   children,
 }: {
   heading: string;
-  current: "/admin" | "/admin/plans" | "/admin/customers" | "/admin/codes";
+  current: (typeof NAV)[number]["href"];
   meta?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -143,7 +145,14 @@ const ACTION_LABELS: Record<string, string> = {
   "customer.erase": "Erased",
   "customer.remove_sign_in": "Sign-in account removed",
   "subscription.assign": "Plan assigned",
+  "customer.warn": "Warning sent",
+  "warning.complied": "Warning closed, put right",
+  "warning.withdrawn": "Warning withdrawn",
+  "report.actioned": "Report actioned",
+  "report.dismissed": "Report dismissed",
 };
+
+const LEVEL_WORDS: Record<string, string> = { notice: "notice", warning: "warning", final: "final warning" };
 
 /** The history of what staff changed on one code or account. */
 export function StaffHistory({
@@ -162,6 +171,12 @@ export function StaffHistory({
             {entry.createdAt.toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" })}
           </span>
           <span className="font-medium">{ACTION_LABELS[entry.action] ?? entry.action}</span>
+          {typeof entry.detail.level === "string" ? (
+            <span className="text-[var(--paper-soft)]">{LEVEL_WORDS[entry.detail.level] ?? entry.detail.level}</span>
+          ) : null}
+          {typeof entry.detail.warningId === "number" && entry.action === "customer.suspend" ? (
+            <span className="text-[var(--paper-soft)]">after a final warning</span>
+          ) : null}
           {typeof entry.detail.reason === "string" ? (
             <span className="text-[var(--paper-soft)]">“{entry.detail.reason}”</span>
           ) : null}

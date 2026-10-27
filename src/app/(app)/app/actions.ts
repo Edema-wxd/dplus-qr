@@ -20,6 +20,7 @@ import { checkQrStyle, qrStyleSchema } from "@/lib/qr-style";
 import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
 import { canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { checkCustomCode } from "@/lib/short-code";
+import { acknowledgeWarning } from "@/lib/warnings";
 
 /**
  * Dashboard mutations.
@@ -381,4 +382,18 @@ export async function checkCustomCodeAction(raw: string): Promise<CustomCodeHint
     return { state: "unavailable", reason: "Could not check that link just now." };
   }
   return { state: "available", code: checked.code };
+}
+
+/**
+ * The owner marks a staff warning as read. The id comes from the form, but the
+ * update filters by the session's user id too, so it can only ever touch the
+ * owner's own warnings. A final warning stays on the dashboard after this, as
+ * it carries a date; the rest leave it.
+ */
+export async function acknowledgeWarningAction(formData: FormData): Promise<void> {
+  const userId = await requireUserId();
+  const id = z.coerce.number().int().positive().safeParse(formData.get("warningId"));
+  if (!id.success) return;
+  await acknowledgeWarning(userId, id.data);
+  revalidatePath("/app");
 }
