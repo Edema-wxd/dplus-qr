@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FRAME_FONT } from "@/lib/design-assets.generated";
 
 /**
  * How a code's artwork is drawn, as stored in `qr_codes.style`: colours, the
@@ -28,6 +29,37 @@ export type CornerFrame = (typeof CORNER_FRAMES)[number];
 export const CORNER_DOTS = ["auto", "square", "dot"] as const;
 export type CornerDot = (typeof CORNER_DOTS)[number];
 
+/**
+ * A printed frame around the code with a short call to action. Drawn outside
+ * the quiet zone, so no frame can crowd the symbol.
+ */
+export const QR_FRAMES = [
+  "none",
+  "box",
+  "banner-below",
+  "banner-above",
+  "bubble",
+  "tag",
+  "corners",
+  "pill",
+] as const;
+export type QrFrame = (typeof QR_FRAMES)[number];
+
+export const DEFAULT_FRAME_TEXT = "Scan me!";
+export const MAX_FRAME_TEXT = 24;
+
+/**
+ * The lowest contrast frame text may have against what it sits on. Not a
+ * scanning rule, since a frame is never read by a scanner, but people have to
+ * read the call to action: 3:1 is the WCAG figure for large text.
+ */
+export const MIN_FRAME_CONTRAST = 3;
+
+/** Whether every character can be drawn: frame text is outlined from a fixed glyph set. */
+export function frameTextDrawable(text: string): boolean {
+  return [...text].every((char) => char in FRAME_FONT.glyphs);
+}
+
 export type QrStyle = {
   /** The data modules. */
   dark: string;
@@ -46,6 +78,11 @@ export type QrStyle = {
    * the owner promises to print on; the form says so.
    */
   transparent: boolean;
+  frame: QrFrame;
+  /** The call to action printed on the frame. */
+  frameText: string;
+  /** The frame's colour; null uses `dark`. */
+  frameColor: string | null;
 };
 
 /** What a code is drawn in until its owner says otherwise. */
@@ -58,6 +95,9 @@ export const DEFAULT_QR_STYLE: QrStyle = {
   cornerFrameColor: null,
   cornerDotColor: null,
   transparent: false,
+  frame: "none",
+  frameText: DEFAULT_FRAME_TEXT,
+  frameColor: null,
 };
 
 /**
@@ -91,6 +131,15 @@ export const qrStyleSchema = z.object({
   cornerFrameColor: hex.nullable().default(null),
   cornerDotColor: hex.nullable().default(null),
   transparent: z.boolean().default(false),
+  frame: z.enum(QR_FRAMES).default("none"),
+  frameText: z
+    .string()
+    .trim()
+    .min(1, "Give the frame some text, or choose no frame.")
+    .max(MAX_FRAME_TEXT, `Keep the frame text to ${MAX_FRAME_TEXT} characters.`)
+    .refine(frameTextDrawable, "The frame text can use letters, numbers and common punctuation only.")
+    .default(DEFAULT_FRAME_TEXT),
+  frameColor: hex.nullable().default(null),
 });
 
 /** WCAG relative luminance of a `#RRGGBB` colour. */
@@ -144,6 +193,25 @@ export function checkQrStyle(style: QrStyle): StyleCheck {
       };
     }
   }
+  // The frame is never scanned, but its text has to be readable. Text on a
+  // filled band takes black or white automatically; text and lines drawn on
+  // the background in the frame colour are checked here.
+  if (style.frame !== "none") {
+    if (style.frameText.trim().length === 0 || style.frameText.length > MAX_FRAME_TEXT) {
+      return { ok: false, reason: `Give the frame up to ${MAX_FRAME_TEXT} characters of text, or choose no frame.` };
+    }
+    if (!frameTextDrawable(style.frameText)) {
+      return { ok: false, reason: "The frame text can use letters, numbers and common punctuation only." };
+    }
+    const frameInk = style.frameColor ?? style.dark;
+    const ratio = contrastRatio(frameInk, style.light);
+    if (ratio < MIN_FRAME_CONTRAST) {
+      return {
+        ok: false,
+        reason: `The frame colour is too close to the background to read (contrast ${ratio.toFixed(1)}:1, minimum ${MIN_FRAME_CONTRAST}:1).`,
+      };
+    }
+  }
   return { ok: true };
 }
 
@@ -175,7 +243,17 @@ export function readQrStyle(stored: unknown): QrStyle {
   // own and the whole still scans. A bad corner colour costs the corner
   // colour, not the owner's chosen code colour.
   let style: QrStyle = colours.data;
-  for (const key of ["pattern", "cornerFrame", "cornerDot", "cornerFrameColor", "cornerDotColor", "transparent"] as const) {
+  for (const key of [
+    "pattern",
+    "cornerFrame",
+    "cornerDot",
+    "cornerFrameColor",
+    "cornerDotColor",
+    "transparent",
+    "frame",
+    "frameText",
+    "frameColor",
+  ] as const) {
     if (!(key in source)) continue;
     const next = qrStyleSchema.safeParse({ ...style, [key]: source[key] });
     if (next.success && checkQrStyle(next.data).ok) style = next.data;

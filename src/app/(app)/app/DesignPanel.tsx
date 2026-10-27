@@ -5,6 +5,10 @@ import {
   CORNER_DOTS,
   CORNER_FRAMES,
   QR_PATTERNS,
+  QR_FRAMES,
+  MAX_FRAME_TEXT,
+  frameTextDrawable,
+  type QrFrame,
   checkQrStyle,
   weakestContrast,
   type CornerDot,
@@ -12,7 +16,8 @@ import {
   type QrPattern,
   type QrStyle,
 } from "@/lib/qr-style";
-import { QUIET_ZONE, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-artwork";
+import { QUIET_ZONE, composeArtwork, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-artwork";
+import type { PresetLogoId } from "@/lib/preset-logos";
 import { QrArtworkSvg } from "@/components/QrArtworkSvg";
 
 /**
@@ -44,17 +49,29 @@ const FRAME_LABELS: Record<CornerFrame, string> = {
   circle: "Circle",
 };
 
+const FRAME_NAMES: Record<QrFrame, string> = {
+  none: "No frame",
+  box: "Box",
+  "banner-below": "Banner below",
+  "banner-above": "Banner above",
+  bubble: "Speech bubble",
+  tag: "Tag",
+  corners: "Corners",
+  pill: "Pill",
+};
+
 const DOT_LABELS: Record<CornerDot, string> = {
   auto: "Match the pattern",
   square: "Square",
   dot: "Dot",
 };
 
-/** The symbol as it will print. */
+/** The code as it will print, frame and logo included. */
 export function DesignPreview({
   matrix,
   style,
   logoUrl,
+  presetLogo,
   px,
   title,
   className,
@@ -62,16 +79,18 @@ export function DesignPreview({
   matrix: QrMatrix;
   style: QrStyle;
   logoUrl?: string | null;
+  presetLogo?: PresetLogoId | null;
   px: number;
   title: string;
   className?: string;
 }) {
-  const art = qrArtwork(matrix, style, inksFor(style), Boolean(logoUrl));
+  const art = qrArtwork(matrix, style, inksFor(style), presetLogo ?? Boolean(logoUrl));
+  const { frame } = composeArtwork(art, style);
   return (
     <div
       className={`rounded-lg border border-[var(--paper-rule)] p-6 ${style.transparent ? "qr-checker" : "bg-white"}`}
     >
-      <QrArtworkSvg art={art} px={px} title={title} logoUrl={logoUrl} className={className} />
+      <QrArtworkSvg art={art} frame={frame} px={px} title={title} logoUrl={logoUrl} className={className} />
     </div>
   );
 }
@@ -112,8 +131,72 @@ export function DesignFields({
   const tileInks = inksFor({ ...style, transparent: false });
   const corner = `${QUIET_ZONE - 0.5} ${QUIET_ZONE - 0.5} 8 8`;
 
+  const textOk = frameTextDrawable(style.frameText) && style.frameText.trim().length > 0;
+
   return (
     <div className="space-y-7">
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium">Frame</legend>
+        <div className="flex flex-wrap gap-2">
+          {QR_FRAMES.map((frame) => {
+            const tileStyle = { ...style, frame, transparent: false };
+            const art = qrArtwork(matrix, tileStyle, tileInks);
+            return (
+              <button
+                key={frame}
+                type="button"
+                aria-pressed={style.frame === frame}
+                title={FRAME_NAMES[frame]}
+                onClick={() => set({ frame })}
+                className={tileClass(style.frame === frame)}
+              >
+                {frame === "none" ? (
+                  <span className="px-1 text-center text-[11px] leading-tight text-[var(--paper-soft)]">None</span>
+                ) : (
+                  <QrArtworkSvg
+                    art={art}
+                    frame={composeArtwork(art, tileStyle).frame}
+                    px={40}
+                    title={FRAME_NAMES[frame]}
+                    className="max-h-14 w-auto"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {style.frame !== "none" ? (
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor={`${idPrefix}-frame-text`} className="mb-1 block text-sm">
+                Frame text
+              </label>
+              <input
+                id={`${idPrefix}-frame-text`}
+                type="text"
+                value={style.frameText}
+                maxLength={MAX_FRAME_TEXT}
+                onChange={(event) => set({ frameText: event.target.value })}
+                className="w-full rounded-md border border-[var(--paper-rule)] bg-white px-3 py-2 text-sm"
+              />
+              <p className={`mt-1 text-xs ${textOk ? "text-[var(--paper-soft)]" : "text-[var(--struck-ink)]"}`}>
+                {textOk
+                  ? `${style.frameText.length} of ${MAX_FRAME_TEXT}. A short call to action reads best, like “See our menu”.`
+                  : "Letters, numbers and common punctuation only, and not empty."}
+              </p>
+            </div>
+            <ColourField
+              id={`${idPrefix}-frame-colour`}
+              label="Frame colour"
+              value={style.frameColor ?? style.dark}
+              inherited={style.frameColor === null}
+              onChange={(frameColor) => set({ frameColor })}
+              onReset={() => set({ frameColor: null })}
+            />
+          </div>
+        ) : null}
+      </fieldset>
+
       <fieldset>
         <legend className="mb-2 text-sm font-medium">Pattern</legend>
         <div className="flex flex-wrap gap-2">

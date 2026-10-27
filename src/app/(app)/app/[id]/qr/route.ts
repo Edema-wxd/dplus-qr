@@ -61,8 +61,10 @@ export async function GET(
     "Cache-Control": "private, no-store",
   };
 
+  // A preset mark is drawn from bundled outlines, so only an uploaded logo
+  // needs fetching.
   let logoHref: string | undefined;
-  if (code.logo) {
+  if (code.logo && !code.presetLogo) {
     // Fetched and embedded, never linked: an SVG that points at a URL loses
     // its logo the moment a print shop opens it offline.
     try {
@@ -81,7 +83,7 @@ export async function GET(
   // One renderer for every download, logo or not, so a pattern, corners and
   // colours come out exactly as previewed. A transparent style leaves the
   // ground out, and the PNG keeps the transparency.
-  const svg = renderQrSvg({ content, style: code.style, px: size, logoHref });
+  const svg = renderQrSvg({ content, style: code.style, px: size, logoHref, presetLogo: code.presetLogo });
   const body = format === "png" ? await sharp(Buffer.from(svg)).png().toBuffer() : svg;
   return new Response(body as BodyInit, { headers });
 }

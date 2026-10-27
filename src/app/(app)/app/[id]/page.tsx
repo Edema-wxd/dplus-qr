@@ -21,6 +21,7 @@ import { AnalyticsPanel } from "./Analytics";
 import { LiveSymbol, StyleForm, StyleScope } from "./StyleControls";
 import { CopyLink } from "../CopyLink";
 import { LogoForm } from "./LogoForm";
+import { PRESET_PREFIX } from "@/lib/preset-logos";
 import { listLogos } from "@/lib/logos";
 import { uploadsEnabled } from "@/lib/uploads";
 import { dynamicType, isPageKind, pagePath } from "@/lib/qr-types";
@@ -70,7 +71,7 @@ export default async function CodePage({
   const url = codeUrl(code.shortCode);
   // Encoded here, once: the live preview draws from this matrix in the
   // browser, which runs no QR encoder of its own.
-  const matrix = cachedMatrix(url, code.logo ? "H" : "Q");
+  const matrix = cachedMatrix(url, code.logo || code.presetLogo ? "H" : "Q");
 
   // The code's own logo is offered even after it leaves the library, so the
   // picker never shows a code as having no logo when it has one.
@@ -129,7 +130,12 @@ export default async function CodePage({
           screens, so it stays in view while the design form is scrolled.
         */}
         <div className="lg:sticky lg:top-6 lg:self-start">
-          <LiveSymbol matrix={matrix} logoUrl={code.logo?.url} title={`QR code for ${code.name}`} />
+          <LiveSymbol
+            matrix={matrix}
+            logoUrl={code.logo?.url}
+            presetLogo={code.presetLogo}
+            title={`QR code for ${code.name}`}
+          />
 
           <div className="mt-4 flex flex-wrap gap-2">
             <a
@@ -186,7 +192,7 @@ export default async function CodePage({
           </section>
           <LogoForm
             id={code.id}
-            current={code.logo?.id ?? null}
+            current={code.presetLogo ? `${PRESET_PREFIX}${code.presetLogo}` : (code.logo?.id ?? null)}
             logos={logos}
             uploads={uploadsEnabled()}
           />

@@ -155,6 +155,7 @@ export default async function CodesPage({
                           px={44}
                           title={`QR code for ${code.name}`}
                           logoUrl={code.logo?.url}
+                          presetLogo={code.presetLogo}
                           style={code.style}
                           className="block h-auto w-11"
                         />

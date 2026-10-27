@@ -138,7 +138,7 @@ describe("patterns and corners", () => {
       cornerDotColor: "#1A4F8A",
       transparent: true,
     };
-    expect(readQrStyle(stored)).toEqual(stored);
+    expect(readQrStyle(stored)).toEqual({ ...stored, frame: "none", frameText: "Scan me!", frameColor: null });
   });
 
   it("drops one bad key without losing the rest", () => {
@@ -181,6 +181,39 @@ describe("patterns and corners", () => {
   it("counts any change from the default as not default", () => {
     expect(isDefaultQrStyle({ ...DEFAULT_QR_STYLE, pattern: "dots" })).toBe(false);
     expect(isDefaultQrStyle({ ...DEFAULT_QR_STYLE, transparent: true })).toBe(false);
+  });
+});
+
+describe("frames", () => {
+  it("defaults to no frame with the standard call to action", () => {
+    expect(readQrStyle({ dark: "#000000", light: "#FFFFFF" })).toMatchObject({
+      frame: "none",
+      frameText: "Scan me!",
+      frameColor: null,
+    });
+  });
+
+  it("checks the frame colour is readable on the background", () => {
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "box", frameColor: "#DDDDDD" }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "box", frameColor: "#1A4F8A" }).ok).toBe(true);
+  });
+
+  it("ignores the frame colour when there is no frame", () => {
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "none", frameColor: "#FFFFFF" }).ok).toBe(true);
+  });
+
+  it("refuses frame text it cannot draw, or none at all", () => {
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "pill", frameText: "Scan 🙂" }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "pill", frameText: "  " }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "pill", frameText: "Pay ₦500 here" }).ok).toBe(true);
+  });
+
+  it("the schema holds the same rules", () => {
+    const base = { dark: "#000000", light: "#FFFFFF", frame: "box" };
+    expect(qrStyleSchema.safeParse({ ...base, frameText: "x".repeat(25) }).success).toBe(false);
+    expect(qrStyleSchema.safeParse({ ...base, frameText: "日本" }).success).toBe(false);
+    expect(qrStyleSchema.safeParse({ ...base, frame: "starburst" }).success).toBe(false);
+    expect(qrStyleSchema.safeParse({ ...base, frameText: "See our menu" }).success).toBe(true);
   });
 });
 

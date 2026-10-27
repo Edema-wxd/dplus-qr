@@ -803,6 +803,55 @@ The one size where ZXing failed was 300px with the checkerboard logo, and it
 fails there for the default style too: an artefact of that test logo's fine
 pattern, not of any design.
 
+## Code design: frames and ready-made logos, 27 October 2026
+
+The second half of code design (Francis, 27 Oct 2026: custom frame text, and
+every logo in the reference screenshot).
+
+**Frames.** Seven printed frames around the code: box, banner below, banner
+above, speech bubble, tag, corners and pill, each with its own colour and up
+to 24 characters of the owner's own call to action ("Scan me!" by default).
+Stored as `frame`, `frameText` and `frameColor` in `qr_codes.style`, defaulted
+like the other design keys, so no migration.
+
+- **Frames never touch the symbol.** Every frame sits wholly outside the
+  quiet zone, and frames that fill the area around the code (the tag) paint
+  the quiet zone light themselves, even on a transparent style. Every frame
+  with every pattern is decoded in the test suite, and the square ones by
+  jsQR as well as ZXing.
+- **Frame text is drawn as outlines, not set in a font.** The PNG renderer
+  on a server has no fonts, so `<text>` would come out blank or in a
+  fallback face. Glyph outlines are generated once by `npm run
+  design:assets` into `src/lib/design-assets.generated.ts` (committed), so
+  the preview and the download draw identical text with no font parser at
+  runtime. The face is **Inter Bold (SIL OFL 1.1)**, not the brand's
+  Sarlotte, whose licence was never checked for outlining text into artwork
+  customers print. The charset is printable ASCII plus ₦ € £ and ’; the
+  schema refuses anything else, so every character typed can be drawn.
+- Text on a filled band is black or white automatically; a frame colour used
+  for lines and text on the background must reach 3:1 against it (WCAG large
+  text). That is a legibility rule, not a scanning one: a frame is never read
+  by a scanner.
+- A framed download is the width asked for and taller than wide.
+
+**Ready-made logos.** Twelve marks in the logo picker beside uploads, drawn
+as vector shapes in the logo box with nothing to fetch:
+X, YouTube, Instagram, TikTok, LinkedIn, Pinterest, Apple, Gmail, WhatsApp,
+Facebook, Netflix, and a plain email envelope.
+
+- From **Simple Icons (CC0)**. The marks remain their owners' trademarks.
+  **The Twitter bird and Outlook are not available**: Simple Icons removed
+  both at their owners' request, and copying them from an older release would
+  ignore that request. X stands in for the bird (same platform today) and a
+  generic envelope for Outlook.
+- Stored as `presetLogo` in `qr_codes.style`, but owned by the logo form, not
+  the design panel: `setCodeLogo` sets `logo_id` and `presetLogo` in one
+  statement, so a code never has both, and saving the design can never change
+  a logo choice. The picker posts `preset:<name>` in the same field as an
+  uploaded logo's id.
+- Every mark on every pattern decodes in the test suite.
+- A preset mark on a phishing code is handled like any other abuse: blocked.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

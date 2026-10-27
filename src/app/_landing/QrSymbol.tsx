@@ -3,6 +3,7 @@ import { qrMatrix, type QrLevel, type QrMatrix } from "@/lib/qr-render";
 import { inksFor, qrArtwork, type ArtworkInks } from "@/lib/qr-artwork";
 import { DEFAULT_QR_STYLE, type QrStyle } from "@/lib/qr-style";
 import { QrArtworkSvg } from "@/components/QrArtworkSvg";
+import type { PresetLogoId } from "@/lib/preset-logos";
 
 /**
  * Generated matrices, kept by the string they encode and the level.
@@ -71,6 +72,7 @@ export function QrSymbol({
   className,
   title,
   logoUrl,
+  presetLogo,
   style,
 }: {
   value: string;
@@ -78,10 +80,14 @@ export function QrSymbol({
   className?: string;
   title?: string;
   logoUrl?: string | null;
+  presetLogo?: PresetLogoId | null;
   style?: QrStyle;
 }) {
-  const matrix = cachedMatrix(value, logoUrl ? "H" : "Q");
-  const art = qrArtwork(matrix, style ?? DEFAULT_QR_STYLE, style ? inksFor(style) : THEME_INKS, Boolean(logoUrl));
+  // The symbol alone, never its frame: these are list thumbnails and page
+  // specimens, where a frame's text would be too small to mean anything.
+  const logo = presetLogo ?? Boolean(logoUrl);
+  const matrix = cachedMatrix(value, logo ? "H" : "Q");
+  const art = qrArtwork(matrix, style ?? DEFAULT_QR_STYLE, style ? inksFor(style) : THEME_INKS, logo);
   return (
     <QrArtworkSvg
       art={art}
