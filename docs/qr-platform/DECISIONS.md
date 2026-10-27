@@ -757,6 +757,47 @@ userinfo (`https://paystack.com@evil.ng/x`), which browsers send to `evil.ng`.
 Fixed separately in PR #15, which refuses userinfo outright. Codes saved
 before it can be found by searching `@` here and re-screened.
 
+## Warnings, the abuse-report queue and monitoring, 27 October 2026
+
+The second half of staff moderation.
+
+**Warnings have three levels**: a notice, a warning, and a final warning that
+gives the owner 3, 7 or 14 days. **A final warning falling due changes
+nothing on its own** (Francis, 27 Oct 2026: "final suspension needs an admin
+tied to it"). It is listed under Monitor and flagged on the Overview, and a
+staff member suspends the account from there, which closes the warning as
+the reason and records who did it. Staff can also close a warning as put
+right, or withdraw it. Suspending before the date is allowed, behind a
+confirmation, and audited as early.
+
+- Migration `018` adds `qr_account_warnings`. Constraints keep it honest: a
+  date exactly when the level is final, and a resolution exactly when it is
+  resolved. Nothing on the redirect path reads it.
+- Sent from `support@`, replies to the apex. The warning is recorded and shown
+  even if the email fails, and staff are told it did.
+- **The owner sees it on their dashboard** until they mark it read; a final
+  warning stays until staff close it, because its date still matters. The
+  dashboard now also says when an account is suspended, which it never did.
+- The audit row for a warning records its level and id, not its text, and
+  erasing an account deletes its warnings: a copy of the message kept in the
+  audit would outlive the erasure.
+
+**`/admin/reports`** is the abuse-report queue: open reports oldest first,
+each showing where the code points now, with "mark actioned" and "dismiss".
+Acting on the code happens on its own page.
+
+**`/admin/monitor`** holds the watch lists. Each is a prompt to look:
+
+- Final warnings due.
+- Scan spikes: at least 50 scans today and 5× the code's daily average over
+  the previous week (`isSpike`). Today's partial count against a full-day
+  average can only understate, so a spike flagged at noon is real.
+- Live link codes failing today's screening, checked on page load over the
+  newest 5,000. This is how destinations saved before a rule (such as the
+  userinfo rule in #15) get found.
+- Accounts under 14 days old that re-pointed a code this week.
+- Codes with two or more open reports.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

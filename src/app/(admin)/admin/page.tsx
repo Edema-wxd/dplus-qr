@@ -9,6 +9,8 @@ import {
   webhookHealth,
 } from "@/lib/admin-billing";
 import { naira } from "@/lib/plan-tiers";
+import { openReportCount } from "@/lib/monitoring";
+import { dueFinalWarningCount } from "@/lib/warnings";
 import { audit, requireStaff } from "./guard";
 import { AdminShell, SectionHeading, Stat, day, tableClass, tdClass, thClass } from "./AdminShell";
 
@@ -21,11 +23,13 @@ export default async function AdminOverview() {
   const staff = await requireStaff();
   audit(staff, { action: "view", targetType: "page", targetId: "/admin" });
 
-  const [plans, accounts, pastDue, webhooks] = await Promise.all([
+  const [plans, accounts, pastDue, webhooks, openReports, warningsDue] = await Promise.all([
     planSubscribers(),
     accountTotals(),
     pastDueAccounts(),
     webhookHealth(),
+    openReportCount(),
+    dueFinalWarningCount(),
   ]);
   const revenue = summariseRevenue(plans);
   const paidPlans = plans.filter((plan) => plan.amountKobo > 0 && (plan.active || plan.pastDue));
@@ -55,6 +59,32 @@ export default async function AdminOverview() {
             note={`${accounts.newLast30Days.toLocaleString("en-NG")} new in 30 days · ${revenue.free.toLocaleString("en-NG")} on Free`}
           />
         </dl>
+
+        {openReports > 0 || warningsDue > 0 ? (
+          <section
+            aria-labelledby="attention-heading"
+            className="rounded-lg border border-[var(--struck-ink)]/50 bg-white px-4 py-3 text-sm"
+          >
+            <h2 id="attention-heading" className="font-medium">Needs a person</h2>
+            <ul className="mt-1.5 space-y-1">
+              {openReports > 0 ? (
+                <li>
+                  <Link href="/admin/reports">
+                    {openReports.toLocaleString("en-NG")} open abuse {openReports === 1 ? "report" : "reports"}
+                  </Link>
+                </li>
+              ) : null}
+              {warningsDue > 0 ? (
+                <li>
+                  <Link href="/admin/monitor#due-heading">
+                    {warningsDue.toLocaleString("en-NG")} final {warningsDue === 1 ? "warning" : "warnings"} past due,
+                    waiting on a decision
+                  </Link>
+                </li>
+              ) : null}
+            </ul>
+          </section>
+        ) : null}
 
         {webhooks.unprocessed > 0 ? (
           <section aria-labelledby="webhooks-heading">

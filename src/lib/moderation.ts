@@ -636,7 +636,7 @@ export type EraseResult =
  *
  * Every row that holds what the customer wrote, uploaded or collected is
  * deleted or blanked: scans and their rollup, destination history, feedback,
- * files and logos, each code's name, destination, content and style, and the
+ * files and logos, staff warnings, each code's name, destination, content and style, and the
  * profile's name, email and Paystack customer code. What remains is a
  * skeleton: the profile row and each code row, anonymous, so the foreign keys
  * hold and every short code stays reserved. Its codes answer as unknown.
@@ -693,6 +693,9 @@ export async function eraseAccountData(userId: string): Promise<EraseResult> {
       [userId]
     );
 
+    // Staff warnings are messages about the person, so they go too. The
+    // audit trail keeps that each was sent, without the text.
+    await run(`delete from qr_account_warnings where user_id = $1`, [userId]);
     await run(`delete from qr_logos where user_id = $1`, [userId]);
     await run(`delete from qr_files where user_id = $1`, [userId]);
     await run(

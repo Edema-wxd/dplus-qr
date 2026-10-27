@@ -11,6 +11,7 @@ import { AnalyticsPanel } from "@/app/(app)/app/[id]/Analytics";
 import { audit, requireStaff } from "../../guard";
 import { AdminShell, SectionHeading, StaffHistory, Stat, Tag, day, tableClass, tdClass, thClass } from "../../AdminShell";
 import { CodeActions } from "../CodeActions";
+import { WarnForm } from "../../customers/WarnForm";
 import { Destination } from "../Destination";
 
 export const metadata: Metadata = { title: "Code · Admin" };
@@ -118,6 +119,20 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
             />
           </div>
         </section>
+
+        {code.owner.erased ? null : (
+          <section aria-labelledby="warn-heading">
+            <SectionHeading id="warn-heading">Warn the owner</SectionHeading>
+            <p className="mt-4 mb-4 text-sm text-[var(--paper-soft)]">
+              Their earlier warnings are on{" "}
+              <Link href={`/admin/customers/${code.owner.id}#warnings-heading`}>their account page</Link>.
+            </p>
+            <WarnForm
+              userId={code.owner.id}
+              fixedCode={{ id: code.id, label: `${CODE_HOST}/${code.shortCode}` }}
+            />
+          </section>
+        )}
 
         <AnalyticsPanel windows={windows} />
 

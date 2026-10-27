@@ -11,6 +11,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import { getCustomer } from "@/lib/admin-billing";
 import { isAdmin } from "@/lib/admin";
 import { hasSignInAccount, staffActions } from "@/lib/moderation";
+import { accountWarnings } from "@/lib/warnings";
 import { getEntitlement } from "@/lib/entitlement";
 import { listAllPlans } from "@/lib/plans";
 import { naira } from "@/lib/plan-tiers";
@@ -22,6 +23,8 @@ import { SubscriptionStatus } from "../SubscriptionStatus";
 import { AssignPlan } from "../AssignPlan";
 import { AccountActions } from "../AccountActions";
 import { EraseAccount, RetryRemoveSignIn } from "../EraseAccount";
+import { WarnForm } from "../WarnForm";
+import { WarningList } from "../WarningList";
 
 export const metadata: Metadata = { title: "Customer · Admin" };
 export const instant = false;
@@ -38,13 +41,14 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
   const parsed = idSchema.safeParse((await params).id);
   if (!parsed.success) notFound();
 
-  const [customer, entitlement, plans, actions, signIn, staffAccount] = await Promise.all([
+  const [customer, entitlement, plans, actions, signIn, staffAccount, warnings] = await Promise.all([
     getCustomer(parsed.data),
     getEntitlement(parsed.data),
     listAllPlans(),
     staffActions("customer", parsed.data),
     hasSignInAccount(parsed.data),
     isAdmin(parsed.data),
+    accountWarnings(parsed.data),
   ]);
   if (!customer) notFound();
   const erased = customer.erasedAt !== null;
@@ -133,6 +137,24 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
             )}
           </div>
         </section>
+
+        {erased ? null : (
+          <section aria-labelledby="warnings-heading">
+            <SectionHeading id="warnings-heading">Warnings</SectionHeading>
+            <WarningList warnings={warnings} />
+            {isSelf ? null : (
+              <div className="mt-6">
+                <h3 className="mb-3 text-sm font-medium">Send a warning</h3>
+                <WarnForm
+                  userId={customer.id}
+                  codes={customer.codes
+                    .filter((code) => !code.archived)
+                    .map((code) => ({ id: code.id, label: `${code.name} · ${CODE_HOST}/${code.shortCode}` }))}
+                />
+              </div>
+            )}
+          </section>
+        )}
 
         {erased ? null : (
           <section aria-labelledby="assign-heading">
