@@ -10,6 +10,7 @@ import { CustomLinkField } from "./CustomLinkField";
 import { DesignFields, DesignPreview } from "../DesignPanel";
 import { DEFAULT_QR_STYLE, checkQrStyle, type QrStyle } from "@/lib/qr-style";
 import type { QrMatrix } from "@/lib/qr-artwork";
+import { parseLogoChoice, type PresetLogoId } from "@/lib/preset-logos";
 
 /** What the destination field asks for, per link type. */
 const LINK_FIELD: Record<LinkKind, { label: string; placeholder: string; hint: string }> = {
@@ -61,6 +62,8 @@ export function CreateCodeForm({
   const [draft, setDraft] = useState<Draft>(() => (isLinkKind(kind) ? {} : emptyDraft(kind)));
   const [style, setStyle] = useState<QrStyle>(DEFAULT_QR_STYLE);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [preset, setPreset] = useState<PresetLogoId | null>(null);
+  const hasLogo = Boolean(preset || logoUrl);
   const scannable = checkQrStyle(style).ok;
 
   return (
@@ -120,18 +123,17 @@ export function CreateCodeForm({
           reason={customLinks.ok ? undefined : customLinks.reason}
         />
 
-        {/*
-          Shown when there is anything to pick or a way to add something. With
-          neither, it would be a fieldset holding only "None".
-        */}
-        {uploads || logos.length > 0 ? (
-          <LogoPicker
-            logos={logos}
-            uploads={uploads}
-            idPrefix="new-code-logo"
-            onChange={(_logoId, url) => setLogoUrl(url)}
-          />
-        ) : null}
+        {/* Always offered: the ready-made marks need no upload. */}
+        <LogoPicker
+          logos={logos}
+          uploads={uploads}
+          idPrefix="new-code-logo"
+          onChange={(logoId, url) => {
+            const choice = parseLogoChoice(logoId);
+            setLogoUrl(url);
+            setPreset(choice?.kind === "preset" ? choice.id : null);
+          }}
+        />
 
         <section aria-labelledby="new-code-design" className="rounded-lg border border-[var(--paper-rule)] bg-white p-4 sm:p-5">
           <h2 id="new-code-design" className="mb-1 text-sm font-medium">
@@ -146,9 +148,10 @@ export function CreateCodeForm({
           */}
           <div className="mb-5 w-36 lg:hidden">
             <DesignPreview
-              matrix={logoUrl ? sample.H : sample.Q}
+              matrix={hasLogo ? sample.H : sample.Q}
               style={style}
               logoUrl={logoUrl}
+              presetLogo={preset}
               px={120}
               title="Preview of your code"
               className="block h-auto w-full"
@@ -171,9 +174,10 @@ export function CreateCodeForm({
 
       <aside aria-label="Preview" className="hidden lg:sticky lg:top-6 lg:block lg:self-start">
         <DesignPreview
-          matrix={logoUrl ? sample.H : sample.Q}
+          matrix={hasLogo ? sample.H : sample.Q}
           style={style}
           logoUrl={logoUrl}
+          presetLogo={preset}
           px={240}
           title="Preview of your code"
           className="mx-auto block h-auto w-full max-w-[240px]"

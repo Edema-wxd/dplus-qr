@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { archiveLogoAction } from "./actions";
 import { useUploadThing } from "./uploadthing";
 import { secondaryButtonClass } from "@/components/controls";
+import { PRESET_LOGOS, PRESET_PREFIX, presetLogo } from "@/lib/preset-logos";
 
 export type PickerLogo = { id: string; url: string; name: string };
 
@@ -14,9 +15,11 @@ export type PickerLogo = { id: string; url: string; name: string };
  * the owner makes or edits a code, so a business with one mark uploads it
  * once. A new upload joins the library and is selected straight away.
  *
- * The choice is posted by the surrounding form as `name` (default `logoId`),
- * with "" meaning no logo, so this works inside any form without its own
- * submit path.
+ * Ready-made platform marks are offered first, and need no upload.
+ *
+ * The choice is posted by the surrounding form as `name` (default `logoId`):
+ * "" for no logo, an uploaded logo's id, or `preset:<name>`. So this works
+ * inside any form without its own submit path.
  */
 export function LogoPicker({
   logos: initial,
@@ -90,6 +93,40 @@ export function LogoPicker({
     <fieldset>
       <legend className="mb-2 block text-sm">Logo</legend>
 
+      <p className="mb-1.5 text-xs text-[var(--paper-soft)]">Ready-made</p>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {PRESET_LOGOS.map((id) => {
+          const mark = presetLogo(id);
+          const value = `${PRESET_PREFIX}${id}`;
+          return (
+            <div key={id}>
+              <input
+                type="radio"
+                id={`${idPrefix}-preset-${id}`}
+                name={name}
+                value={value}
+                checked={selected === value}
+                onChange={() => select(value)}
+                className="peer sr-only"
+              />
+              <label
+                htmlFor={`${idPrefix}-preset-${id}`}
+                title={mark.label}
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-md border border-[var(--paper-rule)] bg-white transition-colors duration-150 hover:border-[var(--paper-soft)] peer-checked:border-[var(--paper-ink)] peer-checked:ring-1 peer-checked:ring-[var(--paper-ink)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2"
+              >
+                <svg viewBox="0 0 32 32" width="30" height="30" role="img" aria-label={mark.label}>
+                  <circle cx="16" cy="16" r="16" fill={mark.hex} />
+                  <svg x="6.4" y="6.4" width="19.2" height="19.2" viewBox="0 0 24 24">
+                    <path d={mark.path} fill="#FFFFFF" />
+                  </svg>
+                </svg>
+              </label>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="mb-1.5 text-xs text-[var(--paper-soft)]">Your own</p>
       <div className="flex flex-wrap gap-2">
         <div>
           <input

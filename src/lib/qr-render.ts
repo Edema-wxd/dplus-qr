@@ -1,6 +1,7 @@
 import QRCode from "qrcode";
 import type { QrStyle } from "@/lib/qr-style";
-import { artworkSvg, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-artwork";
+import { artworkSvg, composeArtwork, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-artwork";
+import type { PresetLogoId } from "@/lib/preset-logos";
 
 export { LOGO_FRACTION, QUIET_ZONE, logoBox, type QrMatrix } from "@/lib/qr-artwork";
 
@@ -44,12 +45,14 @@ export function qrMatrix(content: string, level: QrLevel): QrMatrix {
 export function renderQrSvg(options: {
   content: string;
   style: QrStyle;
-  /** Output width and height in pixels. */
+  /** Output width in pixels; a frame can make it taller than wide. */
   px: number;
   logoHref?: string;
+  /** A preset mark for the middle, which takes precedence over `logoHref`. */
+  presetLogo?: PresetLogoId | null;
 }): string {
-  const hasLogo = Boolean(options.logoHref);
-  const matrix = qrMatrix(options.content, levelFor(hasLogo));
-  const art = qrArtwork(matrix, options.style, inksFor(options.style), hasLogo);
-  return artworkSvg(art, options.px, options.logoHref);
+  const logo = options.presetLogo ?? Boolean(options.logoHref);
+  const matrix = qrMatrix(options.content, levelFor(Boolean(logo)));
+  const art = qrArtwork(matrix, options.style, inksFor(options.style), logo);
+  return artworkSvg(composeArtwork(art, options.style), options.px, options.presetLogo ? undefined : options.logoHref);
 }

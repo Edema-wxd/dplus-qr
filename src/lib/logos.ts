@@ -141,7 +141,9 @@ export async function archiveLogo(userId: string, logoId: string): Promise<boole
 }
 
 /**
- * Set or clear a code's logo.
+ * Set or clear a code's logo: an uploaded one by id, a preset mark by name,
+ * or neither. The two are exclusive, and one statement sets both, so a code
+ * can never end up with both or with a stale one.
  *
  * The ownership check is inside the statement, so a logo id from another
  * account updates nothing rather than attaching someone else's file. Archived
@@ -150,11 +152,15 @@ export async function archiveLogo(userId: string, logoId: string): Promise<boole
 export async function setCodeLogo(
   userId: string,
   codeId: string,
-  logoId: string | null
+  logoId: string | null,
+  presetLogo: string | null = null
 ): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_codes c
-       set logo_id = $3::bigint, updated_at = now()
+       set logo_id = $3::bigint,
+           style = case when $4::text is null then c.style - 'presetLogo'
+                        else c.style || jsonb_build_object('presetLogo', $4::text) end,
+           updated_at = now()
      where c.user_id = $1 and c.id = $2
        and (
          $3::bigint is null
@@ -164,7 +170,7 @@ export async function setCodeLogo(
          )
        )
      returning c.id`,
-    [userId, codeId, logoId]
+    [userId, codeId, logoId, presetLogo]
   );
   return row !== null;
 }
