@@ -17,6 +17,7 @@ import {
 } from "@/lib/qr-style";
 import { setStyleAction, type CodeState } from "../actions";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
+import { useSuccessToast } from "@/components/notify";
 
 /**
  * Live colour preview for the code page.
@@ -66,6 +67,11 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
   const [state, action, pending] = useActionState(
     setStyleAction,
     {} as CodeState
+  );
+  useSuccessToast(state, "style", (s) =>
+    s.saved
+      ? { title: "Colours saved", description: "Downloads now use these colours." }
+      : null
   );
 
   const check = checkQrStyle(style);
@@ -154,9 +160,7 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
         <p className="mt-2 max-w-[44ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           {dirty
             ? "Previewing. Downloads use the saved colours until you save."
-            : state.saved
-              ? "Saved. Downloads now use these colours."
-              : "Colours change the artwork only. Codes already printed keep working whatever you pick here."}
+            : "Colours change the artwork only. Codes already printed keep working whatever you pick here."}
         </p>
       )}
     </form>

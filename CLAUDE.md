@@ -115,6 +115,22 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Every new env var goes in `.env.example` with a placeholder and a comment.
 - Never run `npm audit fix --force`.
 
+## Notifications
+
+Toasts are shadcn/ui's Sonner (`src/components/ui/sonner.tsx`), mounted once
+in the root layout. `components.json` is set up for `npx shadcn add`.
+
+- **A success is a toast; an error stays inline.** An error is something to
+  fix, so it sits beside the control that caused it until it is fixed. Report
+  an action's success with `useSuccessToast` (`src/components/notify.ts`) and
+  keep rendering `state.error` yourself. Only failures with no form to sit in
+  (a refused clipboard) are error toasts.
+- **A message that must survive a `redirect()`** goes through `flash(key)`
+  (`src/lib/flash.ts`) just before the redirect. The cookie carries a key into
+  `FLASH_MESSAGES`, never text, so add the message there.
+- A page that replaces its form with a result (cancelling a plan, a sent
+  report) needs no toast: the result is already on the page.
+
 ## Next.js 16 notes
 
 Read `node_modules/next/dist/docs/` before writing framework code — this version

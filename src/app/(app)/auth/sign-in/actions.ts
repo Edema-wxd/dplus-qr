@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
+import { flash } from "@/lib/flash";
 
 const schema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
@@ -38,5 +39,6 @@ export async function signInAction(
 
 export async function signOutAction(): Promise<void> {
   await auth.signOut();
+  await flash("signed-out");
   redirect("/auth/sign-in");
 }
