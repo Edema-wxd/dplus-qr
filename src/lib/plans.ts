@@ -37,6 +37,8 @@ export type PlanFeatures = {
   custom_codes?: boolean;
   /** Unique scans, operating systems, cities and the trend against the previous period. */
   insights?: boolean;
+  /** Public, read-only stats links for a code. */
+  share_stats?: boolean;
 } & Record<string, unknown>;
 
 type Row = {

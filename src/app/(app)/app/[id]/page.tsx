@@ -3,7 +3,15 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
-import { canExportCsv, canSeeInsights, chartDaysAllowed, getEntitlement } from "@/lib/entitlement";
+import {
+  canExportCsv,
+  canSeeInsights,
+  canShareStats,
+  chartDaysAllowed,
+  getEntitlement,
+} from "@/lib/entitlement";
+import { getLiveShare } from "@/lib/stat-shares";
+import { env } from "@/lib/env";
 import {
   codeAnalytics,
   codeFeedback,
@@ -19,6 +27,7 @@ import { StatusPill } from "../StatusPill";
 import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";
 import { LiveRefresh } from "./LiveRefresh";
+import { SharePanel } from "./SharePanel";
 import { StyleForm, StyleScope } from "./StyleControls";
 import { CopyLink } from "../CopyLink";
 import { LogoForm } from "./LogoForm";
@@ -61,7 +70,7 @@ export default async function CodePage({
   const insights = canSeeInsights(entitlement);
   const historyDays = chartDaysAllowed(entitlement);
 
-  const [history, library, windows, feedback] = await Promise.all([
+  const [history, library, windows, feedback, share] = await Promise.all([
     page ? Promise.resolve([]) : destinationHistory(user.id, id),
     listLogos(user.id),
     Promise.all(
@@ -74,7 +83,9 @@ export default async function CodePage({
       }))
     ),
     code.kind === "feedback" ? codeFeedback(user.id, id) : Promise.resolve(null),
+    getLiveShare(user.id, id),
   ]);
+  const sharing = canShareStats(entitlement);
 
   const exportable = canExportCsv(entitlement);
   const url = codeUrl(code.shortCode);
@@ -228,6 +239,7 @@ export default async function CodePage({
         insights={insights}
         historyDays={historyDays}
         createdAt={code.createdAt.toISOString()}
+        exportBase={exportable.ok ? `/app/${code.id}/export` : null}
       />
       {/* Scans arrive while the owner watches; see LiveRefresh. */}
       <LiveRefresh />
@@ -257,6 +269,16 @@ export default async function CodePage({
           </p>
         )}
       </div>
+
+      <hr className="my-12 border-[var(--paper-rule)]" />
+
+      <SharePanel
+        id={code.id}
+        origin={env().QR_BASE_URL}
+        initialToken={share?.token ?? null}
+        allowed={sharing.ok}
+        reason={sharing.ok ? undefined : sharing.reason}
+      />
 
       {history.length > 0 ? (
         <>

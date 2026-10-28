@@ -61,6 +61,8 @@ export const RESERVED_CODES: ReadonlySet<string> = new Set([
   "sitemap",
   // Hosted pages for page-type codes live under `/p/{code}`.
   "p",
+  // Public, read-only stats links live under `/s/{token}`.
+  "s",
   // Routes that only became claimable once custom codes existed.
   "acceptable-use",
   "not-found-code",
