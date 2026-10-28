@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { toast } from "sonner";
 import { archiveLogoAction } from "./actions";
 import { useUploadThing } from "./uploadthing";
 import { secondaryButtonClass } from "@/components/controls";
@@ -56,6 +57,10 @@ export function LogoPicker({
       ]);
       select(data.logoId);
       setError(null);
+      toast.success("Logo uploaded", {
+        id: "logo-library",
+        description: "It is selected, and stays in your library for your next code.",
+      });
     },
     onUploadError: (uploadError) => {
       setError(uploadError.message || "That upload did not finish. Please try again.");
@@ -79,6 +84,10 @@ export function LogoPicker({
       }
       setLogos((previous) => previous.filter((item) => item.id !== logo.id));
       if (selected === logo.id) select("");
+      toast.success("Logo removed from your library", {
+        id: "logo-library",
+        description: "Codes already drawn with it keep it.",
+      });
     });
   }
 

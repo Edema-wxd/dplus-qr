@@ -1,19 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { toast } from "sonner";
 
 /** A coupon code, large enough to read to a cashier, with a copy button. */
 export function CopyText({ text }: { text: string }) {
-  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
-      setState("copied");
+      toast.success("Copied", { id: "copy-text" });
     } catch {
-      setState("failed");
+      toast.error("Could not copy", {
+        id: "copy-text",
+        description: "Select the code and copy it by hand.",
+      });
     }
-    setTimeout(() => setState("idle"), 2500);
   }
 
   return (
@@ -26,9 +26,7 @@ export function CopyText({ text }: { text: string }) {
         onClick={copy}
         className="border-l-2 border-dashed border-foreground/40 px-4 text-sm"
       >
-        <span aria-live="polite">
-          {state === "copied" ? "Copied" : state === "failed" ? "Select it" : "Copy"}
-        </span>
+        Copy
       </button>
     </div>
   );

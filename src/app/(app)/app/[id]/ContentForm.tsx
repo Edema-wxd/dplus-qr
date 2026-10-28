@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { updateContentAction, type CodeState } from "../actions";
 import type { PageKind } from "@/lib/qr-types";
 import { primaryButtonClass } from "@/components/controls";
+import { useSuccessToast } from "@/components/notify";
 import { ContentEditor, type Draft } from "../ContentEditor";
 
 /**
@@ -25,6 +26,11 @@ export function ContentForm({
 }) {
   const [state, action, pending] = useActionState(updateContentAction, {} as CodeState);
   const [draft, setDraft] = useState<Draft>(initial);
+  useSuccessToast(state, "content", (s) =>
+    s.saved
+      ? { title: "Page saved", description: "The next person to scan sees the new page." }
+      : null
+  );
 
   return (
     <form action={action}>
@@ -45,9 +51,7 @@ export function ContentForm({
           </p>
         ) : (
           <p className="text-xs text-[var(--paper-soft)]">
-            {state.saved
-              ? "Saved. The next person to scan sees the new page."
-              : "The printed code never changes. Only this does."}
+            The printed code never changes. Only this does.
           </p>
         )}
       </div>

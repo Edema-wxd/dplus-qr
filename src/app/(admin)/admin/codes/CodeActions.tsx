@@ -93,7 +93,7 @@ export function CodeActions({
         </form>
       ) : null}
 
-      <ActionNote state={state} />
+      <ActionNote state={state} id="code-action" />
     </div>
   );
 }

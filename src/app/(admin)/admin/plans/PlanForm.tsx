@@ -10,6 +10,7 @@ import {
   savePlanAction,
   type AdminFormState,
 } from "../actions";
+import { ActionNote } from "../ActionNote";
 
 export type PlanFormValues = {
   id?: number;
@@ -169,7 +170,7 @@ export function PlanForm({ plan }: { plan: PlanFormValues }) {
         <button type="submit" disabled={pending} className={primaryButtonClass}>
           {pending ? "Saving…" : creating ? "Create plan" : "Save changes"}
         </button>
-        <Feedback state={state} />
+        <ActionNote state={state} id="plan-form" className="mt-0" />
       </div>
     </form>
   );
@@ -198,12 +199,6 @@ function NumberField({
   );
 }
 
-function Feedback({ state }: { state: AdminFormState }) {
-  if (state.error) return <p role="alert" className="text-sm text-[var(--struck-ink)]">{state.error}</p>;
-  if (state.notice) return <p role="status" className="text-sm text-[var(--live-ink)]">{state.notice}</p>;
-  return null;
-}
-
 /** Create or adopt this plan in Paystack, which is what makes it purchasable. */
 export function ConnectPaystack({ planId }: { planId: number }) {
   const [state, action, pending] = useActionState<AdminFormState, FormData>(connectPaystackAction, {});
@@ -213,7 +208,7 @@ export function ConnectPaystack({ planId }: { planId: number }) {
       <button type="submit" disabled={pending} className={secondaryButtonClass}>
         {pending ? "Connecting…" : "Connect to Paystack"}
       </button>
-      <Feedback state={state} />
+      <ActionNote state={state} id="connect-paystack" className="mt-0" />
     </form>
   );
 }
