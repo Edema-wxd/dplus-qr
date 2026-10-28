@@ -558,21 +558,43 @@ export function analyticsWindow(days: number): AnalyticsWindow {
     : 30;
 }
 
-/** One day's scans, for the chart. Days with no scans are present and zero. */
-export type DayPoint = { day: string; scans: number };
+/**
+ * One day's scans, for the chart. Days with no scans are present and zero.
+ *
+ * `unique` is distinct visitors that day, from the daily-rotating IP hash, so
+ * the same phone on two days counts on both. Zero when the hash is not being
+ * recorded (no `SCAN_IP_SALT`), which the panel reads as "not available".
+ */
+export type DayPoint = { day: string; scans: number; unique: number };
 
 /** A share of scans by some dimension, biggest first. */
 export type Slice = { label: string; scans: number };
+
+/**
+ * The paid half of the analytics: operating systems, cities, unique scans and
+ * the previous period to compare against. Null when the plan does not include
+ * it, and then never queried, so a locked panel cannot leak its numbers.
+ */
+export type AnalyticsDetail = {
+  os: Slice[];
+  cities: Slice[];
+  /** Summed daily uniques over the window; null when no hash was recorded. */
+  unique: number | null;
+  /** Scans in the window of the same length immediately before this one. */
+  previousTotal: number;
+};
 
 export type Analytics = {
   days: DayPoint[];
   countries: Slice[];
   devices: Slice[];
   total: number;
+  detail: AnalyticsDetail | null;
 };
 
 /**
- * Scans by day, country and device for one code.
+ * Scans by day, country and device for one code, and with `detail` also by
+ * operating system and city, with uniques and the previous period.
  *
  * Reads the `qr_scan_daily` rollup for every completed day and raw `qr_scans`
  * only for today. That split is not an optimisation -- it is the only correct
@@ -592,20 +614,22 @@ export type Analytics = {
 export async function codeAnalytics(
   userId: string,
   id: string,
-  days: number
+  days: number,
+  options: { detail?: boolean } = {}
 ): Promise<Analytics> {
   const window = analyticsWindow(days);
+  const empty: Analytics = { days: [], countries: [], devices: [], total: 0, detail: null };
 
   const owns = await queryOne<{ id: string }>(
     `select id from qr_codes where user_id = $1 and id = $2`,
     [userId, id]
   );
-  if (!owns) return { days: [], countries: [], devices: [], total: 0 };
+  if (!owns) return empty;
 
   // The rollup plus today, as one set of rows every query below groups from.
   const COMBINED = `
     with combined as (
-      select d.day, d.country, d.device_type, d.scans
+      select d.day, d.country, d.device_type, d.os, d.city, d.scans, d.unique_scans
       from qr_scan_daily d
       where d.qr_id = $1
         and d.day >= (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1)
@@ -615,23 +639,38 @@ export async function codeAnalytics(
         (s.scanned_at at time zone 'UTC')::date,
         coalesce(nullif(s.country, ''), 'unknown'),
         coalesce(nullif(s.device_type, ''), 'unknown'),
-        count(*)
+        coalesce(nullif(s.os, ''), 'unknown'),
+        coalesce(nullif(s.city, ''), 'unknown'),
+        count(*),
+        count(distinct s.ip_hash)
       from qr_scans s
       where s.qr_id = $1
         and not s.is_bot
         and s.scanned_at >= (now() at time zone 'UTC')::date
-      group by 1, 2, 3
+      group by 1, 2, 3, 4, 5
     )
   `;
 
-  const [dayRows, countryRows, deviceRows] = await Promise.all([
+  const slice = (column: string) =>
+    query<{ label: string | null; scans: string }>(
+      `${COMBINED}
+       select ${column} as label, sum(scans) as scans
+       from combined group by ${column} order by sum(scans) desc limit 10`,
+      [id]
+    );
+
+  const detail = options.detail === true;
+
+  const [dayRows, countryRows, deviceRows, osRows, cityRows, previous] = await Promise.all([
     // `to_char`, not a date: node-postgres parses a DATE into a JS Date at
     // *local* midnight, so `toISOString()` on it shifts the label back a day
     // for anyone east of UTC. Formatting in Postgres keeps the day the rollup
     // stored and the day the chart prints the same day.
-    query<{ day: string; scans: string }>(
+    query<{ day: string; scans: string; unique_scans: string }>(
       `${COMBINED}
-       select to_char(g.day, 'YYYY-MM-DD') as day, coalesce(sum(c.scans), 0) as scans
+       select to_char(g.day, 'YYYY-MM-DD') as day,
+              coalesce(sum(c.scans), 0) as scans,
+              coalesce(sum(c.unique_scans), 0) as unique_scans
        from generate_series(
               (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1),
               (now() at time zone 'UTC')::date,
@@ -642,23 +681,28 @@ export async function codeAnalytics(
        order by g.day`,
       [id]
     ),
-    query<{ label: string | null; scans: string }>(
-      `${COMBINED}
-       select country as label, sum(scans) as scans
-       from combined group by country order by sum(scans) desc limit 10`,
-      [id]
-    ),
-    query<{ label: string | null; scans: string }>(
-      `${COMBINED}
-       select device_type as label, sum(scans) as scans
-       from combined group by device_type order by sum(scans) desc limit 10`,
-      [id]
-    ),
+    slice("country"),
+    slice("device_type"),
+    detail ? slice("os") : Promise.resolve([]),
+    detail ? slice("city") : Promise.resolve([]),
+    // The window of the same length just before this one, all completed days,
+    // so it reads from the rollup alone.
+    detail
+      ? queryOne<{ scans: string }>(
+          `select coalesce(sum(scans), 0) as scans
+           from qr_scan_daily
+           where qr_id = $1
+             and day >= (now() at time zone 'UTC')::date - make_interval(days => ${window} * 2 - 1)
+             and day <  (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1)`,
+          [id]
+        )
+      : Promise.resolve(null),
   ]);
 
   const dayPoints = dayRows.map((r) => ({
     day: r.day,
     scans: Number(r.scans),
+    unique: Number(r.unique_scans),
   }));
 
   // "Unknown" rather than a blank row: geo is a deliberate stub on hosts that
@@ -666,16 +710,29 @@ export async function codeAnalytics(
   const toSlices = (rows: { label: string | null; scans: string }[]): Slice[] =>
     rows
       .map((r) => ({ label: r.label ?? "unknown", scans: Number(r.scans) }))
-      .map((slice) => ({
-        ...slice,
-        label: slice.label === "unknown" ? "Unknown" : slice.label,
+      .map((item) => ({
+        ...item,
+        label: item.label === "unknown" ? "Unknown" : item.label,
       }));
+
+  const total = dayPoints.reduce((sum, point) => sum + point.scans, 0);
+  const unique = dayPoints.reduce((sum, point) => sum + point.unique, 0);
 
   return {
     days: dayPoints,
     countries: toSlices(countryRows),
     devices: toSlices(deviceRows),
-    total: dayPoints.reduce((sum, point) => sum + point.scans, 0),
+    total,
+    detail: detail
+      ? {
+          os: toSlices(osRows),
+          cities: toSlices(cityRows),
+          // Scans with no uniques at all means the hash is not being
+          // recorded, not that nobody came: say "not available", not zero.
+          unique: total > 0 && unique === 0 ? null : unique,
+          previousTotal: Number(previous?.scans ?? 0),
+        }
+      : null,
   };
 }
 

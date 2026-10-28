@@ -39,7 +39,7 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
     Promise.all(
       ANALYTICS_WINDOWS.map(async (days) => ({
         days,
-        data: await codeAnalytics(code.owner.id, String(code.id), days),
+        data: await codeAnalytics(code.owner.id, String(code.id), days, { detail: true }),
       }))
     ),
   ]);
@@ -119,7 +119,8 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
           </div>
         </section>
 
-        <AnalyticsPanel windows={windows} />
+        {/* Staff see every panel, whatever the customer's plan. */}
+        <AnalyticsPanel windows={windows} insights historyDays={Infinity} />
 
         <section aria-labelledby="history-heading">
           <SectionHeading id="history-heading">Destination changes, newest first</SectionHeading>
