@@ -796,6 +796,48 @@ could work, and the first to reach the scan path.
 `npm run db:migrate` still works by hand and is still the way to apply a
 migration ahead of a deploy.
 
+## Detailed analytics and upgrade prompts, 28 October 2026
+
+Modelled on a competitor's stats page (Francis, 28 Oct 2026: detail on
+Starter and up, free keeps what it has, light live refresh, Share Stats and
+per-table CSV in a second PR).
+
+- **Cities are now recorded**, from Vercel's `x-vercel-ip-city` (the same free
+  edge lookup as the country). The privacy policy already listed "country and
+  city". Decoded defensively, control characters stripped, capped at 80.
+- **OS and city join the daily rollup** (migration `018`), for the reason 012
+  added country and device: a breakdown not rolled up is lost when retention
+  prunes raw rows. Existing rollup days were rebuilt from raw rows **only where
+  the raw count still matched the rolled-up count**, so a day retention had
+  partly pruned kept its totals. Tested on a local Postgres: two intact days
+  gained their OS and city, a partly pruned day kept its 5 scans.
+- `rollupScans` now also deletes, for each code and day it recomputes, any
+  rollup row whose key no longer exists, so a re-keyed day cannot count twice.
+- **New on Starter and up** (`insights` in `qr_plans.features`, set by 018):
+  unique scans (summed daily uniques from the rotating IP hash; shown as "not
+  recorded" when `SCAN_IP_SALT` is unset), operating systems, cities, and the
+  change against the previous window of the same length. **Free keeps** the
+  daily chart, countries and devices. When a plan lacks `insights`,
+  `codeAnalytics` never runs those queries, so a locked panel has nothing to
+  leak.
+- **Chart windows longer than the plan's scan history are locked** (free:
+  30 days, so the 90-day view is offered as an upgrade). The data is never
+  computed for a locked window.
+- Countries show a flag and name; every breakdown shows its share of all scans
+  in the window, not just of the top ten. The summary strip adds Today and
+  Created.
+- **Live refresh:** a code's page re-fetches every 30 seconds while its tab is
+  visible, so a test scan appears without a reload. Nothing runs in a
+  background tab.
+- **Upgrade prompts, free accounts only.** An "Upgrade" button in the header of
+  every dashboard page ("Choose a plan" when no plan is active); paid accounts
+  never see it. Locked features are shown with one line and a link to plans,
+  never hidden. One banner on the codes list when there is a reason (scans
+  have arrived, or the account is within one code of its limit), dismissible
+  for 30 days. Nothing pops up or blocks work. Copy describes paid plans
+  generally rather than quoting figures that staff can change.
+- Staff see every panel on the admin code page whatever the customer's plan.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
-import { canExportCsv, getEntitlement } from "@/lib/entitlement";
+import { canExportCsv, canSeeInsights, chartDaysAllowed, getEntitlement } from "@/lib/entitlement";
 import {
   codeAnalytics,
   codeFeedback,
@@ -18,6 +18,7 @@ import { secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "../StatusPill";
 import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";
+import { LiveRefresh } from "./LiveRefresh";
 import { StyleForm, StyleScope } from "./StyleControls";
 import { CopyLink } from "../CopyLink";
 import { LogoForm } from "./LogoForm";
@@ -53,14 +54,23 @@ export default async function CodePage({
 
   const page = isPageKind(code.kind) ? code.kind : null;
 
-  const [history, entitlement, library, windows, feedback] = await Promise.all([
+  // Read first: what the plan includes decides which analytics are queried
+  // at all. A window or panel the plan does not cover is never computed, so
+  // the page cannot leak it.
+  const entitlement = await getEntitlement(user.id);
+  const insights = canSeeInsights(entitlement);
+  const historyDays = chartDaysAllowed(entitlement);
+
+  const [history, library, windows, feedback] = await Promise.all([
     page ? Promise.resolve([]) : destinationHistory(user.id, id),
-    getEntitlement(user.id),
     listLogos(user.id),
     Promise.all(
       ANALYTICS_WINDOWS.map(async (days) => ({
         days,
-        data: await codeAnalytics(user.id, id, days),
+        data:
+          days <= historyDays
+            ? await codeAnalytics(user.id, id, days, { detail: insights })
+            : null,
       }))
     ),
     code.kind === "feedback" ? codeFeedback(user.id, id) : Promise.resolve(null),
@@ -213,7 +223,14 @@ export default async function CodePage({
 
       <hr className="my-12 border-[var(--paper-rule)]" />
 
-      <AnalyticsPanel windows={windows} />
+      <AnalyticsPanel
+        windows={windows}
+        insights={insights}
+        historyDays={historyDays}
+        createdAt={code.createdAt.toISOString()}
+      />
+      {/* Scans arrive while the owner watches; see LiveRefresh. */}
+      <LiveRefresh />
 
       <div className="mt-6">
         {exportable.ok ? (

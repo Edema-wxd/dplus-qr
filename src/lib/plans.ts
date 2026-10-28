@@ -35,6 +35,8 @@ export type PlanFeatures = {
   bulk_creation?: boolean;
   /** Owner-chosen short codes, such as `qriateplus.com/dplus`. */
   custom_codes?: boolean;
+  /** Unique scans, operating systems, cities and the trend against the previous period. */
+  insights?: boolean;
 } & Record<string, unknown>;
 
 type Row = {

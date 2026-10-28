@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { DashNav } from "./DashNav";
 import { PlanUsage } from "./PlanUsage";
 import { StaffLink } from "./StaffLink";
+import { UpgradeButton } from "./UpgradeButton";
 
 /**
  * The dashboard shell.
@@ -75,7 +76,12 @@ export function DashShell({
               <div className="mt-2 text-sm text-[var(--paper-soft)]">{meta}</div>
             ) : null}
           </div>
-          {action ? <div className="shrink-0">{action}</div> : null}
+          <div className="flex shrink-0 items-center gap-3">
+            {action ? <div>{action}</div> : null}
+            <Suspense fallback={null}>
+              <UpgradeButton />
+            </Suspense>
+          </div>
         </div>
 
         <div className="mt-8">{children}</div>

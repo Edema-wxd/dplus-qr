@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { auth } from "@/lib/auth/server";
-import { getEntitlement, type Entitlement } from "@/lib/entitlement";
 import { usageNudge } from "@/lib/plan-tiers";
+import { readEntitlement } from "./plan-read";
 
 /**
  * The plan meter at the foot of the sidebar: which plan, how many of its codes
@@ -28,18 +27,6 @@ export async function PlanUsage() {
       nudge={usageNudge(entitlement)}
     />
   );
-}
-
-/** `undefined` when there is nothing to show: signed out, or the read failed. */
-async function readEntitlement(): Promise<Entitlement | null | undefined> {
-  try {
-    const { data: session } = await auth.getSession();
-    if (!session?.user) return undefined;
-    return await getEntitlement(session.user.id);
-  } catch (error) {
-    console.error("[dash] could not read plan usage", error);
-    return undefined;
-  }
 }
 
 function Meter({
