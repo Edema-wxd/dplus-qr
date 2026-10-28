@@ -6,12 +6,12 @@ import { CODE_HOST } from "@/lib/brand";
 import { dynamicType, isDynamicKind } from "@/lib/qr-types";
 import { ANALYTICS_WINDOWS, codeAnalytics } from "@/lib/user-codes";
 import { codeReports, destinationChanges, getStaffCode, staffActions } from "@/lib/moderation";
-import { StatusPill } from "@/app/(app)/app/StatusPill";
 import { AnalyticsPanel } from "@/app/(app)/app/[id]/Analytics";
 import { audit, requireStaff } from "../../guard";
 import { AdminShell, SectionHeading, StaffHistory, Stat, Tag, day, tableClass, tdClass, thClass } from "../../AdminShell";
 import { CodeActions } from "../CodeActions";
 import { Destination } from "../Destination";
+import { ResolveReport } from "../../reports/ResolveReport";
 
 export const metadata: Metadata = { title: "Code · Admin" };
 export const instant = false;
@@ -19,6 +19,7 @@ export const instant = false;
 const idSchema = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
 const REPORT_TONE: Record<string, "soft" | "struck"> = { open: "struck", actioned: "soft", dismissed: "soft" };
+const REPORT_LABEL: Record<string, string> = { open: "Open", actioned: "Handled", dismissed: "Dismissed" };
 
 /**
  * One code as staff see it: where it points and has pointed, who owns it, how
@@ -48,18 +49,52 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
 
   const openReports = reports.filter((report) => report.status === "open").length;
 
+  // Reports are why staff usually arrive here, so open ones sit right under
+  // the destination they complain about; settled ones drop to the bottom.
+  const reportsSection = (
+    <section aria-labelledby="reports-heading">
+      <SectionHeading id="reports-heading">
+        Abuse reports{openReports > 0 ? `, ${openReports} open` : ""}
+      </SectionHeading>
+      {reports.length === 0 ? (
+        <p className="mt-4 text-sm text-[var(--paper-soft)]">Nobody has reported this code.</p>
+      ) : (
+        <>
+          {openReports > 0 ? (
+            <p className="mt-3 max-w-[70ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+              Blocking or archiving this code below closes its open reports. Dismiss a report that does not hold
+              up; mark it handled if it was dealt with another way.
+            </p>
+          ) : null}
+          <ul className="mt-4 space-y-3">
+            {reports.map((report) => (
+              <li key={report.id} className="rounded-lg border border-[var(--paper-rule)] bg-white px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--paper-soft)]">
+                      <Tag tone={REPORT_TONE[report.status]}>{REPORT_LABEL[report.status]}</Tag>
+                      <span className="dash-num">{day(report.createdAt)}</span>
+                      <span>{report.reporterEmail ?? "Anonymous"}</span>
+                    </div>
+                    <p className="mt-1.5 whitespace-pre-wrap">{report.reason}</p>
+                  </div>
+                  {report.status === "open" ? <ResolveReport reportId={report.id} /> : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
+  );
+
   return (
     <AdminShell
       heading={code.name}
       current="/admin/codes"
+      back={{ href: "/admin/codes", label: "All codes" }}
       meta={<span className="font-mono">{CODE_HOST}/{code.shortCode}</span>}
     >
-      <Link
-        href="/admin/codes"
-        className="-mt-4 mb-6 inline-block text-sm text-[var(--paper-soft)] hover:text-[var(--paper-ink)]"
-      >
-        All codes
-      </Link>
 
       <div className="space-y-10">
         <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-[var(--paper-rule)] bg-[var(--paper-rule)] lg:grid-cols-4">
@@ -103,13 +138,11 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
           </div>
         </section>
 
+        {openReports > 0 ? reportsSection : null}
+
         <section aria-labelledby="actions-heading">
           <SectionHeading id="actions-heading">Moderate</SectionHeading>
           <div className="mt-4">
-            <span className="mb-4 inline-flex items-center gap-1.5">
-              <StatusPill status={code.status} />
-              {code.archived ? <Tag>Archived</Tag> : null}
-            </span>
             <CodeActions
               codeId={code.id}
               status={code.status}
@@ -159,25 +192,7 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
           )}
         </section>
 
-        <section aria-labelledby="reports-heading">
-          <SectionHeading id="reports-heading">Abuse reports</SectionHeading>
-          {reports.length === 0 ? (
-            <p className="mt-4 text-sm text-[var(--paper-soft)]">Nobody has reported this code.</p>
-          ) : (
-            <ul className="mt-4 space-y-3">
-              {reports.map((report) => (
-                <li key={report.id} className="rounded-lg border border-[var(--paper-rule)] bg-white px-4 py-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--paper-soft)]">
-                    <Tag tone={REPORT_TONE[report.status]}>{report.status}</Tag>
-                    <span className="dash-num">{day(report.createdAt)}</span>
-                    <span>{report.reporterEmail ?? "Anonymous"}</span>
-                  </div>
-                  <p className="mt-1.5 whitespace-pre-wrap">{report.reason}</p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        {openReports > 0 ? null : reportsSection}
 
         <section aria-labelledby="staff-heading">
           <SectionHeading id="staff-heading">Staff changes</SectionHeading>

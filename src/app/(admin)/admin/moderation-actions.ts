@@ -25,6 +25,12 @@ import {
   unblockCode,
   unsuspendAccount,
 } from "@/lib/moderation";
+import {
+  REPORT_RESOLUTIONS,
+  actionReportsForAccount,
+  actionReportsForCodes,
+  resolveReport,
+} from "@/lib/reports";
 import { recordChange, staffForAction } from "./guard";
 import type { AdminFormState } from "./actions";
 
@@ -116,10 +122,25 @@ export async function codeAction(_prev: AdminFormState, form: FormData): Promise
               : await unarchiveCode(codeId);
   if (!shortCode) return { error: CODE_STALE[op] };
 
-  await recordChange(staff, `code.${op}`, "code", String(codeId), reason ? { shortCode, reason } : { shortCode });
+  // Blocking or archiving is what an abuse report asks for, so the code's
+  // open reports close with it rather than waiting for a second click.
+  const closed = op === "block" || op === "archive" ? await actionReportsForCodes([codeId]) : 0;
+
+  await recordChange(staff, `code.${op}`, "code", String(codeId), {
+    shortCode,
+    ...(reason ? { reason } : {}),
+    ...(closed ? { reportsClosed: closed } : {}),
+  });
   revalidatePath(`/admin/codes/${codeId}`);
   revalidatePath("/admin/codes");
-  return { notice: CODE_DONE[op] };
+  revalidatePath("/admin/reports");
+  return { notice: closed ? `${CODE_DONE[op]} ${reportsClosedNote(closed)}` : CODE_DONE[op] };
+}
+
+/** Said after a takedown that also closed reports, so staff know the queue moved. */
+function reportsClosedNote(closed: number): string {
+  if (closed === 0) return "";
+  return `${closed} open ${closed === 1 ? "report was" : "reports were"} marked actioned.`;
 }
 
 const ACCOUNT_OPS = ["suspend", "unsuspend", "block_all", "archive", "unarchive"] as const;
@@ -159,18 +180,22 @@ export async function accountAction(_prev: AdminFormState, form: FormData): Prom
       const reason = reasonSchema.safeParse(form.get("reason") ?? "");
       if (!reason.success) return { error: reason.error.issues[0]?.message ?? "Give a reason." };
       const count = await blockAllCodes(userId, reason.data);
-      detail = { reason: reason.data, codes: count };
+      const closed = await actionReportsForAccount(userId);
+      detail = { reason: reason.data, codes: count, ...(closed ? { reportsClosed: closed } : {}) };
       result = count > 0
-        ? { notice: `Blocked ${count} ${count === 1 ? "code" : "codes"}.` }
+        ? { notice: `Blocked ${count} ${count === 1 ? "code" : "codes"}. ${reportsClosedNote(closed)}`.trim() }
         : { error: "Every code on this account is already blocked." };
       break;
     }
     case "archive": {
       const count = await archiveAccount(userId);
-      detail = { codes: count };
+      const closed = count === null ? 0 : await actionReportsForAccount(userId);
+      detail = { codes: count, ...(closed ? { reportsClosed: closed } : {}) };
       result = count === null
         ? { error: "That account is already archived, or has been erased." }
-        : { notice: `Archived and suspended, with ${count} ${count === 1 ? "code" : "codes"} archived.` };
+        : {
+            notice: `Archived and suspended, with ${count} ${count === 1 ? "code" : "codes"} archived. ${reportsClosedNote(closed)}`.trim(),
+          };
       break;
     }
     case "unarchive": {
@@ -305,4 +330,33 @@ async function removeSignIn(userId: string): Promise<boolean> {
     console.error("[admin] could not reach Neon Auth to remove user", { userId, error });
     return false;
   }
+}
+
+const reportSchema = z.object({
+  reportId: z.coerce.number().int().positive(),
+  resolution: z.enum(REPORT_RESOLUTIONS),
+});
+
+/**
+ * Close an abuse report without taking the code down: dismissed when it did
+ * not hold up, actioned when it was dealt with some other way (the owner fixed
+ * the destination, say). Blocking or archiving closes reports on its own.
+ */
+export async function reportAction(_prev: AdminFormState, form: FormData): Promise<AdminFormState> {
+  const staff = await staffForAction();
+  if (!staff) return REFUSED;
+
+  const parsed = reportSchema.safeParse({ reportId: form.get("reportId"), resolution: form.get("resolution") });
+  if (!parsed.success) return { error: "That report does not exist." };
+  const { reportId, resolution } = parsed.data;
+
+  const closed = await resolveReport(reportId, resolution);
+  if (!closed) return { error: "That report is already closed." };
+
+  await recordChange(staff, `report.${resolution === "actioned" ? "action" : "dismiss"}`, "report", String(reportId), {
+    qrId: closed.qrId,
+  });
+  revalidatePath("/admin/reports");
+  if (closed.qrId !== null) revalidatePath(`/admin/codes/${closed.qrId}`);
+  return { notice: resolution === "dismissed" ? "Dismissed." : "Marked actioned." };
 }
