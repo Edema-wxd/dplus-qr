@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { audit, requireStaff } from "../../guard";
 import { AdminShell } from "../../AdminShell";
 import { PlanForm } from "../PlanForm";
@@ -15,11 +14,9 @@ export default async function AdminNewPlan() {
     <AdminShell
       heading="New plan"
       current="/admin/plans"
+      back={{ href: "/admin/plans", label: "All plans" }}
       meta="Saved to the database first. Connect it to Paystack from its page once the price is right."
     >
-      <Link href="/admin/plans" className="-mt-4 mb-6 inline-block text-sm text-[var(--paper-soft)] hover:text-[var(--paper-ink)]">
-        All plans
-      </Link>
       <PlanForm
         plan={{
           slug: "",

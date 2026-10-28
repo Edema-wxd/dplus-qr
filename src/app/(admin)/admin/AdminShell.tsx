@@ -1,89 +1,103 @@
 import Link from "next/link";
-import Image from "next/image";
-import { PRODUCT_NAME } from "@/lib/brand";
+import { attentionCounts } from "@/lib/reports";
+import { AdminNav, type AdminBadges, type AdminSection } from "./AdminNav";
 
-const NAV = [
-  { href: "/admin", label: "Overview" },
-  { href: "/admin/plans", label: "Plans" },
-  { href: "/admin/customers", label: "Customers" },
-  { href: "/admin/codes", label: "Codes" },
-];
+/** Nav badges, or none at all if the counts cannot be read: the page still renders. */
+async function readBadges(): Promise<AdminBadges> {
+  try {
+    const counts = await attentionCounts();
+    return { reports: counts.openReports, overdue: counts.overdueAccounts };
+  } catch (error) {
+    console.error("[admin] could not read attention counts", error);
+    return { reports: 0, overdue: 0 };
+  }
+}
 
 /**
- * The staff admin's frame: the dashboard's materials, ink bar over paper, so
- * staff read the same type and figures customers do, with a label that makes
- * it unmistakable which side of the product this is.
+ * The staff admin's frame: the dashboard's materials and its sidebar, so
+ * staff read the same type and figures customers do, with a Staff label that
+ * makes it unmistakable which side of the product this is.
+ *
+ * Only ever rendered by a page that has already passed `requireStaff`, so the
+ * counts it reads are never shown to anyone else.
  */
-export function AdminShell({
+export async function AdminShell({
   heading,
   current,
   meta,
+  back,
+  actions,
   children,
 }: {
   heading: string;
-  current: "/admin" | "/admin/plans" | "/admin/customers" | "/admin/codes";
+  current: AdminSection;
   meta?: React.ReactNode;
+  /** Where "up" is from a detail page. */
+  back?: { href: string; label: string };
+  /** The page's primary action, beside the heading. */
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  return (
-    <div className="dash min-h-dvh">
-      <header className="bg-[var(--field)] text-[var(--field-ink)]">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-5 py-3 sm:px-8">
-          <div className="flex items-center gap-3">
-            <Link href="/admin" aria-label={`${PRODUCT_NAME} admin`}>
-              <Image
-                src="/brand/qriate-wordmark-light.svg"
-                alt={PRODUCT_NAME}
-                width={104}
-                height={43}
-                className="h-auto w-[84px]"
-              />
-            </Link>
-            <span className="rounded border border-[var(--field-rule)] px-1.5 py-0.5 text-[11px] uppercase tracking-[0.14em] text-[var(--field-soft)]">
-              Staff
-            </span>
-          </div>
-          <nav aria-label="Admin" className="flex items-center gap-0.5 text-sm">
-            {NAV.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={item.href === current ? "page" : undefined}
-                className={`rounded-md px-2.5 py-1.5 no-underline transition-colors duration-150 ${
-                  item.href === current
-                    ? "bg-white/10 text-[var(--field-ink)]"
-                    : "text-[var(--field-soft)] hover:bg-white/5 hover:text-[var(--field-ink)]"
-                }`}
-              >
-                {item.label}
-              </Link>
-            ))}
-            <Link
-              href="/app"
-              className="ml-2 rounded-md px-2.5 py-1.5 text-[var(--field-soft)] no-underline hover:text-[var(--field-ink)]"
-            >
-              Back to app
-            </Link>
-          </nav>
-        </div>
-      </header>
+  const badges = await readBadges();
 
-      <main className="mx-auto max-w-6xl px-5 py-9 sm:px-8 sm:py-12">
-        <h1 className="font-sarlotte text-[2.1rem] leading-none tracking-[-0.015em] sm:text-[2.5rem]">
-          {heading}
-        </h1>
-        {meta ? <div className="mt-2 text-sm text-[var(--paper-soft)]">{meta}</div> : null}
+  return (
+    <div className="dash min-h-dvh lg:grid lg:grid-cols-[14.5rem_minmax(0,1fr)]">
+      <AdminNav current={current} badges={badges} />
+
+      <main className="mx-auto w-full max-w-6xl px-5 py-8 sm:px-8 sm:py-10">
+        {back ? (
+          <Link
+            href={back.href}
+            className="mb-4 inline-flex items-center gap-1.5 text-sm text-[var(--paper-soft)] no-underline transition-colors duration-150 hover:text-[var(--paper-ink)]"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <path d="M10 3 5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            {back.label}
+          </Link>
+        ) : null}
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+          <div className="min-w-0">
+            <h1 className="break-words font-sarlotte text-[2rem] leading-none tracking-[-0.015em] sm:text-[2.4rem]">
+              {heading}
+            </h1>
+            {meta ? <div className="mt-2 text-sm text-[var(--paper-soft)]">{meta}</div> : null}
+          </div>
+          {actions ? <div className="shrink-0">{actions}</div> : null}
+        </div>
         <div className="mt-8">{children}</div>
       </main>
     </div>
   );
 }
 
-/** A headline figure. */
-export function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+/**
+ * A headline figure. With `href` the whole tile is a link, to the list the
+ * figure counts, so a number on the overview is always one click from the
+ * accounts behind it.
+ */
+export function Stat({
+  label,
+  value,
+  note,
+  href,
+}: {
+  label: string;
+  value: string;
+  note?: string;
+  href?: string;
+}) {
   return (
-    <div className="bg-white px-4 py-3.5">
-      <dt className="text-xs uppercase tracking-[0.1em] text-[var(--paper-soft)]">{label}</dt>
+    <div className={`relative bg-white px-4 py-3.5 ${href ? "transition-colors duration-150 hover:bg-[var(--paper-raised)]" : ""}`}>
+      <dt className="text-xs uppercase tracking-[0.1em] text-[var(--paper-soft)]">
+        {href ? (
+          <Link href={href} className="no-underline after:absolute after:inset-0 after:content-['']">
+            {label}
+          </Link>
+        ) : (
+          label
+        )}
+      </dt>
       <dd className="dash-num mt-1 text-2xl leading-none text-[var(--paper-ink)]">{value}</dd>
       {note ? <dd className="mt-1 text-xs text-[var(--paper-soft)]">{note}</dd> : null}
     </div>
@@ -143,6 +157,8 @@ const ACTION_LABELS: Record<string, string> = {
   "customer.erase": "Erased",
   "customer.remove_sign_in": "Sign-in account removed",
   "subscription.assign": "Plan assigned",
+  "report.action": "Report marked handled",
+  "report.dismiss": "Report dismissed",
 };
 
 /** The history of what staff changed on one code or account. */
