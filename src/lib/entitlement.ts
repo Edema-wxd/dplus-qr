@@ -134,6 +134,26 @@ export function canUseCustomCodes(
   return { ok: true };
 }
 
+/**
+ * Whether this account sees the detailed analytics: unique scans, operating
+ * systems, cities and the change against the previous period. From
+ * `qr_plans.features.insights` (Starter and up, migration 018). When false,
+ * `codeAnalytics` does not run those queries at all, so a locked panel has
+ * nothing to leak.
+ */
+export function canSeeInsights(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.insights === true;
+}
+
+/**
+ * The longest analytics window this account's chart may show, in days.
+ * Scan history is the plan's `history_days`; a window longer than that is
+ * offered as an upgrade rather than drawn. No plan at all shows the shortest.
+ */
+export function chartDaysAllowed(entitlement: Entitlement | null): number {
+  return entitlement?.historyDays ?? 7;
+}
+
 /** Whether another code may be created, and why not when it may not. */
 export function canCreateCode(
   entitlement: Entitlement | null
