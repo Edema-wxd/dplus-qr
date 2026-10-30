@@ -838,6 +838,24 @@ per-table CSV in a second PR).
   generally rather than quoting figures that staff can change.
 - Staff see every panel on the admin code page whatever the customer's plan.
 
+## Admin reports queue and layout, 28 October 2026
+
+**Abuse reports can be closed** (Francis, 28 Oct 2026: "improve the UX"). A
+report is `open` until staff close it: `actioned` when the code was dealt
+with, `dismissed` when the report did not hold up. Blocking or archiving a
+code, or blocking or archiving every code on an account, marks that code's
+open reports `actioned` in the same action, because that is what a report
+asks for; staff should not have to close it twice. Closing never deletes a
+report. `/admin/reports` is the queue, oldest open report first, and each
+close is audited as `report.action` or `report.dismiss`.
+
+**The admin uses the dashboard's sidebar** (a drawer on phones) instead of a
+top bar that wrapped badly on a phone, with badges for open reports and
+overdue accounts. The overview leads with what needs attention, and every
+headline figure links to the accounts behind it. Customers filter by state
+and plan tier, a page at a time. The customer page puts suspend, archive,
+block and erase together at the bottom, below everything staff read first.
+
 ## Share stats and per-table CSV, 28 October 2026
 
 The second half of the competitor-inspired analytics work.

@@ -48,14 +48,28 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     kind: "boolean",
     built: true,
     absent: "No CSV export",
-    help: "Download raw scan rows for a code. Enforced by canExportCsv.",
+    help: "Customers can download every scan of a code as a spreadsheet. Without it, the export button explains which plans include it.",
   },
   {
     key: "custom_codes",
     label: "Custom links, like /yourname",
     kind: "boolean",
     built: true,
-    help: "Choose a short code instead of a generated one. Enforced by canUseCustomCodes.",
+    help: "Customers can pick their own link, like qriateplus.com/yourname, instead of a random one.",
+  },
+  {
+    key: "insights",
+    label: "Unique scans, phones and cities",
+    kind: "boolean",
+    built: true,
+    help: "Customers see unique scans, operating systems, cities and the change against the previous period on each code. Without it those panels show what upgrading unlocks.",
+  },
+  {
+    key: "share_stats",
+    label: "Shareable stats links",
+    kind: "boolean",
+    built: true,
+    help: "Customers can publish a read-only stats page for a code, for someone without an account. It never shows the code's destination.",
   },
   {
     key: "support",
@@ -67,7 +81,7 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
       whatsapp_priority: "Priority WhatsApp support",
       priority: "Priority support",
     },
-    help: "Shown on the price table. Delivered by people, not code.",
+    help: "Listed on the price table. This is a promise the team keeps by hand; nothing in the app changes.",
   },
   {
     key: "months_free",
@@ -76,7 +90,7 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     built: true,
     min: 0,
     max: 11,
-    help: "For an annual plan: how many of its twelve months the price leaves out. Display only; the price is the amount.",
+    help: "Annual plans only: the saving the price table mentions. It does not change the price; set that above.",
   },
   {
     key: "analytics",
@@ -84,7 +98,7 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     kind: "choice",
     built: false,
     options: { basic: "Basic", trends: "Trends" },
-    help: "Every plan currently gets the same charts.",
+    help: "Not built yet: every plan gets the same charts today. Stored, never advertised.",
   },
   {
     key: "team_seats",
