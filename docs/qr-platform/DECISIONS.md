@@ -890,6 +890,49 @@ Every label goes through `csvCell` (moved to `src/lib/csv-export.ts`), since a
 city name comes from a request header and could carry a spreadsheet formula.
 Shares are of all scans in the window, not just of the rows listed.
 
+## Retention sweep and upload clean-up, 30 October 2026
+
+**The six-month deletion the legal pages promise now has a job**
+(`src/lib/retention.ts`, nightly at `/api/cron/cleanup`). Decided with
+Francis: scrub the account and its content, send a warning 30 days before,
+leave payment records alone.
+
+- An account with any live subscription is never touched; free accounts hold
+  an active free plan, so they never lapse.
+- "Lapsed since" is the latest change to any of the account's subscriptions.
+  That is at or after the real lapse, never before, so the sweep can only ever
+  run late. No new column was needed for that guarantee.
+- **No erasure without a warning at least 30 days old**, sent after the latest
+  lapse (`qr_users.retention_warned_at`, migration `020`). An email that fails
+  to send records nothing, so with no mail service nothing can be erased.
+- Erasing reuses `eraseAccountData`, the staff "Erase account" code: content
+  deleted, profile blanked, each short code kept as an anonymous row so it is
+  never reissued, payment rows kept. Each erasure is audited with no actor.
+- **The Neon Auth sign-in is not removed by the sweep**: the service only
+  removes users for a signed-in admin. Each is counted on the staff overview
+  ("sign-ins to remove") for the existing Remove sign-in button.
+- At most 20 accounts are acted on per run.
+
+**UploadThing files nothing uses are deleted** (`src/lib/upload-cleanup.ts`,
+same nightly route, after retention). Page files no code's content refers to
+and logos removed from the library and used by no code, each at least 7 days
+old so an unsaved form keeps its upload. Their rows are deleted and their keys
+queued in `qr_upload_deletions` (migration `021`) in one transaction; queued
+files are then deleted from UploadThing and retried on later runs if it
+refuses. Both erase paths (staff and retention) now queue any file they could
+not delete. Before, a failed delete after the row was gone left a file nothing
+recorded.
+
+**Both sweeps are off until `DELETION_SWEEPS_ENABLED=true`.** Until then a run
+reports what it would warn, erase and delete, and changes nothing. Read a dry
+run against production before turning it on.
+
+Tested on a local Postgres: an account lapsed and warned was erased, an
+unwarned one only warned (and with no mail service, not even that), paying,
+free, recent and returning accounts untouched; only orphaned files and
+removed-and-unused logos were queued, and failed UploadThing deletes stayed
+queued with the error for retry.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

@@ -32,6 +32,7 @@ import {
   resolveReport,
 } from "@/lib/reports";
 import { recordChange, staffForAction } from "./guard";
+import { queueUploadDeletions } from "@/lib/upload-cleanup";
 import type { AdminFormState } from "./actions";
 
 /**
@@ -273,12 +274,17 @@ export async function eraseAccountAction(_prev: AdminFormState, form: FormData):
     }
   }
 
+  // The rows are gone, so queue what UploadThing did not delete: the upload
+  // clean-up retries it nightly (src/lib/upload-cleanup.ts).
+  if (!filesRemoved) await queueUploadDeletions(erased.fileKeys, "staff-erase");
+
   const signInRemoved = await removeSignIn(userId);
 
   await recordChange(staff, "customer.erase", "customer", userId, {
     codes: erased.codes,
     files: erased.fileKeys.length,
     filesRemoved,
+    fileKeysLeft: filesRemoved ? [] : erased.fileKeys,
     signInRemoved,
   });
   revalidatePath(`/admin/customers/${userId}`);
