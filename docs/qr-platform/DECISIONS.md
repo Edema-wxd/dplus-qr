@@ -856,6 +856,40 @@ headline figure links to the accounts behind it. Customers filter by state
 and plan tier, a page at a time. The customer page puts suspend, archive,
 block and erase together at the bottom, below everything staff read first.
 
+## Share stats and per-table CSV, 28 October 2026
+
+The second half of the competitor-inspired analytics work.
+
+**Share stats (Pro and Business, `share_stats`, migration `019`).** An owner
+can publish a read-only stats page for one code at `/s/{token}`, for a client
+or manager with no account.
+
+- Off by default. One live link per code (partial unique index). "New link"
+  revokes the old one, which stops working at once; "Turn off sharing" always
+  works, even after a downgrade, so a link can always be taken down.
+- The token is 24 random bytes as 32 base64url characters, stored as issued
+  so the owner can copy it again. Malformed tokens never reach the database.
+- The page shows the code's name, short link and statistics, **never its
+  destination**. Checked on every view: the link is live; the code is not
+  blocked or archived; the owner is not suspended, archived or erased; and the
+  owner's plan still includes `share_stats`. Anything else is the not-found
+  page, which says nothing about whether the link existed.
+- The visitor is not the customer: no upgrade prompts, no plan talk, no
+  exports, and only the windows the owner's plan covers are offered.
+- `noindex`, rendered per request. Under Cache Components a `notFound()` in a
+  streamed page answers with status 200 and the not-found content (as
+  elsewhere in the app); no data is in it, verified against `next start`.
+- `s` is reserved; the route test enforces it.
+
+**Per-table CSV (Pro and up, `csv_export`).** Each table on the code page
+(scans per day, countries, devices, and on plans with `insights` operating
+systems and cities) has its own CSV link, served by the existing export route
+with `?table=`. The route applies the page's rules again: a window beyond the
+plan's history, or a detailed table without `insights`, is refused with 403.
+Every label goes through `csvCell` (moved to `src/lib/csv-export.ts`), since a
+city name comes from a request header and could carry a spreadsheet formula.
+Shares are of all scans in the window, not just of the rows listed.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

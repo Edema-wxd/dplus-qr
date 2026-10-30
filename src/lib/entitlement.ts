@@ -145,6 +145,19 @@ export function canSeeInsights(entitlement: Entitlement | null): boolean {
   return entitlement?.features.insights === true;
 }
 
+/** Whether this account may publish a read-only stats link for a code. */
+export function canShareStats(
+  entitlement: Entitlement | null
+): { ok: true } | { ok: false; reason: string } {
+  if (entitlement?.features.share_stats === true) return { ok: true };
+  return {
+    ok: false,
+    reason: entitlement
+      ? `Share links are not part of the ${entitlement.planName} plan. They come with Pro and Business.`
+      : "Your account has no active plan yet.",
+  };
+}
+
 /**
  * The longest analytics window this account's chart may show, in days.
  * Scan history is the plan's `history_days`; a window longer than that is

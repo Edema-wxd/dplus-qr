@@ -58,6 +58,20 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     help: "Customers can pick their own link, like qriateplus.com/yourname, instead of a random one.",
   },
   {
+    key: "insights",
+    label: "Unique scans, phones and cities",
+    kind: "boolean",
+    built: true,
+    help: "Customers see unique scans, operating systems, cities and the change against the previous period on each code. Without it those panels show what upgrading unlocks.",
+  },
+  {
+    key: "share_stats",
+    label: "Shareable stats links",
+    kind: "boolean",
+    built: true,
+    help: "Customers can publish a read-only stats page for a code, for someone without an account. It never shows the code's destination.",
+  },
+  {
     key: "support",
     label: "Support",
     kind: "choice",

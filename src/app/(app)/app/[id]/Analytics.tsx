@@ -22,6 +22,8 @@ export function AnalyticsPanel({
   insights,
   historyDays,
   createdAt,
+  audience = "owner",
+  exportBase = null,
 }: {
   /** `data` is null for a window longer than the plan's scan history. */
   windows: { days: number; data: Analytics | null }[];
@@ -31,6 +33,16 @@ export function AnalyticsPanel({
   historyDays: number;
   /** When the code was made, for the summary strip. */
   createdAt?: string;
+  /**
+   * "public" is a shared stats link (`/s/{token}`): the visitor is not the
+   * customer, so there is no plan talk, no upgrade links and no exports.
+   */
+  audience?: "owner" | "public";
+  /**
+   * The CSV export route for this code (`/app/{id}/export`), when the plan
+   * includes export. Each table then offers its own CSV.
+   */
+  exportBase?: string | null;
 }) {
   const [active, setActive] = useState(windows[1]?.days ?? windows[0].days);
   const current = windows.find((w) => w.days === active) ?? windows[0];
@@ -81,7 +93,14 @@ export function AnalyticsPanel({
           line={`Your plan keeps ${historyDays} days of scan history. Upgrade to see the last ${current.days} days.`}
         />
       ) : (
-        <WindowView days={current.days} data={current.data} insights={insights} createdAt={createdAt} />
+        <WindowView
+          days={current.days}
+          data={current.data}
+          insights={insights}
+          createdAt={createdAt}
+          audience={audience}
+          exportBase={audience === "owner" ? exportBase : null}
+        />
       )}
     </section>
   );
@@ -92,12 +111,18 @@ function WindowView({
   data,
   insights,
   createdAt,
+  audience,
+  exportBase,
 }: {
   days: number;
   data: Analytics;
   insights: boolean;
   createdAt?: string;
+  audience: "owner" | "public";
+  exportBase: string | null;
 }) {
+  const isPublic = audience === "public";
+  const csv = (table: string) => (exportBase ? `${exportBase}?table=${table}&days=${days}` : null);
   const peak = Math.max(1, ...data.days.map((d) => d.scans));
   const today = data.days.at(-1)?.scans ?? 0;
   const detail = data.detail;
@@ -113,12 +138,16 @@ function WindowView({
           {detail ? (
             <Trend total={data.total} previous={detail.previousTotal} days={days} />
           ) : (
-            <UpsellLine>Trend vs the previous {days} days on Starter</UpsellLine>
+            isPublic ? null : <UpsellLine>Trend vs the previous {days} days on Starter</UpsellLine>
           )}
         </Stat>
         <Stat label="Unique scans">
           {!insights ? (
-            <UpsellLine>Available on Starter and up</UpsellLine>
+            isPublic ? (
+              <span className="text-sm text-[var(--paper-soft)]">—</span>
+            ) : (
+              <UpsellLine>Available on Starter and up</UpsellLine>
+            )
           ) : detail?.unique === null ? (
             <span className="text-sm text-[var(--paper-soft)]">Not recorded yet</span>
           ) : (
@@ -198,6 +227,7 @@ function WindowView({
           </div>
           <div className="dash-num mt-2 flex justify-between text-xs text-[var(--paper-soft)]">
             <span>{data.days[0]?.day}</span>
+            {csv("days") ? <CsvLink href={csv("days")!} label={`scans per day, ${days} days`} /> : null}
             <span>{data.days.at(-1)?.day}</span>
           </div>
 
@@ -229,14 +259,14 @@ function WindowView({
           </table>
 
           <div className="mt-8 grid gap-8 sm:grid-cols-2">
-            <Breakdown title="Country" slices={data.countries} total={data.total} format={countryLabel} />
-            <Breakdown title="Device" slices={data.devices} total={data.total} format={capitalise} />
+            <Breakdown title="Country" slices={data.countries} total={data.total} format={countryLabel} csvHref={csv("countries")} />
+            <Breakdown title="Device" slices={data.devices} total={data.total} format={capitalise} csvHref={csv("devices")} />
             {detail ? (
               <>
-                <Breakdown title="Operating system" slices={detail.os} total={data.total} />
-                <Breakdown title="City" slices={detail.cities} total={data.total} />
+                <Breakdown title="Operating system" slices={detail.os} total={data.total} csvHref={csv("os")} />
+                <Breakdown title="City" slices={detail.cities} total={data.total} csvHref={csv("cities")} />
               </>
-            ) : (
+            ) : isPublic ? null : (
               <>
                 <Locked title="Operating system" line="See whether people scan with iPhone or Android. Available on Starter and up." />
                 <Locked title="City" line="See which cities your scans come from. Available on Starter and up." />
@@ -340,24 +370,41 @@ function capitalise(label: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+/** A small download link for one table's figures. */
+function CsvLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      download
+      className="normal-case tracking-normal text-[var(--paper-soft)] underline underline-offset-4 hover:text-[var(--paper-ink)]"
+    >
+      CSV<span className="sr-only">: {label}</span>
+    </a>
+  );
+}
+
 function Breakdown({
   title,
   slices,
   total,
   format = (label: string) => label,
+  csvHref = null,
 }: {
   title: string;
   slices: Slice[];
   /** Every scan in the window, so a share is of all scans, not the top ten. */
   total: number;
   format?: (label: string) => string;
+  /** This table as CSV, when the plan includes export. */
+  csvHref?: string | null;
 }) {
   const denominator = total || 1;
 
   return (
     <div>
-      <h3 className="border-b border-[var(--paper-rule)] pb-2 text-xs uppercase tracking-[0.12em] text-[var(--paper-soft)]">
+      <h3 className="flex items-baseline justify-between border-b border-[var(--paper-rule)] pb-2 text-xs uppercase tracking-[0.12em] text-[var(--paper-soft)]">
         {title}
+        {csvHref ? <CsvLink href={csvHref} label={title} /> : null}
       </h3>
       {slices.length === 0 ? (
         <p className="py-3 text-sm text-[var(--paper-soft)]">No data yet.</p>

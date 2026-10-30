@@ -18,7 +18,8 @@ import {
 import { isDynamicKind, isLinkKind } from "@/lib/qr-types";
 import { checkQrStyle, qrStyleSchema } from "@/lib/qr-style";
 import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
-import { canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
+import { canShareStats, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
+import { createShare, revokeShare } from "@/lib/stat-shares";
 import { checkCustomCode } from "@/lib/short-code";
 
 /**
@@ -381,4 +382,44 @@ export async function checkCustomCodeAction(raw: string): Promise<CustomCodeHint
     return { state: "unavailable", reason: "Could not check that link just now." };
   }
   return { state: "available", code: checked.code };
+}
+
+export type ShareState = { error?: string; token?: string | null };
+
+/**
+ * Publish, replace or withdraw a code's read-only stats link.
+ *
+ * Creating needs a plan with `share_stats`; turning sharing off never does,
+ * so a customer who downgrades can still take a link down. Both only ever act
+ * on a code the session owns (`createShare`/`revokeShare` filter by user).
+ */
+export async function shareStatsAction(
+  _previous: ShareState,
+  formData: FormData
+): Promise<ShareState> {
+  const userId = await requireUserId();
+
+  const parsed = z
+    .object({ id: idSchema, intent: z.enum(["create", "revoke"]) })
+    .safeParse({ id: formData.get("id"), intent: formData.get("intent") });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Check the form." };
+  }
+
+  try {
+    if (parsed.data.intent === "revoke") {
+      await revokeShare(userId, parsed.data.id);
+      revalidatePath(`/app/${parsed.data.id}`);
+      return { token: null };
+    }
+    const permitted = canShareStats(await getEntitlement(userId));
+    if (!permitted.ok) return { error: permitted.reason };
+    const share = await createShare(userId, parsed.data.id);
+    if (!share) return { error: "That code could not be found." };
+    revalidatePath(`/app/${parsed.data.id}`);
+    return { token: share.token };
+  } catch (error) {
+    console.error("[dashboard] share change failed", error);
+    return { error: "We could not change sharing. Please try again." };
+  }
 }
