@@ -66,6 +66,15 @@ export default async function AdminOverview() {
       href: "/admin/plans",
       cta: "Connect plans",
     },
+    {
+      count: attention.signInsToRemove,
+      title: attention.signInsToRemove === 1 ? "sign-in to remove" : "sign-ins to remove",
+      detail:
+        "Erased accounts whose login still exists, usually from the retention sweep. Open the customer and use Remove sign-in.",
+      // Erasing also archives, so erased accounts are listed under Archived.
+      href: "/admin/customers?state=archived",
+      cta: "Open archived customers",
+    },
   ].filter((item) => item.count > 0);
 
   return (

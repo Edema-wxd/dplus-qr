@@ -156,6 +156,8 @@ export type AttentionCounts = {
   overdueAccounts: number;
   unappliedPayments: number;
   unpurchasablePlans: number;
+  /** Erased accounts whose Neon Auth sign-in still exists. */
+  signInsToRemove: number;
 };
 
 /**
@@ -181,5 +183,28 @@ export async function attentionCounts(): Promise<AttentionCounts> {
     overdueAccounts: Number(row?.overdue ?? 0),
     unappliedPayments: Number(row?.unapplied ?? 0),
     unpurchasablePlans: Number(row?.unpurchasable ?? 0),
+    signInsToRemove: await erasedWithSignIn(),
   };
+}
+
+/**
+ * Erased accounts whose sign-in is still in Neon Auth: left by the retention
+ * sweep, which has no admin session to remove it with, or by a staff erase
+ * whose removal call failed. Each is one click on the customer's page.
+ *
+ * Its own query and its own failure: `neon_auth` belongs to the managed
+ * service, and the rest of the overview must not depend on its shape.
+ */
+async function erasedWithSignIn(): Promise<number> {
+  try {
+    const row = await queryOne<{ n: string }>(
+      `select count(*) as n from qr_users u
+       where u.erased_at is not null
+         and exists (select 1 from neon_auth."user" a where a.id = u.id)`
+    );
+    return Number(row?.n ?? 0);
+  } catch (error) {
+    console.error("[admin] could not count sign-ins to remove", error);
+    return 0;
+  }
 }

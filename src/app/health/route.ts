@@ -4,6 +4,7 @@ import { redis } from "@/lib/redis";
 import { storage } from "@/lib/storage";
 import { HeadBucketCommand } from "@aws-sdk/client-s3";
 import { env } from "@/lib/env";
+import { LATEST_MIGRATION } from "@/lib/schema-version";
 
 /**
  * Health check for the external uptime monitor.
@@ -13,7 +14,7 @@ import { env } from "@/lib/env";
  * check, because redirects survive without it -- alerting on Redis or object
  * storage here would page someone for a degradation no scanner can see.
  */
-type State = "ok" | "degraded" | "down";
+type State = "ok" | "degraded" | "down" | "behind";
 
 export async function GET() {
   // This route touches no request API, so without `connection()` Next would
@@ -30,6 +31,22 @@ export async function GET() {
   } catch (error) {
     console.error("[health] database check failed", error);
     checks.database = "down";
+  }
+
+  // Is the schema as new as this code expects? Code ahead of its schema is
+  // how scans went down on 27 October 2026, so this is reported as unhealthy,
+  // not merely degraded: a monitor should page on it.
+  if (checks.database === "ok") {
+    try {
+      const rows = await query<{ applied: boolean }>(
+        "select exists (select 1 from schema_migrations where version = $1) as applied",
+        [LATEST_MIGRATION]
+      );
+      checks.migrations = rows[0]?.applied ? "ok" : "behind";
+    } catch (error) {
+      console.error("[health] migration check failed", error);
+      checks.migrations = "behind";
+    }
   }
 
   const client = redis();
@@ -64,12 +81,14 @@ export async function GET() {
     ? "ok"
     : "degraded";
 
-  const healthy = checks.database === "ok";
+  const healthy = checks.database === "ok" && checks.migrations === "ok";
 
   return Response.json(
     {
-      status: healthy ? "ok" : "down",
+      status: healthy ? "ok" : checks.database === "ok" ? "behind" : "down",
       branch: env().NEON_BRANCH ?? null,
+      // Which schema this code expects, so "behind" says what is missing.
+      expectsMigration: LATEST_MIGRATION,
       checks,
       durationMs: Date.now() - startedAt,
     },
