@@ -962,6 +962,39 @@ Starter makes pages and video pages with a link but is refused an uploaded
 video; Pro attaches one; a free account's existing video page still serves,
 saves with its video, refuses a swapped-in upload, and can switch to a link.
 
+## Pricing page editable from the admin, 1 November 2026
+
+Staff edit the pricing page's words at `/admin/pricing` (Francis, 1 Nov 2026:
+all of it editable, kept in sync with the Terms, Pro highlighted). Prices,
+limits and features stay with each plan (Admin, Plans).
+
+- Editable: headline, introduction, which plan is highlighted and its badge
+  ("Most popular" on Pro by default), a tagline per plan, the card button,
+  the "How billing works" heading and points, and up to 12 extra questions.
+  The highlight and taglines also show on the in-app billing page.
+- **The four billing points are the Terms' own clauses.** Billing and renewal,
+  refunds, failed payments and static codes render on `/pricing` and in
+  `/terms` from one stored copy (`buildTerms` in `legal.ts`), so editing one
+  edits the other and the two cannot disagree. Their defaults are the Terms'
+  previous wording, so nothing changed until someone saves. Static codes were
+  not mentioned in the Terms before; they now are, in "Plans and payment".
+  The admin screen says plainly that these are legal text.
+- Stored as one JSON document in `site_content` (migration `023`), validated by
+  the same schema on save and on read, **field by field**: a bad field falls
+  back to its default alone, and an unreachable database falls back to all
+  defaults, so neither page can go blank or disagree. Plain text only and
+  length-capped; React escapes it, nothing renders as HTML.
+- `/pricing` and `/terms` now render per request (`instant = false`).
+- The schema, defaults and merge live in `pricing-content.ts` (pure, safe for
+  browser code); reads and writes in `site-content.ts`. Splitting them is what
+  keeps the database driver out of the admin form's browser bundle.
+- Every save is audited with the before and after.
+
+Tested against `next start` on a local Postgres: defaults highlight Pro; an
+edit changed the headline, badge, tagline and FAQ, and the refund point on
+both `/pricing` and `/terms` (the old wording gone from the Terms); a garbage
+stored row fell back to defaults on both pages with no script rendered.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
