@@ -145,6 +145,34 @@ export function canSeeInsights(entitlement: Entitlement | null): boolean {
   return entitlement?.features.insights === true;
 }
 
+/**
+ * Whether this account may make new hosted page codes (menu, PDF, profile
+ * card and the rest). Free makes link codes only (decided 1 Nov 2026).
+ *
+ * Only *making* is gated. A page that already exists keeps serving and stays
+ * editable whatever the plan, because it may already be printed.
+ */
+export function canMakeHostedPages(
+  entitlement: Entitlement | null
+): { ok: true } | { ok: false; reason: string } {
+  if (entitlement?.features.hosted_pages === true) return { ok: true };
+  return {
+    ok: false,
+    reason: entitlement
+      ? `Hosted pages are not part of the ${entitlement.planName} plan. They come with Starter and up; link codes are included.`
+      : "Your account has no active plan yet.",
+  };
+}
+
+/**
+ * Whether this account may upload a video file to a video page. Pro and up
+ * (decided 1 Nov 2026): video is the one real storage cost. Every plan with
+ * hosted pages can still show a YouTube or Vimeo link.
+ */
+export function canUploadVideo(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.video_uploads === true;
+}
+
 /** Whether this account may publish a read-only stats link for a code. */
 export function canShareStats(
   entitlement: Entitlement | null

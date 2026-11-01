@@ -7,6 +7,7 @@ import {
   canExportCsv,
   canSeeInsights,
   canShareStats,
+  canUploadVideo,
   chartDaysAllowed,
   getEntitlement,
 } from "@/lib/entitlement";
@@ -191,6 +192,7 @@ export default async function CodePage({
               kind={page}
               initial={(code.content ?? {}) as Record<string, unknown>}
               uploads={uploadsEnabled()}
+              videoUploads={canUploadVideo(entitlement)}
               disabled={code.status === "blocked"}
             />
           ) : (

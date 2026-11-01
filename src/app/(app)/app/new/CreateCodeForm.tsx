@@ -38,12 +38,15 @@ export function CreateCodeForm({
   kind,
   logos,
   uploads,
+  videoUploads,
   customLinks,
 }: {
   kind: DynamicKind;
   /** The account's logo library, offered so a logo is uploaded only once. */
   logos: PickerLogo[];
   uploads: boolean;
+  /** Whether the plan includes uploading video files. */
+  videoUploads: boolean;
   /** Whether the plan includes custom links, and why not when it does not. */
   customLinks: { ok: true } | { ok: false; reason: string };
 }) {
@@ -96,7 +99,13 @@ export function CreateCodeForm({
           <p className="mb-4 text-sm text-[var(--paper-soft)]">
             This is the page people see when they scan. You can edit it at any time after printing.
           </p>
-          <ContentEditor kind={kind} value={draft} uploads={uploads} onChange={setDraft} />
+          <ContentEditor
+            kind={kind}
+            value={draft}
+            uploads={uploads}
+            videoUploads={videoUploads}
+            onChange={setDraft}
+          />
           <input type="hidden" name="content" value={JSON.stringify(draft)} />
         </section>
       )}

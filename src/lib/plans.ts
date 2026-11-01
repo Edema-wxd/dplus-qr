@@ -39,6 +39,10 @@ export type PlanFeatures = {
   insights?: boolean;
   /** Public, read-only stats links for a code. */
   share_stats?: boolean;
+  /** Making hosted page codes (menu, PDF, profile card...). Without it, link codes only. */
+  hosted_pages?: boolean;
+  /** Uploading video files to a video page. Without it, YouTube or Vimeo links only. */
+  video_uploads?: boolean;
 } & Record<string, unknown>;
 
 type Row = {

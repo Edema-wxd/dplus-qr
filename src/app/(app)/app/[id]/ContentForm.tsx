@@ -15,12 +15,15 @@ export function ContentForm({
   kind,
   initial,
   uploads,
+  videoUploads,
   disabled,
 }: {
   id: string;
   kind: PageKind;
   initial: Draft;
   uploads: boolean;
+  /** Whether the plan includes uploading video files. */
+  videoUploads: boolean;
   disabled?: boolean;
 }) {
   const [state, action, pending] = useActionState(updateContentAction, {} as CodeState);
@@ -32,7 +35,13 @@ export function ContentForm({
       <input type="hidden" name="content" value={JSON.stringify(draft)} />
       <fieldset disabled={disabled} className="rounded-lg border border-[var(--paper-rule)] bg-white p-4 sm:p-5">
         <legend className="px-1 text-sm">What it shows</legend>
-        <ContentEditor kind={kind} value={draft} uploads={uploads} onChange={setDraft} />
+        <ContentEditor
+          kind={kind}
+          value={draft}
+          uploads={uploads}
+          videoUploads={videoUploads}
+          onChange={setDraft}
+        />
       </fieldset>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

@@ -933,6 +933,35 @@ free, recent and returning accounts untouched; only orphaned files and
 removed-and-unused logos were queued, and failed UploadThing deletes stayed
 queued with the error for retry.
 
+## Hosted pages and video uploads by plan, 1 November 2026
+
+Decided with Francis (the Plan Matrix was left empty, so the four features
+that cost money or are classic upsells were asked directly):
+
+| Feature | Free | Starter | Pro | Business |
+| --- | --- | --- | --- | --- |
+| Hosted page types (menu, PDF, profile card and the rest) | No: link codes only | Yes | Yes | Yes |
+| Video file uploads | No | No: YouTube/Vimeo links | Yes | Yes |
+| Logo in the code | Yes | Yes | Yes | Yes |
+| Custom colours | Yes | Yes | Yes | Yes |
+
+`hosted_pages` and `video_uploads` in `qr_plans.features` (migration `022`),
+both in the staff plan catalogue. Free's price-table card now says "Link codes
+only".
+
+**Only making and uploading are gated; nothing already created breaks.** A
+free account's existing hosted pages keep serving and stay editable, and a
+video uploaded before this keeps playing and can be kept on every save; only
+attaching a *different* uploaded video needs Pro. Checked at creation, on
+every content save, and in the UploadThing `pageVideo` middleware, so no file
+is stored for a plan that cannot use it. The type picker and the editor show
+locked options with the plans that include them rather than hiding them.
+
+Tested on a local Postgres: Free makes link codes and is refused pages;
+Starter makes pages and video pages with a link but is refused an uploaded
+video; Pro attaches one; a free account's existing video page still serves,
+saves with its video, refuses a swapped-in upload, and can switch to a link.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
