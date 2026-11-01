@@ -72,6 +72,21 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     help: "Customers can publish a read-only stats page for a code, for someone without an account. It never shows the code's destination.",
   },
   {
+    key: "hosted_pages",
+    label: "Hosted pages: menus, PDFs, profile cards and more",
+    kind: "boolean",
+    built: true,
+    absent: "Link codes only",
+    help: "Customers can make page codes (menu, PDF, profile card, links page and the rest). Without it they make link codes only; pages they already have keep working.",
+  },
+  {
+    key: "video_uploads",
+    label: "Video uploads",
+    kind: "boolean",
+    built: true,
+    help: "Customers can upload video files to a video page. Without it they can still show a YouTube or Vimeo link; videos already uploaded keep playing.",
+  },
+  {
     key: "support",
     label: "Support",
     kind: "choice",

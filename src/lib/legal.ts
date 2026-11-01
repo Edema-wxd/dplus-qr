@@ -1,3 +1,4 @@
+import { DEFAULT_PRICING_CONTENT, type PricingContent } from "@/lib/pricing-content";
 import {
   CODE_HOST,
   COMPANY_NAME,
@@ -23,15 +24,6 @@ import { CODE_LENGTH } from "@/lib/short-code";
  * infrastructure guidelines require, so deleting one fails the suite.
  */
 
-/**
- * The grace period after a failed renewal, in days.
- *
- * The authoritative value is `grace_days` on the plan row -- migration 013
- * seeds every plan at 7 -- so this mirrors the seed rather than owning it. If
- * a plan is ever given a different grace period, this sentence has to become
- * per-plan rather than a single figure.
- */
-const GRACE_DAYS = 7;
 
 /** A paragraph, a plain list, or a term-and-detail list. */
 export type LegalBlock =
@@ -64,7 +56,17 @@ export const LEGAL_PAGES: { slug: LegalSlug; href: string; label: string }[] = [
   { slug: "acceptable-use", href: "/acceptable-use", label: "Acceptable use" },
 ];
 
-export const TERMS: LegalDocument = {
+/**
+ * The Terms, built around the billing points staff edit at `/admin/pricing`.
+ *
+ * Those four points are the same text the pricing page shows under "How
+ * billing works" (`src/lib/site-content.ts`), so the two pages read one copy
+ * and cannot disagree. `/terms` renders `buildTerms` with the stored points;
+ * `TERMS` below is the same document with the defaults, which is what the
+ * tests check and what the page falls back to if the database is unreachable.
+ */
+export function buildTerms(policy: PricingContent["policy"]): LegalDocument {
+  return {
   slug: "terms",
   title: "Terms of service",
   standfirst: `The agreement between you and ${COMPANY_NAME} for ${PRODUCT_NAME}. Plain words where plain words will do.`,
@@ -123,7 +125,11 @@ export const TERMS: LegalDocument = {
       blocks: [
         {
           kind: "p",
-          text: `Plans are billed in naira through Paystack, monthly or annually, and charged in advance. A subscription renews automatically on the same cycle until you cancel it.`,
+          text: policy.billing.detail,
+        },
+        {
+          kind: "p",
+          text: policy.static_codes.detail,
         },
         {
           kind: "p",
@@ -145,7 +151,7 @@ export const TERMS: LegalDocument = {
         },
         {
           kind: "p",
-          text: `Payments are not refundable, including for a period you only partly used. Because cancelling always runs to the end of the paid period, you never pay for time you cannot use.`,
+          text: policy.refunds.detail,
         },
         {
           kind: "p",
@@ -159,9 +165,9 @@ export const TERMS: LegalDocument = {
       blocks: [
         {
           kind: "p",
-          // graceDays in qr_plans, seeded at 7 by migration 013; the lapse cron
-          // at /api/cron/grace is what enforces the end of it.
-          text: `A failed renewal does not stop your codes that day. We email you and your codes keep working for a grace period of ${GRACE_DAYS} days while you sort the payment out. If the grace period ends unpaid, your codes pause and scans meet the paused page. A successful payment restores them.`,
+          // Shared with the pricing page. The default quotes grace_days as
+          // seeded by migration 013; the lapse cron enforces the real value.
+          text: policy.missed_payment.detail,
         },
       ],
     },
@@ -329,7 +335,10 @@ export const TERMS: LegalDocument = {
       ],
     },
   ],
-};
+  };
+}
+
+export const TERMS: LegalDocument = buildTerms(DEFAULT_PRICING_CONTENT.policy);
 
 export const PRIVACY: LegalDocument = {
   slug: "privacy",

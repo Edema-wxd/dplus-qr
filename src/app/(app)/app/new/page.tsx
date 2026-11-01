@@ -4,7 +4,12 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
-import { canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
+import {
+  canMakeHostedPages,
+  canUploadVideo,
+  canUseCustomCodes,
+  getEntitlement,
+} from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { listLogos } from "@/lib/logos";
 import { uploadsEnabled } from "@/lib/uploads";
@@ -13,6 +18,7 @@ import {
   STATIC_TYPES,
   dynamicType,
   isDynamicKind,
+  isPageKind,
   isStaticKind,
   staticType,
 } from "@/lib/qr-types";
@@ -63,7 +69,12 @@ export default async function NewCodePage({
   const fixed = typeof params.static === "string" ? params.static : null;
   const back = { href: "/app/new", label: "All code types" };
 
-  if (dynamic && isDynamicKind(dynamic) && !atLimit) {
+  // Free makes link codes only. A page type is not offered (and not served as
+  // a form by URL) on a plan without hosted pages; the server refuses it too.
+  const pages = canMakeHostedPages(entitlement);
+  const lockedPage = (kind: string) => !pages.ok && isPageKind(kind);
+
+  if (dynamic && isDynamicKind(dynamic) && !atLimit && !lockedPage(dynamic)) {
     const type = dynamicType(dynamic);
     return (
       <DashShell heading={type.label} meta={type.blurb} back={back}>
@@ -71,6 +82,7 @@ export default async function NewCodePage({
           kind={dynamic}
           logos={library.map(({ id, url, name }) => ({ id, url, name }))}
           uploads={uploads}
+          videoUploads={canUploadVideo(entitlement)}
           customLinks={canUseCustomCodes(entitlement)}
         />
       </DashShell>
@@ -107,7 +119,17 @@ export default async function NewCodePage({
         href={(kind) => `/app/new?dynamic=${kind}`}
         disabled={atLimit}
         needsUpload={(kind) => !uploads && UPLOAD_ONLY.has(kind)}
+        locked={(kind) => (lockedPage(kind) ? "Starter and up" : null)}
       />
+
+      {!pages.ok && !atLimit ? (
+        <p className="-mt-4 mb-10 max-w-[60ch] text-sm leading-relaxed text-[var(--paper-soft)]">
+          {pages.reason}{" "}
+          <Link href="/billing" className="underline underline-offset-4">
+            See plans
+          </Link>
+        </p>
+      ) : null}
 
       {atLimit && entitlement ? (
         <p className="-mt-4 mb-10 max-w-[60ch] text-sm leading-relaxed text-[var(--paper-soft)]">

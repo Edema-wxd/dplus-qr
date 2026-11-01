@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PageKind } from "@/lib/qr-types";
 import { SOCIAL_NETWORKS, type FileRef } from "@/lib/page-content";
@@ -73,12 +74,19 @@ export function ContentEditor({
   kind,
   value: draft,
   uploads,
+  videoUploads = true,
   onChange,
 }: {
   kind: PageKind;
   value: Draft;
   /** False when this deployment has no UploadThing token. */
   uploads: boolean;
+  /**
+   * False when the plan does not include uploading video files. A video
+   * already on the page stays; only adding or replacing one is offered as an
+   * upgrade, and the link field works on every plan.
+   */
+  videoUploads?: boolean;
   onChange: Dispatch<SetStateAction<Draft>>;
 }) {
   const prefix = useId();
@@ -149,9 +157,20 @@ export function ContentEditor({
           {text("link", "YouTube or Vimeo link", {
             input: url,
             placeholder: "youtube.com/watch?v=…",
-            hint: "Or upload a file below instead.",
+            hint: videoUploads ? "Or upload a file below instead." : undefined,
           })}
-          {file("file", "Video file", "pageVideo")}
+          {videoUploads ? (
+            file("file", "Video file", "pageVideo")
+          ) : (
+            <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
+              {fileOf("file")
+                ? "The video you uploaded stays on this page. Uploading a different one comes with Pro and Business. "
+                : "Uploading a video file comes with Pro and Business. "}
+              <Link href="/billing" className="underline underline-offset-4">
+                See plans
+              </Link>
+            </p>
+          )}
         </Stack>
       );
 

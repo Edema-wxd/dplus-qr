@@ -12,7 +12,13 @@ import {
   type LinkKind,
   type PageKind,
 } from "@/lib/qr-types";
-import { canCreateCode, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
+import {
+  canCreateCode,
+  canMakeHostedPages,
+  canUploadVideo,
+  canUseCustomCodes,
+  getEntitlement,
+} from "@/lib/entitlement";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
 
@@ -230,6 +236,15 @@ async function checkContent(
   return parsePageContent(kind, resolved.content);
 }
 
+const VIDEO_REASON =
+  "Uploading video comes with Pro and Business. Link a YouTube or Vimeo video instead, or see plans.";
+
+/** The uploaded file on a video page's content, by id, or null. */
+function videoFileId(content: unknown): string | null {
+  const file = (content as { file?: { fileId?: unknown } } | null)?.file;
+  return typeof file?.fileId === "string" ? file.fileId : null;
+}
+
 export async function createCode(
   userId: string,
   input: CreateInput
@@ -258,6 +273,14 @@ export async function createCode(
   const entitlement = await getEntitlement(userId);
   const allowed = canCreateCode(entitlement);
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
+
+  if (isPageKind(input.kind)) {
+    const pages = canMakeHostedPages(entitlement);
+    if (!pages.ok) return { ok: false, reason: pages.reason };
+    if (input.kind === "video" && videoFileId(content) && !canUploadVideo(entitlement)) {
+      return { ok: false, reason: VIDEO_REASON };
+    }
+  }
 
   let customCode: string | null = null;
   if (input.customCode) {
@@ -431,8 +454,8 @@ export async function updateCodeContent(
   id: string,
   raw: unknown
 ): Promise<ChangeResult> {
-  const current = await queryOne<{ kind: string }>(
-    `select kind from qr_codes where user_id = $1 and id = $2`,
+  const current = await queryOne<{ kind: string; content: unknown }>(
+    `select kind, content from qr_codes where user_id = $1 and id = $2`,
     [userId, id]
   );
   if (!current) return { ok: false, reason: "That code could not be found." };
@@ -442,6 +465,15 @@ export async function updateCodeContent(
 
   const checked = await checkContent(userId, current.kind, raw);
   if (!checked.ok) return checked;
+
+  // Keeping a video already on the page is always allowed (it may be
+  // printed); attaching a different one needs a plan with video uploads.
+  if (current.kind === "video") {
+    const next = videoFileId(checked.content);
+    if (next && next !== videoFileId(current.content)) {
+      if (!canUploadVideo(await getEntitlement(userId))) return { ok: false, reason: VIDEO_REASON };
+    }
+  }
 
   const row = await queryOne<{ id: string }>(
     `update qr_codes set content = $4::jsonb, updated_at = now()

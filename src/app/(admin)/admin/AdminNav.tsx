@@ -6,7 +6,13 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { PRODUCT_NAME } from "@/lib/brand";
 
-export type AdminSection = "/admin" | "/admin/reports" | "/admin/customers" | "/admin/codes" | "/admin/plans";
+export type AdminSection =
+  | "/admin"
+  | "/admin/reports"
+  | "/admin/customers"
+  | "/admin/codes"
+  | "/admin/plans"
+  | "/admin/pricing";
 
 /** Counts the server read for this request; a badge shows only when non-zero. */
 export type AdminBadges = { reports: number; overdue: number };
@@ -17,6 +23,7 @@ const ITEMS: { href: AdminSection; label: string; icon: string; badge?: keyof Ad
   { href: "/admin/customers", label: "Customers", icon: "M8 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 14c.6-2.6 2.6-4 5-4s4.4 1.4 5 4", badge: "overdue" },
   { href: "/admin/codes", label: "Codes", icon: "M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" },
   { href: "/admin/plans", label: "Plans", icon: "M2 4.5h12v7H2zM2 7h12" },
+  { href: "/admin/pricing", label: "Pricing page", icon: "M3 2.5h7l3 3v8H3zM5.5 8h5M5.5 10.5h5" },
 ];
 
 /**

@@ -16,6 +16,7 @@ export function TypeSection<K extends string>({
   href,
   disabled,
   needsUpload,
+  locked,
 }: {
   id: string;
   heading: string;
@@ -24,6 +25,8 @@ export function TypeSection<K extends string>({
   href: (kind: K) => string;
   disabled?: boolean;
   needsUpload?: (kind: K) => boolean;
+  /** A short "which plans" note for a type the plan does not include. */
+  locked?: (kind: K) => string | null;
 }) {
   const card =
     "flex h-full items-start gap-3 rounded-lg border border-[var(--paper-rule)] bg-white px-4 py-3.5 text-left";
@@ -38,6 +41,7 @@ export function TypeSection<K extends string>({
       </p>
       <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {types.map((type) => {
+          const lockNote = locked?.(type.kind) ?? null;
           const body = (
             <>
               <TypeIcon name={type.kind} className="mt-0.5 shrink-0 text-[var(--paper-ink)]" />
@@ -46,12 +50,16 @@ export function TypeSection<K extends string>({
                   {type.label}
                 </span>
                 <span className="block text-sm text-[var(--paper-soft)]">
-                  {needsUpload?.(type.kind) ? "Needs file uploads, not available yet" : type.blurb}
+                  {lockNote
+                    ? `${type.blurb} ${lockNote}.`
+                    : needsUpload?.(type.kind)
+                      ? "Needs file uploads, not available yet"
+                      : type.blurb}
                 </span>
               </span>
             </>
           );
-          const off = disabled || needsUpload?.(type.kind);
+          const off = disabled || needsUpload?.(type.kind) || lockNote !== null;
           return (
             <li key={type.kind}>
               {off ? (
