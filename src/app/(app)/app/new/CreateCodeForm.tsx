@@ -7,6 +7,7 @@ import { inputClass, primaryButtonClass } from "@/components/controls";
 import { LogoPicker, type PickerLogo } from "../LogoPicker";
 import { ContentEditor, emptyDraft, type Draft } from "../ContentEditor";
 import { CustomLinkField } from "./CustomLinkField";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 
 /** What the destination field asks for, per link type. */
 const LINK_FIELD: Record<LinkKind, { label: string; placeholder: string; hint: string }> = {
@@ -39,7 +40,9 @@ export function CreateCodeForm({
   logos,
   uploads,
   videoUploads,
+  videoOffer,
   customLinks,
+  customOffer,
 }: {
   kind: DynamicKind;
   /** The account's logo library, offered so a logo is uploaded only once. */
@@ -47,8 +50,12 @@ export function CreateCodeForm({
   uploads: boolean;
   /** Whether the plan includes uploading video files. */
   videoUploads: boolean;
+  /** What clicking the locked video upload explains, when it is locked. */
+  videoOffer?: UpgradeOffer;
   /** Whether the plan includes custom links, and why not when it does not. */
   customLinks: { ok: true } | { ok: false; reason: string };
+  /** What clicking the locked custom link field explains. */
+  customOffer?: UpgradeOffer;
 }) {
   const [state, action, pending] = useActionState(createCodeAction, {} as CreateCodeState);
   const [draft, setDraft] = useState<Draft>(() => (isLinkKind(kind) ? {} : emptyDraft(kind)));
@@ -104,16 +111,14 @@ export function CreateCodeForm({
             value={draft}
             uploads={uploads}
             videoUploads={videoUploads}
+            videoOffer={videoOffer}
             onChange={setDraft}
           />
           <input type="hidden" name="content" value={JSON.stringify(draft)} />
         </section>
       )}
 
-      <CustomLinkField
-        allowed={customLinks.ok}
-        reason={customLinks.ok ? undefined : customLinks.reason}
-      />
+      <CustomLinkField allowed={customLinks.ok} offer={customOffer} />
 
       {/*
         Shown when there is anything to pick or a way to add something. With

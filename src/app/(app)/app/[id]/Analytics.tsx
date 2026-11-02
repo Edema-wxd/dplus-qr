@@ -1,8 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 import type { Analytics, Slice } from "@/lib/user-codes";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
+import { UpgradeDialog } from "../UpgradePrompt";
+
+/**
+ * Opens the upgrade prompt for an offer. Provided by the panel when the page
+ * passed offers in; absent (null) on the admin and public views, where the
+ * locked pieces fall back to a plain link or are not shown at all.
+ */
+const AskUpgrade = createContext<((offer: UpgradeOffer) => void) | null>(null);
+
+/** The detailed-analytics offer, for the locked panels and lines inside a window. */
+const InsightsOffer = createContext<UpgradeOffer | null>(null);
 
 /**
  * Scans over time, by country, device, operating system and city.
@@ -24,6 +36,7 @@ export function AnalyticsPanel({
   createdAt,
   audience = "owner",
   exportBase = null,
+  upgrade,
 }: {
   /** `data` is null for a window longer than the plan's scan history. */
   windows: { days: number; data: Analytics | null }[];
@@ -43,66 +56,85 @@ export function AnalyticsPanel({
    * includes export. Each table then offers its own CSV.
    */
   exportBase?: string | null;
+  /**
+   * What each locked piece says when clicked, from the page's live plan rows:
+   * the detailed analytics, and each chart window longer than the plan keeps.
+   */
+  upgrade?: { insights: UpgradeOffer; history: Record<number, UpgradeOffer> };
 }) {
   const [active, setActive] = useState(windows[1]?.days ?? windows[0].days);
+  const [prompt, setPrompt] = useState<UpgradeOffer | null>(null);
   const current = windows.find((w) => w.days === active) ?? windows[0];
+  const ask = audience === "owner" && upgrade ? (offer: UpgradeOffer) => setPrompt(offer) : null;
 
   return (
-    <section aria-labelledby="scans-heading">
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h2 id="scans-heading" className="font-sarlotte text-2xl leading-none">
-          Scans
-        </h2>
+    <AskUpgrade.Provider value={ask}>
+      <InsightsOffer.Provider value={upgrade?.insights ?? null}>
+        <section aria-labelledby="scans-heading">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <h2 id="scans-heading" className="font-sarlotte text-2xl leading-none">
+              Scans
+            </h2>
 
-        {/*
-          A group of toggle buttons, not a tablist. `role="tab"` promises a
-          tabpanel to point `aria-controls` at and arrow-key navigation
-          between the tabs; this has neither, and announcing "tab 1 of 3" to
-          someone whose arrow keys then do nothing is worse than describing
-          the controls as what they are. `aria-pressed` carries the state.
-        */}
-        <div
-          role="group"
-          aria-label="Date range"
-          className="flex rounded-md border border-[var(--paper-rule)] bg-white p-0.5"
-        >
-          {windows.map((w) => (
-            <button
-              key={w.days}
-              type="button"
-              aria-pressed={w.days === active}
-              onClick={() => setActive(w.days)}
-              className={`inline-flex items-center gap-1 rounded px-3 py-1 text-xs transition-colors duration-150 ${
-                w.days === active
-                  ? "bg-[var(--paper-ink)] text-[var(--paper)]"
-                  : "text-[var(--paper-soft)] hover:text-[var(--paper-ink)]"
-              }`}
+            {/*
+              A group of toggle buttons, not a tablist. `role="tab"` promises a
+              tabpanel to point `aria-controls` at and arrow-key navigation
+              between the tabs; this has neither, and announcing "tab 1 of 3" to
+              someone whose arrow keys then do nothing is worse than describing
+              the controls as what they are. `aria-pressed` carries the state.
+            */}
+            <div
+              role="group"
+              aria-label="Date range"
+              className="flex rounded-md border border-[var(--paper-rule)] bg-white p-0.5"
             >
-              {w.data ? null : <LockIcon />}
-              {w.days} days
-              {w.data ? null : <span className="sr-only"> (not on your plan)</span>}
-            </button>
-          ))}
-        </div>
-      </div>
+              {windows.map((w) => (
+                <button
+                  key={w.days}
+                  type="button"
+                  aria-pressed={w.days === active}
+                  onClick={() => {
+                    // A window the plan does not keep explains itself rather
+                    // than switching to an empty view.
+                    const offer = w.data ? null : upgrade?.history[w.days];
+                    if (offer && ask) ask(offer);
+                    else setActive(w.days);
+                  }}
+                  className={`inline-flex items-center gap-1 rounded px-3 py-1 text-xs transition-colors duration-150 ${
+                    w.days === active
+                      ? "bg-[var(--paper-ink)] text-[var(--paper)]"
+                      : "text-[var(--paper-soft)] hover:text-[var(--paper-ink)]"
+                  }`}
+                >
+                  {w.data ? null : <LockIcon />}
+                  {w.days} days
+                  {w.data ? null : <span className="sr-only"> (not on your plan)</span>}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      {current.data === null ? (
-        <Locked
-          className="mt-6"
-          title={`${current.days} days of scans`}
-          line={`Your plan keeps ${historyDays} days of scan history. Upgrade to see the last ${current.days} days.`}
-        />
-      ) : (
-        <WindowView
-          days={current.days}
-          data={current.data}
-          insights={insights}
-          createdAt={createdAt}
-          audience={audience}
-          exportBase={audience === "owner" ? exportBase : null}
-        />
-      )}
-    </section>
+          {current.data === null ? (
+            <Locked
+              className="mt-6"
+              offer={upgrade?.history[current.days]}
+              title={`${current.days} days of scans`}
+              line={`Your plan keeps ${historyDays} days of scan history. Upgrade to see the last ${current.days} days.`}
+            />
+          ) : (
+            <WindowView
+              days={current.days}
+              data={current.data}
+              insights={insights}
+              createdAt={createdAt}
+              audience={audience}
+              exportBase={audience === "owner" ? exportBase : null}
+            />
+          )}
+        </section>
+        {prompt ? <UpgradeDialog offer={prompt} open onClose={() => setPrompt(null)} /> : null}
+      </InsightsOffer.Provider>
+    </AskUpgrade.Provider>
   );
 }
 
@@ -138,7 +170,7 @@ function WindowView({
           {detail ? (
             <Trend total={data.total} previous={detail.previousTotal} days={days} />
           ) : (
-            isPublic ? null : <UpsellLine>Trend vs the previous {days} days on Starter</UpsellLine>
+            isPublic ? null : <UpsellLine>Compare with the previous {days} days</UpsellLine>
           )}
         </Stat>
         <Stat label="Unique scans">
@@ -146,7 +178,7 @@ function WindowView({
             isPublic ? (
               <span className="text-sm text-[var(--paper-soft)]">—</span>
             ) : (
-              <UpsellLine>Available on Starter and up</UpsellLine>
+              <UpsellLine>See unique scans</UpsellLine>
             )
           ) : detail?.unique === null ? (
             <span className="text-sm text-[var(--paper-soft)]">Not recorded yet</span>
@@ -268,8 +300,8 @@ function WindowView({
               </>
             ) : isPublic ? null : (
               <>
-                <Locked title="Operating system" line="See whether people scan with iPhone or Android. Available on Starter and up." />
-                <Locked title="City" line="See which cities your scans come from. Available on Starter and up." />
+                <Locked title="Operating system" line="See whether people scan with iPhone or Android." />
+                <Locked title="City" line="See which cities your scans come from." />
               </>
             )}
           </div>
@@ -313,28 +345,82 @@ function Trend({ total, previous, days }: { total: number; previous: number; day
   );
 }
 
+/**
+ * A one-line way in to the detailed analytics. With the upgrade prompt on
+ * hand it opens it; otherwise it is a plain link to plans.
+ */
 function UpsellLine({ children }: { children: React.ReactNode }) {
+  const ask = useContext(AskUpgrade);
+  const insights = useContext(InsightsOffer);
+  const className =
+    "inline-flex items-center gap-1 text-left text-xs text-[var(--paper-soft)] underline underline-offset-4 hover:text-[var(--paper-ink)]";
+  if (ask && insights) {
+    return (
+      <button type="button" onClick={() => ask(insights)} aria-haspopup="dialog" className={className}>
+        <LockIcon />
+        {children}
+      </button>
+    );
+  }
   return (
-    <Link href="/billing" className="text-xs text-[var(--paper-soft)] underline underline-offset-4 hover:text-[var(--paper-ink)]">
+    <Link href="/billing" className={className}>
       {children}
     </Link>
   );
 }
 
-/** A feature the plan does not include: what it is, and where to get it. */
-function Locked({ title, line, className = "" }: { title: string; line: string; className?: string }) {
+/**
+ * A feature the plan does not include: what it is, and where to get it. The
+ * whole card is the way in, so a click anywhere on it explains rather than
+ * landing on nothing.
+ */
+function Locked({
+  title,
+  line,
+  offer,
+  className = "",
+}: {
+  title: string;
+  line: string;
+  /** Defaults to the detailed-analytics offer. */
+  offer?: UpgradeOffer;
+  className?: string;
+}) {
+  const ask = useContext(AskUpgrade);
+  const insights = useContext(InsightsOffer);
+  const chosen = offer ?? insights;
+  const unlock = chosen?.unlock ? ` Included from ${chosen.unlock.name}.` : "";
+  const card =
+    "mt-3 block w-full rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-4 py-5 text-left text-sm leading-relaxed text-[var(--paper-soft)]";
   return (
     <div className={className}>
       <h3 className="flex items-center gap-1.5 border-b border-[var(--paper-rule)] pb-2 text-xs uppercase tracking-[0.12em] text-[var(--paper-soft)]">
         <LockIcon />
         {title}
       </h3>
-      <div className="mt-3 rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-4 py-5 text-sm leading-relaxed text-[var(--paper-soft)]">
-        <p>{line}</p>
-        <Link href="/billing" className="mt-2 inline-block text-[var(--paper-ink)] underline underline-offset-4">
-          See plans
-        </Link>
-      </div>
+      {ask && chosen ? (
+        <button
+          type="button"
+          onClick={() => ask(chosen)}
+          aria-haspopup="dialog"
+          className={`${card} transition-colors duration-150 hover:border-[var(--paper-ink)]`}
+        >
+          <span className="block">
+            {line}
+            {unlock}
+          </span>
+          <span className="mt-2 inline-block text-[var(--paper-ink)] underline underline-offset-4">
+            What this adds
+          </span>
+        </button>
+      ) : (
+        <div className={card}>
+          <p>{line}</p>
+          <Link href="/billing" className="mt-2 inline-block text-[var(--paper-ink)] underline underline-offset-4">
+            See plans
+          </Link>
+        </div>
+      )}
     </div>
   );
 }

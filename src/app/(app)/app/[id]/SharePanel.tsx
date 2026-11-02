@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { shareStatsAction, type ShareState } from "../actions";
 import { CopyLink } from "../CopyLink";
+import { LockIcon, LockedButton } from "../UpgradePrompt";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 
 /**
@@ -19,14 +21,15 @@ export function SharePanel({
   origin,
   initialToken,
   allowed,
-  reason,
+  offer,
 }: {
   id: string;
   /** This deployment's own origin, which share links are served from. */
   origin: string;
   initialToken: string | null;
   allowed: boolean;
-  reason?: string;
+  /** What clicking the locked button explains, when `allowed` is false. */
+  offer?: UpgradeOffer;
 }) {
   const [state, action, pending] = useActionState(shareStatsAction, {
     token: initialToken,
@@ -96,12 +99,22 @@ export function SharePanel({
           </button>
         </form>
       ) : (
-        <p className="mt-4 max-w-[56ch] text-sm leading-relaxed text-[var(--paper-soft)]">
-          {reason ?? "Share links come with Pro and Business."}{" "}
-          <Link href="/billing" className="underline underline-offset-4">
-            See plans
-          </Link>
-        </p>
+        <div className="mt-4 space-y-3">
+          <p className="max-w-[56ch] text-sm leading-relaxed text-[var(--paper-soft)]">
+            Give someone without an account a read-only view of this code&apos;s
+            scans.{offer?.unlock ? ` Share links come with ${offer.unlock.name} and up.` : ""}
+          </p>
+          {offer ? (
+            <LockedButton offer={offer} className={`${secondaryButtonClass} gap-1.5 border-dashed`}>
+              <LockIcon />
+              Create a share link
+            </LockedButton>
+          ) : (
+            <Link href="/billing" className="text-sm underline underline-offset-4">
+              See plans
+            </Link>
+          )}
+        </div>
       )}
 
       {state.error ? (
