@@ -37,7 +37,7 @@ export function EraseAccount({ userId, email }: { userId: string; email: string 
           {pending ? "Erasing…" : "Erase account"}
         </button>
       </div>
-      <ActionNote state={state} />
+      <ActionNote state={state} id="erase-account" />
     </form>
   );
 }
@@ -54,7 +54,7 @@ export function RetryRemoveSignIn({ userId }: { userId: string }) {
       <button type="submit" disabled={pending} className={`${secondaryButtonClass} mt-2`}>
         {pending ? "Removing…" : "Retry removing sign-in"}
       </button>
-      <ActionNote state={state} />
+      <ActionNote state={state} id="remove-sign-in" />
     </form>
   );
 }

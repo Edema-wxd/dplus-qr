@@ -21,6 +21,7 @@ import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
 import { canShareStats, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { createShare, revokeShare } from "@/lib/stat-shares";
 import { checkCustomCode } from "@/lib/short-code";
+import { flash } from "@/lib/flash";
 
 /**
  * Dashboard mutations.
@@ -137,6 +138,7 @@ export async function createCodeAction(
 
   // Outside the try/catch: `redirect` works by throwing, so a catch would
   // swallow it and the user would sit on a form that had already succeeded.
+  await flash("code-created");
   redirect(`/app/${created.id}`);
 }
 

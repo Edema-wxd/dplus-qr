@@ -185,7 +185,7 @@ export function PricingForm({
           View Terms
         </a>
       </div>
-      <ActionNote state={state} />
+      <ActionNote state={state} id="pricing" />
     </form>
   );
 }
