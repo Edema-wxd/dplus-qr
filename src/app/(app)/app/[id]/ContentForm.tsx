@@ -6,6 +6,7 @@ import type { PageKind } from "@/lib/qr-types";
 import { primaryButtonClass } from "@/components/controls";
 import { useSuccessToast } from "@/components/notify";
 import { ContentEditor, type Draft } from "../ContentEditor";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 
 /**
  * Edit a hosted page. The page-type counterpart of `DestinationForm`: the
@@ -16,12 +17,18 @@ export function ContentForm({
   kind,
   initial,
   uploads,
+  videoUploads,
+  videoOffer,
   disabled,
 }: {
   id: string;
   kind: PageKind;
   initial: Draft;
   uploads: boolean;
+  /** Whether the plan includes uploading video files. */
+  videoUploads: boolean;
+  /** What clicking the locked video upload explains, when it is locked. */
+  videoOffer?: UpgradeOffer;
   disabled?: boolean;
 }) {
   const [state, action, pending] = useActionState(updateContentAction, {} as CodeState);
@@ -38,7 +45,14 @@ export function ContentForm({
       <input type="hidden" name="content" value={JSON.stringify(draft)} />
       <fieldset disabled={disabled} className="rounded-lg border border-[var(--paper-rule)] bg-white p-4 sm:p-5">
         <legend className="px-1 text-sm">What it shows</legend>
-        <ContentEditor kind={kind} value={draft} uploads={uploads} onChange={setDraft} />
+        <ContentEditor
+          kind={kind}
+          value={draft}
+          uploads={uploads}
+          videoUploads={videoUploads}
+          videoOffer={videoOffer}
+          onChange={setDraft}
+        />
       </fieldset>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">

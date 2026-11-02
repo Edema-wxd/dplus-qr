@@ -22,6 +22,7 @@ import { DashShell } from "./DashShell";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "./StatusPill";
 import { VerifyBanner } from "./VerifyBanner";
+import { UpgradeBanner } from "./UpgradeBanner";
 
 export const metadata: Metadata = { title: "Your codes" };
 
@@ -87,6 +88,18 @@ export default async function CodesPage({
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
 
       {lapsed && hasCodes ? <LapsedNotice /> : null}
+
+      {/*
+        A free account is prompted only when there is a reason it would care:
+        its codes are being scanned, or it is one code from the limit.
+      */}
+      {!lapsed && entitlement?.planSlug === "free" ? (
+        codes.length >= entitlement.maxCodes - 1 ? (
+          <UpgradeBanner reason="limit" />
+        ) : codes.some((code) => code.scans30d > 0) ? (
+          <UpgradeBanner reason="scans" />
+        ) : null
+      ) : null}
 
       {hasCodes ? <Totals codes={codes} /> : null}
 

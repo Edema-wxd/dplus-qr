@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { getPlanById } from "@/lib/plans";
@@ -27,15 +26,13 @@ export default async function AdminEditPlan({ params }: { params: Promise<{ id: 
     <AdminShell
       heading={plan.name}
       current="/admin/plans"
+      back={{ href: "/admin/plans", label: "All plans" }}
       meta={
         <>
           <span className="font-mono">{plan.slug}</span> · {holders} account{holders === 1 ? "" : "s"} on it now
         </>
       }
     >
-      <Link href="/admin/plans" className="-mt-4 mb-6 inline-block text-sm text-[var(--paper-soft)] hover:text-[var(--paper-ink)]">
-        All plans
-      </Link>
 
       {plan.amountKobo > 0 && !plan.paystackPlanCode ? (
         <div className="mb-8 max-w-3xl rounded-lg border border-[var(--pending-ink)]/50 bg-white px-4 py-3">

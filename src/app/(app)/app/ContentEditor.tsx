@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PageKind } from "@/lib/qr-types";
 import { SOCIAL_NETWORKS, type FileRef } from "@/lib/page-content";
@@ -7,6 +8,8 @@ import { EVENT_OFFSETS } from "@/lib/page-helpers";
 import { toProfileFields } from "@/lib/vcard-import";
 import { useUploadThing } from "./uploadthing";
 import { ContactImport } from "./ContactImport";
+import { LockIcon, LockedButton } from "./UpgradePrompt";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 import { inputClass, secondaryButtonClass } from "@/components/controls";
 
 /**
@@ -73,12 +76,22 @@ export function ContentEditor({
   kind,
   value: draft,
   uploads,
+  videoUploads = true,
+  videoOffer,
   onChange,
 }: {
   kind: PageKind;
   value: Draft;
   /** False when this deployment has no UploadThing token. */
   uploads: boolean;
+  /**
+   * False when the plan does not include uploading video files. A video
+   * already on the page stays; only adding or replacing one is offered as an
+   * upgrade, and the link field works on every plan.
+   */
+  videoUploads?: boolean;
+  /** What clicking the locked upload explains; the page passes the live plan offer. */
+  videoOffer?: UpgradeOffer;
   onChange: Dispatch<SetStateAction<Draft>>;
 }) {
   const prefix = useId();
@@ -149,9 +162,36 @@ export function ContentEditor({
           {text("link", "YouTube or Vimeo link", {
             input: url,
             placeholder: "youtube.com/watch?v=…",
-            hint: "Or upload a file below instead.",
+            hint: videoUploads ? "Or upload a file below instead." : undefined,
           })}
-          {file("file", "Video file", "pageVideo")}
+          {videoUploads ? (
+            file("file", "Video file", "pageVideo")
+          ) : (
+            <div className="space-y-1.5">
+              {videoOffer ? (
+                <LockedButton
+                  offer={videoOffer}
+                  className={`${secondaryButtonClass} gap-1.5 border-dashed`}
+                >
+                  <LockIcon />
+                  Upload a video file
+                </LockedButton>
+              ) : null}
+              <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
+                {fileOf("file")
+                  ? "The video you uploaded stays on this page. Uploading a different one is not on your plan."
+                  : "Uploading a video file is not on your plan. A YouTube or Vimeo link works on every plan."}
+                {videoOffer ? null : (
+                  <>
+                    {" "}
+                    <Link href="/billing" className="underline underline-offset-4">
+                      See plans
+                    </Link>
+                  </>
+                )}
+              </p>
+            </div>
+          )}
         </Stack>
       );
 

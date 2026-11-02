@@ -796,6 +796,205 @@ could work, and the first to reach the scan path.
 `npm run db:migrate` still works by hand and is still the way to apply a
 migration ahead of a deploy.
 
+## Detailed analytics and upgrade prompts, 28 October 2026
+
+Modelled on a competitor's stats page (Francis, 28 Oct 2026: detail on
+Starter and up, free keeps what it has, light live refresh, Share Stats and
+per-table CSV in a second PR).
+
+- **Cities are now recorded**, from Vercel's `x-vercel-ip-city` (the same free
+  edge lookup as the country). The privacy policy already listed "country and
+  city". Decoded defensively, control characters stripped, capped at 80.
+- **OS and city join the daily rollup** (migration `018`), for the reason 012
+  added country and device: a breakdown not rolled up is lost when retention
+  prunes raw rows. Existing rollup days were rebuilt from raw rows **only where
+  the raw count still matched the rolled-up count**, so a day retention had
+  partly pruned kept its totals. Tested on a local Postgres: two intact days
+  gained their OS and city, a partly pruned day kept its 5 scans.
+- `rollupScans` now also deletes, for each code and day it recomputes, any
+  rollup row whose key no longer exists, so a re-keyed day cannot count twice.
+- **New on Starter and up** (`insights` in `qr_plans.features`, set by 018):
+  unique scans (summed daily uniques from the rotating IP hash; shown as "not
+  recorded" when `SCAN_IP_SALT` is unset), operating systems, cities, and the
+  change against the previous window of the same length. **Free keeps** the
+  daily chart, countries and devices. When a plan lacks `insights`,
+  `codeAnalytics` never runs those queries, so a locked panel has nothing to
+  leak.
+- **Chart windows longer than the plan's scan history are locked** (free:
+  30 days, so the 90-day view is offered as an upgrade). The data is never
+  computed for a locked window.
+- Countries show a flag and name; every breakdown shows its share of all scans
+  in the window, not just of the top ten. The summary strip adds Today and
+  Created.
+- **Live refresh:** a code's page re-fetches every 30 seconds while its tab is
+  visible, so a test scan appears without a reload. Nothing runs in a
+  background tab.
+- **Upgrade prompts, free accounts only.** An "Upgrade" button in the header of
+  every dashboard page ("Choose a plan" when no plan is active); paid accounts
+  never see it. Locked features are shown with one line and a link to plans,
+  never hidden. One banner on the codes list when there is a reason (scans
+  have arrived, or the account is within one code of its limit), dismissible
+  for 30 days. Nothing pops up or blocks work. Copy describes paid plans
+  generally rather than quoting figures that staff can change.
+- Staff see every panel on the admin code page whatever the customer's plan.
+
+## Admin reports queue and layout, 28 October 2026
+
+**Abuse reports can be closed** (Francis, 28 Oct 2026: "improve the UX"). A
+report is `open` until staff close it: `actioned` when the code was dealt
+with, `dismissed` when the report did not hold up. Blocking or archiving a
+code, or blocking or archiving every code on an account, marks that code's
+open reports `actioned` in the same action, because that is what a report
+asks for; staff should not have to close it twice. Closing never deletes a
+report. `/admin/reports` is the queue, oldest open report first, and each
+close is audited as `report.action` or `report.dismiss`.
+
+**The admin uses the dashboard's sidebar** (a drawer on phones) instead of a
+top bar that wrapped badly on a phone, with badges for open reports and
+overdue accounts. The overview leads with what needs attention, and every
+headline figure links to the accounts behind it. Customers filter by state
+and plan tier, a page at a time. The customer page puts suspend, archive,
+block and erase together at the bottom, below everything staff read first.
+
+## Share stats and per-table CSV, 28 October 2026
+
+The second half of the competitor-inspired analytics work.
+
+**Share stats (Pro and Business, `share_stats`, migration `019`).** An owner
+can publish a read-only stats page for one code at `/s/{token}`, for a client
+or manager with no account.
+
+- Off by default. One live link per code (partial unique index). "New link"
+  revokes the old one, which stops working at once; "Turn off sharing" always
+  works, even after a downgrade, so a link can always be taken down.
+- The token is 24 random bytes as 32 base64url characters, stored as issued
+  so the owner can copy it again. Malformed tokens never reach the database.
+- The page shows the code's name, short link and statistics, **never its
+  destination**. Checked on every view: the link is live; the code is not
+  blocked or archived; the owner is not suspended, archived or erased; and the
+  owner's plan still includes `share_stats`. Anything else is the not-found
+  page, which says nothing about whether the link existed.
+- The visitor is not the customer: no upgrade prompts, no plan talk, no
+  exports, and only the windows the owner's plan covers are offered.
+- `noindex`, rendered per request. Under Cache Components a `notFound()` in a
+  streamed page answers with status 200 and the not-found content (as
+  elsewhere in the app); no data is in it, verified against `next start`.
+- `s` is reserved; the route test enforces it.
+
+**Per-table CSV (Pro and up, `csv_export`).** Each table on the code page
+(scans per day, countries, devices, and on plans with `insights` operating
+systems and cities) has its own CSV link, served by the existing export route
+with `?table=`. The route applies the page's rules again: a window beyond the
+plan's history, or a detailed table without `insights`, is refused with 403.
+Every label goes through `csvCell` (moved to `src/lib/csv-export.ts`), since a
+city name comes from a request header and could carry a spreadsheet formula.
+Shares are of all scans in the window, not just of the rows listed.
+
+## Retention sweep and upload clean-up, 30 October 2026
+
+**The six-month deletion the legal pages promise now has a job**
+(`src/lib/retention.ts`, nightly at `/api/cron/cleanup`). Decided with
+Francis: scrub the account and its content, send a warning 30 days before,
+leave payment records alone.
+
+- An account with any live subscription is never touched; free accounts hold
+  an active free plan, so they never lapse.
+- "Lapsed since" is the latest change to any of the account's subscriptions.
+  That is at or after the real lapse, never before, so the sweep can only ever
+  run late. No new column was needed for that guarantee.
+- **No erasure without a warning at least 30 days old**, sent after the latest
+  lapse (`qr_users.retention_warned_at`, migration `020`). An email that fails
+  to send records nothing, so with no mail service nothing can be erased.
+- Erasing reuses `eraseAccountData`, the staff "Erase account" code: content
+  deleted, profile blanked, each short code kept as an anonymous row so it is
+  never reissued, payment rows kept. Each erasure is audited with no actor.
+- **The Neon Auth sign-in is not removed by the sweep**: the service only
+  removes users for a signed-in admin. Each is counted on the staff overview
+  ("sign-ins to remove") for the existing Remove sign-in button.
+- At most 20 accounts are acted on per run.
+
+**UploadThing files nothing uses are deleted** (`src/lib/upload-cleanup.ts`,
+same nightly route, after retention). Page files no code's content refers to
+and logos removed from the library and used by no code, each at least 7 days
+old so an unsaved form keeps its upload. Their rows are deleted and their keys
+queued in `qr_upload_deletions` (migration `021`) in one transaction; queued
+files are then deleted from UploadThing and retried on later runs if it
+refuses. Both erase paths (staff and retention) now queue any file they could
+not delete. Before, a failed delete after the row was gone left a file nothing
+recorded.
+
+**Both sweeps are off until `DELETION_SWEEPS_ENABLED=true`.** Until then a run
+reports what it would warn, erase and delete, and changes nothing. Read a dry
+run against production before turning it on.
+
+Tested on a local Postgres: an account lapsed and warned was erased, an
+unwarned one only warned (and with no mail service, not even that), paying,
+free, recent and returning accounts untouched; only orphaned files and
+removed-and-unused logos were queued, and failed UploadThing deletes stayed
+queued with the error for retry.
+
+## Hosted pages and video uploads by plan, 1 November 2026
+
+Decided with Francis (the Plan Matrix was left empty, so the four features
+that cost money or are classic upsells were asked directly):
+
+| Feature | Free | Starter | Pro | Business |
+| --- | --- | --- | --- | --- |
+| Hosted page types (menu, PDF, profile card and the rest) | No: link codes only | Yes | Yes | Yes |
+| Video file uploads | No | No: YouTube/Vimeo links | Yes | Yes |
+| Logo in the code | Yes | Yes | Yes | Yes |
+| Custom colours | Yes | Yes | Yes | Yes |
+
+`hosted_pages` and `video_uploads` in `qr_plans.features` (migration `022`),
+both in the staff plan catalogue. Free's price-table card now says "Link codes
+only".
+
+**Only making and uploading are gated; nothing already created breaks.** A
+free account's existing hosted pages keep serving and stay editable, and a
+video uploaded before this keeps playing and can be kept on every save; only
+attaching a *different* uploaded video needs Pro. Checked at creation, on
+every content save, and in the UploadThing `pageVideo` middleware, so no file
+is stored for a plan that cannot use it. The type picker and the editor show
+locked options with the plans that include them rather than hiding them.
+
+Tested on a local Postgres: Free makes link codes and is refused pages;
+Starter makes pages and video pages with a link but is refused an uploaded
+video; Pro attaches one; a free account's existing video page still serves,
+saves with its video, refuses a swapped-in upload, and can switch to a link.
+
+## Pricing page editable from the admin, 1 November 2026
+
+Staff edit the pricing page's words at `/admin/pricing` (Francis, 1 Nov 2026:
+all of it editable, kept in sync with the Terms, Pro highlighted). Prices,
+limits and features stay with each plan (Admin, Plans).
+
+- Editable: headline, introduction, which plan is highlighted and its badge
+  ("Most popular" on Pro by default), a tagline per plan, the card button,
+  the "How billing works" heading and points, and up to 12 extra questions.
+  The highlight and taglines also show on the in-app billing page.
+- **The four billing points are the Terms' own clauses.** Billing and renewal,
+  refunds, failed payments and static codes render on `/pricing` and in
+  `/terms` from one stored copy (`buildTerms` in `legal.ts`), so editing one
+  edits the other and the two cannot disagree. Their defaults are the Terms'
+  previous wording, so nothing changed until someone saves. Static codes were
+  not mentioned in the Terms before; they now are, in "Plans and payment".
+  The admin screen says plainly that these are legal text.
+- Stored as one JSON document in `site_content` (migration `023`), validated by
+  the same schema on save and on read, **field by field**: a bad field falls
+  back to its default alone, and an unreachable database falls back to all
+  defaults, so neither page can go blank or disagree. Plain text only and
+  length-capped; React escapes it, nothing renders as HTML.
+- `/pricing` and `/terms` now render per request (`instant = false`).
+- The schema, defaults and merge live in `pricing-content.ts` (pure, safe for
+  browser code); reads and writes in `site-content.ts`. Splitting them is what
+  keeps the database driver out of the admin form's browser bundle.
+- Every save is audited with the before and after.
+
+Tested against `next start` on a local Postgres: defaults highlight Pro; an
+edit changed the headline, badge, tagline and FAQ, and the refund point on
+both `/pricing` and `/terms` (the old wording gone from the Terms); a garbage
+stored row fell back to defaults on both pages with no script rendered.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

@@ -4,8 +4,15 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
-import { canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
+import {
+  canMakeHostedPages,
+  canUploadVideo,
+  canUseCustomCodes,
+  getEntitlement,
+} from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
+import { listPublicPlans } from "@/lib/plans";
+import { codesOffer, featureOffer } from "@/lib/upgrade-offers";
 import { listLogos } from "@/lib/logos";
 import { uploadsEnabled } from "@/lib/uploads";
 import {
@@ -13,6 +20,7 @@ import {
   STATIC_TYPES,
   dynamicType,
   isDynamicKind,
+  isPageKind,
   isStaticKind,
   staticType,
 } from "@/lib/qr-types";
@@ -50,11 +58,12 @@ export default async function NewCodePage({
 
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
 
-  const [params, codes, entitlement, library] = await Promise.all([
+  const [params, codes, entitlement, library, plans] = await Promise.all([
     searchParams,
     listCodes(user.id),
     getEntitlement(user.id),
     listLogos(user.id),
+    listPublicPlans(),
   ]);
 
   const atLimit = entitlement !== null && codes.length >= entitlement.maxCodes;
@@ -63,7 +72,21 @@ export default async function NewCodePage({
   const fixed = typeof params.static === "string" ? params.static : null;
   const back = { href: "/app/new", label: "All code types" };
 
-  if (dynamic && isDynamicKind(dynamic) && !atLimit) {
+  // Free makes link codes only. A page type is not offered (and not served as
+  // a form by URL) on a plan without hosted pages; the server refuses it too.
+  const pages = canMakeHostedPages(entitlement);
+  const lockedPage = (kind: string) => !pages.ok && isPageKind(kind);
+
+  // What a locked card or field says when clicked, with the cheapest plan
+  // that unlocks it read from the plan rows rather than written into copy.
+  const offers = {
+    codes: codesOffer(entitlement, plans),
+    hosted: featureOffer("hosted_pages", entitlement, plans),
+    custom: featureOffer("custom_codes", entitlement, plans),
+    video: featureOffer("video_uploads", entitlement, plans),
+  };
+
+  if (dynamic && isDynamicKind(dynamic) && !atLimit && !lockedPage(dynamic)) {
     const type = dynamicType(dynamic);
     return (
       <DashShell heading={type.label} meta={type.blurb} back={back}>
@@ -71,7 +94,10 @@ export default async function NewCodePage({
           kind={dynamic}
           logos={library.map(({ id, url, name }) => ({ id, url, name }))}
           uploads={uploads}
+          videoUploads={canUploadVideo(entitlement)}
+          videoOffer={offers.video}
           customLinks={canUseCustomCodes(entitlement)}
+          customOffer={offers.custom}
         />
       </DashShell>
     );
@@ -105,9 +131,21 @@ export default async function NewCodePage({
         note="Hosted by us. Change what it shows after printing, pause it, and see every scan. Uses one of your plan's codes."
         types={DYNAMIC_TYPES}
         href={(kind) => `/app/new?dynamic=${kind}`}
-        disabled={atLimit}
         needsUpload={(kind) => !uploads && UPLOAD_ONLY.has(kind)}
+        locked={(kind) => (atLimit ? offers.codes : lockedPage(kind) ? offers.hosted : null)}
       />
+
+      {!pages.ok && !atLimit ? (
+        <p className="-mt-4 mb-10 max-w-[60ch] text-sm leading-relaxed text-[var(--paper-soft)]">
+          {offers.hosted.why}{" "}
+          {offers.hosted.unlock ? `Hosted pages come with ${offers.hosted.unlock.name} and up; ` : ""}
+          link codes are included. Pick a locked type to see what it adds, or{" "}
+          <Link href="/billing" className="underline underline-offset-4">
+            compare plans
+          </Link>
+          .
+        </p>
+      ) : null}
 
       {atLimit && entitlement ? (
         <p className="-mt-4 mb-10 max-w-[60ch] text-sm leading-relaxed text-[var(--paper-soft)]">

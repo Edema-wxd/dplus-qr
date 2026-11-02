@@ -98,6 +98,13 @@ const schema = z.object({
   // failure to run is at least visible.
   CRON_SECRET: z.string().min(16).optional(),
 
+  // The nightly deletion sweeps (/api/cron/cleanup): the retention sweep, which
+  // erases accounts six months after they lapse as the Terms promise, and the
+  // upload clean-up, which deletes UploadThing files nothing uses. Anything but
+  // "true" is a dry run that reports what they would do, sending and changing
+  // nothing.
+  DELETION_SWEEPS_ENABLED: z.string().optional(),
+
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

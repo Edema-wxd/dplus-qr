@@ -52,27 +52,56 @@ export async function rollupScans(
 ): Promise<RollupResult> {
   const days = rollupWindow(windowDays);
 
-  const rows = await query<{ qr_id: string }>(
-    `insert into qr_scan_daily (qr_id, day, country, device_type, scans, unique_scans)
-     select
-       s.qr_id,
-       (s.scanned_at at time zone 'UTC')::date                as day,
-       coalesce(nullif(s.country, ''), 'unknown')             as country,
-       coalesce(nullif(s.device_type, ''), 'unknown')         as device_type,
-       count(*)                                               as scans,
-       count(distinct s.ip_hash)                              as unique_scans
-     from qr_scans s
-     where not s.is_bot
-       and s.scanned_at >= (now() at time zone 'UTC')::date - make_interval(days => $1 - 1)
-     group by 1, 2, 3, 4
-     on conflict (qr_id, day, country, device_type) do update
-       set scans        = excluded.scans,
-           unique_scans = excluded.unique_scans
-     returning qr_id`,
+  // One statement, three steps over the same snapshot: recompute the window
+  // from raw rows, upsert those groups, and delete any rollup row in the
+  // window whose group no longer exists. The delete is what keeps a re-keyed
+  // or re-bucketed day from counting twice (a row rolled up under an older
+  // key would otherwise sit beside its replacement). It only touches a code
+  // and day that the fresh groups cover, so a day whose raw rows are already
+  // gone keeps its history.
+  const rows = await query<{ written: string }>(
+    `with fresh as (
+       select
+         s.qr_id,
+         (s.scanned_at at time zone 'UTC')::date                as day,
+         coalesce(nullif(s.country, ''), 'unknown')             as country,
+         coalesce(nullif(s.device_type, ''), 'unknown')         as device_type,
+         coalesce(nullif(s.os, ''), 'unknown')                  as os,
+         coalesce(nullif(s.city, ''), 'unknown')                as city,
+         count(*)                                               as scans,
+         count(distinct s.ip_hash)                              as unique_scans
+       from qr_scans s
+       where not s.is_bot
+         and s.scanned_at >= (now() at time zone 'UTC')::date - make_interval(days => $1 - 1)
+       group by 1, 2, 3, 4, 5, 6
+     ),
+     upserted as (
+       insert into qr_scan_daily
+         (qr_id, day, country, device_type, os, city, scans, unique_scans)
+       select * from fresh
+       on conflict (qr_id, day, country, device_type, os, city) do update
+         set scans        = excluded.scans,
+             unique_scans = excluded.unique_scans
+       returning 1
+     ),
+     stale as (
+       delete from qr_scan_daily d
+       where exists (
+               select 1 from fresh f where f.qr_id = d.qr_id and f.day = d.day
+             )
+         and not exists (
+               select 1 from fresh f
+               where f.qr_id = d.qr_id and f.day = d.day
+                 and f.country = d.country and f.device_type = d.device_type
+                 and f.os = d.os and f.city = d.city
+             )
+       returning 1
+     )
+     select (select count(*) from upserted) as written`,
     [days]
   );
 
-  return { windowDays: days, rowsWritten: rows.length };
+  return { windowDays: days, rowsWritten: Number(rows[0]?.written ?? 0) };
 }
 
 export type PruneResult = { deleted: number; floorDays: number };

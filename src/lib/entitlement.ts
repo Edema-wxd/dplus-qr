@@ -134,6 +134,67 @@ export function canUseCustomCodes(
   return { ok: true };
 }
 
+/**
+ * Whether this account sees the detailed analytics: unique scans, operating
+ * systems, cities and the change against the previous period. From
+ * `qr_plans.features.insights` (Starter and up, migration 018). When false,
+ * `codeAnalytics` does not run those queries at all, so a locked panel has
+ * nothing to leak.
+ */
+export function canSeeInsights(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.insights === true;
+}
+
+/**
+ * Whether this account may make new hosted page codes (menu, PDF, profile
+ * card and the rest). Free makes link codes only (decided 1 Nov 2026).
+ *
+ * Only *making* is gated. A page that already exists keeps serving and stays
+ * editable whatever the plan, because it may already be printed.
+ */
+export function canMakeHostedPages(
+  entitlement: Entitlement | null
+): { ok: true } | { ok: false; reason: string } {
+  if (entitlement?.features.hosted_pages === true) return { ok: true };
+  return {
+    ok: false,
+    reason: entitlement
+      ? `Hosted pages are not part of the ${entitlement.planName} plan. They come with Starter and up; link codes are included.`
+      : "Your account has no active plan yet.",
+  };
+}
+
+/**
+ * Whether this account may upload a video file to a video page. Pro and up
+ * (decided 1 Nov 2026): video is the one real storage cost. Every plan with
+ * hosted pages can still show a YouTube or Vimeo link.
+ */
+export function canUploadVideo(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.video_uploads === true;
+}
+
+/** Whether this account may publish a read-only stats link for a code. */
+export function canShareStats(
+  entitlement: Entitlement | null
+): { ok: true } | { ok: false; reason: string } {
+  if (entitlement?.features.share_stats === true) return { ok: true };
+  return {
+    ok: false,
+    reason: entitlement
+      ? `Share links are not part of the ${entitlement.planName} plan. They come with Pro and Business.`
+      : "Your account has no active plan yet.",
+  };
+}
+
+/**
+ * The longest analytics window this account's chart may show, in days.
+ * Scan history is the plan's `history_days`; a window longer than that is
+ * offered as an upgrade rather than drawn. No plan at all shows the shortest.
+ */
+export function chartDaysAllowed(entitlement: Entitlement | null): number {
+  return entitlement?.historyDays ?? 7;
+}
+
 /** Whether another code may be created, and why not when it may not. */
 export function canCreateCode(
   entitlement: Entitlement | null

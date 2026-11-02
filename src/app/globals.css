@@ -210,15 +210,26 @@ body {
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  /* Short on purpose: the row is the answer to a click, and a long fade read
+     as the demo lagging behind the button. */
   .lp-rise {
-    animation: lp-rise 620ms var(--ease-out) both;
+    animation: lp-rise 240ms var(--ease-out) both;
+  }
+  .lp-swap {
+    animation: lp-swap 200ms var(--ease-out) both;
   }
 }
 
 @keyframes lp-rise {
   from {
-    opacity: 0;
-    transform: translateY(10px);
+    opacity: 0.25;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes lp-swap {
+  from {
+    opacity: 0.3;
   }
 }
 

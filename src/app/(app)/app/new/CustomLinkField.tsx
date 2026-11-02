@@ -6,6 +6,8 @@ import { CODE_HOST } from "@/lib/brand";
 import { CUSTOM_MAX_LENGTH } from "@/lib/short-code";
 import { checkCustomCodeAction, type CustomCodeHint } from "../actions";
 import { inputClass } from "@/components/controls";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
+import { LockIcon, LockedButton } from "../UpgradePrompt";
 
 /**
  * Choose the code's link (`qriateplus.com/dplus`) instead of a generated one.
@@ -15,16 +17,17 @@ import { inputClass } from "@/components/controls";
  * checked as they type, a pause after the last key, but only as advice; the
  * save is what claims the link.
  *
- * On a plan without custom links the field is shown disabled with the reason,
- * rather than hidden, so the feature can be found.
+ * On a plan without custom links the field is shown locked rather than hidden,
+ * so the feature can be found, and clicking it explains why and where to get
+ * it instead of doing nothing.
  */
 export function CustomLinkField({
   allowed,
-  reason,
+  offer,
 }: {
   allowed: boolean;
-  /** Why not, when `allowed` is false. */
-  reason?: string;
+  /** What clicking the locked field explains, when `allowed` is false. */
+  offer?: UpgradeOffer;
 }) {
   const [value, setValue] = useState("");
   // Each answer is kept with the value it was for, so a slow reply for an
@@ -62,31 +65,48 @@ export function CustomLinkField({
       <label htmlFor="new-code-custom" className="mb-1 block text-sm">
         Custom link <span className="text-[var(--paper-soft)]">(optional)</span>
       </label>
-      <div className="flex items-stretch overflow-hidden rounded-md border border-[var(--paper-rule)] bg-white focus-within:border-[var(--pin-ink)]">
-        <span className="dash-num flex items-center bg-[var(--paper)] px-3 font-mono text-xs text-[var(--paper-soft)]">
-          {CODE_HOST}/
-        </span>
-        <input
-          id="new-code-custom"
-          name="customCode"
-          type="text"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          maxLength={CUSTOM_MAX_LENGTH}
-          disabled={!allowed}
-          value={value}
-          onChange={(event) => change(event.target.value)}
-          placeholder={allowed ? "your-name" : ""}
-          aria-describedby="new-code-custom-hint"
-          className={`${inputClass} rounded-none border-0 font-mono focus:border-0`}
-        />
-      </div>
+      {!allowed && offer ? (
+        <LockedButton
+          offer={offer}
+          className="flex w-full items-stretch overflow-hidden rounded-md border border-dashed border-[var(--paper-rule)] bg-white text-left transition-colors duration-150 hover:border-[var(--paper-ink)]"
+        >
+          <span className="dash-num flex items-center bg-[var(--paper)] px-3 font-mono text-xs text-[var(--paper-soft)]">
+            {CODE_HOST}/
+          </span>
+          <span className="flex flex-1 items-center justify-between gap-2 px-3 py-2 text-sm text-[var(--paper-soft)]">
+            <span className="font-mono">your-name</span>
+            <LockIcon />
+          </span>
+        </LockedButton>
+      ) : (
+        <div className="flex items-stretch overflow-hidden rounded-md border border-[var(--paper-rule)] bg-white focus-within:border-[var(--pin-ink)]">
+          <span className="dash-num flex items-center bg-[var(--paper)] px-3 font-mono text-xs text-[var(--paper-soft)]">
+            {CODE_HOST}/
+          </span>
+          <input
+            id="new-code-custom"
+            name="customCode"
+            type="text"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={CUSTOM_MAX_LENGTH}
+            disabled={!allowed}
+            value={value}
+            onChange={(event) => change(event.target.value)}
+            placeholder={allowed ? "your-name" : ""}
+            aria-describedby="new-code-custom-hint"
+            className={`${inputClass} rounded-none border-0 font-mono focus:border-0`}
+          />
+        </div>
+      )}
 
       <p id="new-code-custom-hint" aria-live="polite" className="mt-1 text-xs leading-relaxed">
         {!allowed ? (
           <span className="text-[var(--paper-soft)]">
-            {reason ?? "Custom links come with Pro and Business."}{" "}
+            {offer?.unlock
+              ? `Custom links come with ${offer.unlock.name} and up. Tap the field to see what they add.`
+              : "Custom links are not on your plan."}{" "}
             <Link href="/billing" className="underline underline-offset-4">
               See plans
             </Link>

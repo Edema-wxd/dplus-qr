@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { query, queryOne } from "@/lib/db";
 
 /**
@@ -204,12 +205,59 @@ export type CustomerRow = {
   codes: number;
 };
 
+export const CUSTOMER_STATES = [
+  "paying",
+  "free",
+  "overdue",
+  "not_renewing",
+  "no_plan",
+  "suspended",
+  "archived",
+] as const;
+export type CustomerState = (typeof CUSTOMER_STATES)[number];
+
+/** How each state reads in the filter, so the page and its tests agree. */
+export const CUSTOMER_STATE_LABELS: Record<CustomerState, string> = {
+  paying: "Paying",
+  free: "On Free",
+  overdue: "Payment overdue",
+  not_renewing: "Not renewing",
+  no_plan: "No plan",
+  suspended: "Suspended",
+  archived: "Archived or erased",
+};
+
+export const CUSTOMERS_PER_PAGE = 50;
+
+const single = (value: unknown) => (Array.isArray(value) ? value[0] : value);
+
 /**
- * Accounts, newest first, optionally filtered by email or name. Each carries
- * its live subscription if it has one, else its most recent. Archived and
- * erased accounts are left out unless asked for.
+ * The customer list's filters, read leniently: a bad value means "any".
+ * `archived=1` is the pre-filter spelling of the archived state and still works.
  */
-export async function listCustomers(search: string, includeArchived = false, limit = 50): Promise<CustomerRow[]> {
+export const customerFiltersSchema = z.preprocess(
+  (raw) => {
+    const params = (raw ?? {}) as Record<string, unknown>;
+    return single(params.archived) === "1" && !params.state ? { ...params, state: "archived" } : params;
+  },
+  z.object({
+    q: z.preprocess(single, z.string().trim().max(100).catch("")).catch(""),
+    state: z.preprocess(single, z.enum(CUSTOMER_STATES)).optional().catch(undefined),
+    plan: z.preprocess(single, z.string().regex(/^[a-z0-9-]{1,48}$/)).optional().catch(undefined),
+    page: z.preprocess(single, z.coerce.number().int().min(1).max(1000)).catch(1),
+  })
+);
+export type CustomerFilters = z.infer<typeof customerFiltersSchema>;
+
+/**
+ * Accounts, newest first, a page at a time, filtered by email or name, by
+ * state and by plan tier (`pro` matches Pro monthly and annual). Each row
+ * carries its live subscription if it has one, else its most recent.
+ * Archived and erased accounts appear only under their own state.
+ */
+export async function listCustomers(
+  filters: CustomerFilters
+): Promise<{ rows: CustomerRow[]; total: number; hasMore: boolean }> {
   const rows = await query<{
     id: string;
     email: string;
@@ -224,11 +272,13 @@ export async function listCustomers(search: string, includeArchived = false, lim
     current_period_end: Date | null;
     cancel_at_period_end: boolean | null;
     codes: string;
+    total: string;
   }>(
     `select u.id, u.email, u.name, u.created_at, u.suspended_at,
             u.archived_at is not null as archived, u.erased_at is not null as erased,
             p.name as plan_name, p.interval, s.status, s.current_period_end, s.cancel_at_period_end,
-            (select count(*) from qr_codes c where c.user_id = u.id) as codes
+            (select count(*) from qr_codes c where c.user_id = u.id) as codes,
+            count(*) over () as total
      from qr_users u
      left join lateral (
        select * from qr_subscriptions s
@@ -238,26 +288,51 @@ export async function listCustomers(search: string, includeArchived = false, lim
      ) s on true
      left join qr_plans p on p.id = s.plan_id
      where ($1 = '' or u.email ilike $2 or u.name ilike $2)
-       and ($4 or u.archived_at is null)
-     order by u.created_at desc
-     limit $3`,
-    [search, likeContains(search), limit, includeArchived]
+       and (case $3
+              when 'archived' then u.archived_at is not null or u.erased_at is not null
+              else u.archived_at is null and u.erased_at is null
+            end)
+       and (case $3
+              when 'paying' then s.status = 'active' and p.amount_kobo > 0
+              when 'free' then s.status in ('active', 'past_due') and p.amount_kobo = 0
+              when 'overdue' then s.status = 'past_due'
+              when 'not_renewing' then s.status in ('active', 'past_due') and s.cancel_at_period_end
+              when 'no_plan' then s.status is null or s.status not in ('active', 'past_due')
+              when 'suspended' then u.suspended_at is not null
+              else true
+            end)
+       and ($4 = '' or (s.status in ('active', 'past_due')
+             and regexp_replace(p.slug, '-(monthly|annual|annually)$', '') = $4))
+     order by u.created_at desc, u.id
+     limit $5 offset $6`,
+    [
+      filters.q,
+      likeContains(filters.q),
+      filters.state ?? "",
+      filters.plan ?? "",
+      CUSTOMERS_PER_PAGE + 1,
+      (filters.page - 1) * CUSTOMERS_PER_PAGE,
+    ]
   );
-  return rows.map((row) => ({
-    id: row.id,
-    email: row.email,
-    name: row.name,
-    createdAt: row.created_at,
-    suspended: row.suspended_at !== null,
-    archived: row.archived,
-    erased: row.erased,
-    planName: row.plan_name,
-    interval: row.interval,
-    status: row.status,
-    currentPeriodEnd: row.current_period_end,
-    cancelAtPeriodEnd: row.cancel_at_period_end === true,
-    codes: Number(row.codes),
-  }));
+  return {
+    rows: rows.slice(0, CUSTOMERS_PER_PAGE).map((row) => ({
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      createdAt: row.created_at,
+      suspended: row.suspended_at !== null,
+      archived: row.archived,
+      erased: row.erased,
+      planName: row.plan_name,
+      interval: row.interval,
+      status: row.status,
+      currentPeriodEnd: row.current_period_end,
+      cancelAtPeriodEnd: row.cancel_at_period_end === true,
+      codes: Number(row.codes),
+    })),
+    total: Number(rows[0]?.total ?? 0),
+    hasMore: rows.length > CUSTOMERS_PER_PAGE,
+  };
 }
 
 export type CustomerDetail = {

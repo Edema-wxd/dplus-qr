@@ -8,6 +8,7 @@ import {
   recordLogo,
 } from "@/lib/logos";
 import { recordFile } from "@/lib/files";
+import { canUploadVideo, getEntitlement } from "@/lib/entitlement";
 
 /**
  * Every customer upload goes through here: logos, and the files hosted pages
@@ -31,6 +32,21 @@ async function pageFileOwner() {
   const { data: session } = await auth.getSession();
   if (!session?.user) throw new UploadThingError("Sign in to upload a file.");
   return { userId: session.user.id };
+}
+
+/**
+ * Video files are the one real storage cost, so uploading them is a Pro and
+ * Business feature. Checked here, before UploadThing hands out an upload URL,
+ * so no file is stored for a plan that cannot use it.
+ */
+async function videoFileOwner() {
+  const owner = await pageFileOwner();
+  if (!canUploadVideo(await getEntitlement(owner.userId))) {
+    throw new UploadThingError(
+      "Uploading video comes with Pro and Business. Link a YouTube or Vimeo video instead."
+    );
+  }
+  return owner;
 }
 
 /**
@@ -113,7 +129,7 @@ export const uploadRouter = {
     "video/webm": { maxFileSize: "64MB", maxFileCount: 1 },
     "video/quicktime": { maxFileSize: "64MB", maxFileCount: 1 },
   })
-    .middleware(pageFileOwner)
+    .middleware(videoFileOwner)
     .onUploadComplete(recordPageFile),
 
   pageAudio: f({ audio: { maxFileSize: "16MB", maxFileCount: 10 } })
