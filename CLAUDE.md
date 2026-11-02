@@ -1,7 +1,9 @@
 # dplus-qr
 
-The De Sign Plus dynamic QR platform. Standalone Next.js 16 app serving
-`qr.de-signplus.com`: redirects, status pages, client accounts and dashboard.
+QRiate+, the De Sign Plus dynamic QR platform. Standalone Next.js 16 app
+serving `qriateplus.com` (it replaced `qr.de-signplus.com` on 22 Oct 2026, see
+DECISIONS.md): redirects, status pages, the public landing and pricing pages,
+client accounts and dashboard, and the staff admin.
 
 ## Read before any work
 
@@ -105,6 +107,43 @@ reliability for a feature, reliability wins. Everything below follows from that.
   `/{code}` must never be in it.
 - Production needs custom SMTP and `neon neon-auth domain add <origin>` for
   each deployed origin. Localhost is pre-approved.
+
+**Plans and billing**
+
+- **What a plan allows is data, not code.** Limits and feature flags live in
+  `qr_plans` (`max_codes`, `history_days`, `features` jsonb) and staff edit them
+  from `/admin/plans`. Gates are the `can*` functions in
+  `src/lib/entitlement.ts`, and the flag catalogue is `PLAN_FEATURES` in
+  `src/lib/plan-features.ts`. A flag marked `built: false` is never advertised.
+- **Never write a plan name or price into UI copy** ("Starter and up", "Pro and
+  Business", "₦4,000"). Read it from the rows: `src/lib/upgrade-offers.ts` for
+  "which plan unlocks this", `src/lib/plan-tiers.ts` for price tables. Staff
+  move flags between plans without a deploy, and hard-coded copy goes stale.
+- **A locked control stays clickable** and opens the upgrade prompt
+  (`LockedButton` / `UpgradeDialog` in `src/app/(app)/app/UpgradePrompt.tsx`).
+  The server refuses the action as well; the prompt only explains.
+- **Payment state in `qr_subscriptions` comes from the Paystack webhook**
+  (`src/lib/billing.ts`). The other writers are narrow and each is documented
+  where it lives: the free-plan grant (`profile.ts`), staff assignment
+  (`plan-admin.ts`, refused for an account paying through Paystack), the
+  grace-period lapse (`grace.ts`), the optimistic not-renewing flag on cancel
+  (`checkout.ts`) and account erasure (`moderation.ts`). Any new writer needs
+  a reason recorded in DECISIONS.md.
+- A plan's price and interval are fixed once it has a `paystack_plan_code`,
+  because Paystack charges its own copy. A new price is a new plan.
+
+**Staff admin** (`/admin`)
+
+- Access is a Neon Auth role: `update neon_auth."user" set role = 'admin'
+  where email = '...'`. It is read from the database on every request, never
+  from the session, so revoking it takes effect at once.
+- `requireStaff()` gates every page and `staffForAction()` every Server
+  Action, in `src/app/(admin)/admin/guard.ts`. Non-admins, signed out included,
+  get the ordinary 404. `/admin` is deliberately **not** in the `proxy.ts`
+  matcher: the proxy would redirect a signed-out visitor to sign-in, which
+  reveals the page exists.
+- Every page view, search and change writes `qr_admin_audit` (`audit()` after
+  the response, `recordChange()` awaited).
 
 **Security**
 
@@ -253,5 +292,24 @@ neon neon-auth status
 
 ## Status
 
-Scaffold and redirect spike complete. Phase 1 (auth, verification, dashboard)
-not started. See DECISIONS.md for what is still open.
+Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
+
+- Redirect path, status pages, scan recording with a daily rollup. The
+  retention and upload sweeps exist but run only with `DELETION_SWEEPS_ENABLED`.
+- Accounts on Neon Auth, the dashboard (sidebar, plan meter, code types and
+  hosted pages, logos, colours, custom links, analytics, share-stats links,
+  CSV export), and upgrade prompts on every locked feature.
+- Billing: Paystack checkout and webhooks, grace and lapse, the public
+  `/pricing` page and `/billing`, both read from `qr_plans`.
+- Staff admin: overview with what needs attention, abuse-report queue,
+  customers (filters, plan assignment, suspend, archive, erase), codes
+  (block, pause, archive, re-screen), plans and features, pricing-page copy.
+- Production deploys apply pending migrations before building.
+
+Known issue: `npm run scans:rollup` (`scripts/rollup-scans.ts`) fails with
+Postgres `42P10`. It carries its own copy of the rollup SQL that predates
+migration 018's re-keyed `qr_scan_daily`. The nightly cron uses
+`src/lib/rollup.ts`, which is correct, so only the manual command is broken;
+the fix is for the script to call `rollupScans()` instead of duplicating it.
+
+What is still open is listed at the end of DECISIONS.md.
