@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { TypeInfo } from "@/lib/qr-types";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 import { TypeIcon } from "../TypeIcon";
+import { LockIcon, LockedButton } from "../UpgradePrompt";
 
 /**
  * Page types that cannot be filled in without an upload. On a deployment with
@@ -14,7 +16,6 @@ export function TypeSection<K extends string>({
   note,
   types,
   href,
-  disabled,
   needsUpload,
   locked,
 }: {
@@ -23,10 +24,12 @@ export function TypeSection<K extends string>({
   note: string;
   types: readonly TypeInfo<K>[];
   href: (kind: K) => string;
-  disabled?: boolean;
   needsUpload?: (kind: K) => boolean;
-  /** A short "which plans" note for a type the plan does not include. */
-  locked?: (kind: K) => string | null;
+  /**
+   * Why the plan rules this type out, if it does: the code limit, or hosted
+   * pages on Free. A locked card stays clickable and opens that explanation.
+   */
+  locked?: (kind: K) => UpgradeOffer | null;
 }) {
   const card =
     "flex h-full items-start gap-3 rounded-lg border border-[var(--paper-rule)] bg-white px-4 py-3.5 text-left";
@@ -41,28 +44,42 @@ export function TypeSection<K extends string>({
       </p>
       <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {types.map((type) => {
-          const lockNote = locked?.(type.kind) ?? null;
+          const offer = locked?.(type.kind) ?? null;
+          const unavailable = !offer && needsUpload?.(type.kind);
           const body = (
             <>
               <TypeIcon name={type.kind} className="mt-0.5 shrink-0 text-[var(--paper-ink)]" />
-              <span className="min-w-0">
-                <span className="block text-[15px] font-medium text-[var(--paper-ink)]">
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-[15px] font-medium text-[var(--paper-ink)]">
                   {type.label}
+                  {offer ? <LockIcon className="text-[var(--paper-soft)]" /> : null}
                 </span>
                 <span className="block text-sm text-[var(--paper-soft)]">
-                  {lockNote
-                    ? `${type.blurb} ${lockNote}.`
-                    : needsUpload?.(type.kind)
-                      ? "Needs file uploads, not available yet"
-                      : type.blurb}
+                  {unavailable ? "Needs file uploads, not available yet" : type.blurb}
                 </span>
+                {offer ? (
+                  <span className="mt-1 block text-xs text-[var(--paper-ink)]">
+                    {offer.gate === "codes"
+                      ? "No dynamic codes left on your plan"
+                      : offer.unlock
+                        ? `Included from ${offer.unlock.name}`
+                        : "Not on your plan"}
+                  </span>
+                ) : null}
               </span>
             </>
           );
-          const off = disabled || needsUpload?.(type.kind) || lockNote !== null;
           return (
             <li key={type.kind}>
-              {off ? (
+              {offer ? (
+                // Locked by the plan: still a button, and clicking says why.
+                <LockedButton
+                  offer={offer}
+                  className={`${card} w-full border-dashed transition-colors duration-150 hover:border-[var(--paper-ink)]`}
+                >
+                  {body}
+                </LockedButton>
+              ) : unavailable ? (
                 <div aria-disabled className={`${card} opacity-55`}>
                   {body}
                 </div>

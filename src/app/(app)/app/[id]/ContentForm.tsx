@@ -5,6 +5,7 @@ import { updateContentAction, type CodeState } from "../actions";
 import type { PageKind } from "@/lib/qr-types";
 import { primaryButtonClass } from "@/components/controls";
 import { ContentEditor, type Draft } from "../ContentEditor";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 
 /**
  * Edit a hosted page. The page-type counterpart of `DestinationForm`: the
@@ -16,6 +17,7 @@ export function ContentForm({
   initial,
   uploads,
   videoUploads,
+  videoOffer,
   disabled,
 }: {
   id: string;
@@ -24,6 +26,8 @@ export function ContentForm({
   uploads: boolean;
   /** Whether the plan includes uploading video files. */
   videoUploads: boolean;
+  /** What clicking the locked video upload explains, when it is locked. */
+  videoOffer?: UpgradeOffer;
   disabled?: boolean;
 }) {
   const [state, action, pending] = useActionState(updateContentAction, {} as CodeState);
@@ -40,6 +44,7 @@ export function ContentForm({
           value={draft}
           uploads={uploads}
           videoUploads={videoUploads}
+          videoOffer={videoOffer}
           onChange={setDraft}
         />
       </fieldset>

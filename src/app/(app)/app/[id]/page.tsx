@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
@@ -27,6 +26,9 @@ import { secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "../StatusPill";
 import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";
+import { LockIcon, LockedButton } from "../UpgradePrompt";
+import { listPublicPlans } from "@/lib/plans";
+import { featureOffer, historyOffer } from "@/lib/upgrade-offers";
 import { LiveRefresh } from "./LiveRefresh";
 import { SharePanel } from "./SharePanel";
 import { StyleForm, StyleScope } from "./StyleControls";
@@ -71,7 +73,7 @@ export default async function CodePage({
   const insights = canSeeInsights(entitlement);
   const historyDays = chartDaysAllowed(entitlement);
 
-  const [history, library, windows, feedback, share] = await Promise.all([
+  const [history, library, windows, feedback, share, plans] = await Promise.all([
     page ? Promise.resolve([]) : destinationHistory(user.id, id),
     listLogos(user.id),
     Promise.all(
@@ -85,10 +87,26 @@ export default async function CodePage({
     ),
     code.kind === "feedback" ? codeFeedback(user.id, id) : Promise.resolve(null),
     getLiveShare(user.id, id),
+    listPublicPlans(),
   ]);
   const sharing = canShareStats(entitlement);
 
   const exportable = canExportCsv(entitlement);
+
+  // What each locked control explains when clicked. The plan that unlocks it
+  // is read from the plan rows, so the copy follows plan edits in the admin.
+  const offers = {
+    insights: featureOffer("insights", entitlement, plans),
+    csv: featureOffer("csv_export", entitlement, plans),
+    share: featureOffer("share_stats", entitlement, plans),
+    video: featureOffer("video_uploads", entitlement, plans),
+    history: Object.fromEntries(
+      ANALYTICS_WINDOWS.filter((days) => days > historyDays).map((days) => [
+        days,
+        historyOffer(days, entitlement, plans),
+      ])
+    ),
+  };
   const url = codeUrl(code.shortCode);
 
   // The code's own logo is offered even after it leaves the library, so the
@@ -193,6 +211,7 @@ export default async function CodePage({
               initial={(code.content ?? {}) as Record<string, unknown>}
               uploads={uploadsEnabled()}
               videoUploads={canUploadVideo(entitlement)}
+              videoOffer={offers.video}
               disabled={code.status === "blocked"}
             />
           ) : (
@@ -242,6 +261,7 @@ export default async function CodePage({
         historyDays={historyDays}
         createdAt={code.createdAt.toISOString()}
         exportBase={exportable.ok ? `/app/${code.id}/export` : null}
+        upgrade={{ insights: offers.insights, history: offers.history }}
       />
       {/* Scans arrive while the owner watches; see LiveRefresh. */}
       <LiveRefresh />
@@ -257,18 +277,14 @@ export default async function CodePage({
           </a>
         ) : (
           /*
-            Named rather than hidden. A plan limit the customer cannot see is
-            the kind of thing that gets reported as a missing feature, and the
-            route refuses the download anyway -- so this says which plans
-            include it and links to the page that changes plans.
+            Named rather than hidden, and clickable: a plan limit the customer
+            cannot see gets reported as a missing feature, and a dead button
+            gets reported as a bug. The route refuses the download anyway.
           */
-          <p className="max-w-[52ch] text-sm leading-relaxed text-[var(--paper-soft)]">
-            {exportable.reason}{" "}
-            <Link href="/billing" className="underline underline-offset-4">
-              See plans
-            </Link>
-            .
-          </p>
+          <LockedButton offer={offers.csv} className={`${secondaryButtonClass} gap-1.5 border-dashed`}>
+            <LockIcon />
+            Export 30 days as CSV
+          </LockedButton>
         )}
       </div>
 
@@ -279,7 +295,7 @@ export default async function CodePage({
         origin={env().QR_BASE_URL}
         initialToken={share?.token ?? null}
         allowed={sharing.ok}
-        reason={sharing.ok ? undefined : sharing.reason}
+        offer={sharing.ok ? undefined : offers.share}
       />
 
       {history.length > 0 ? (

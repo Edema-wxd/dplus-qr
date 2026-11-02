@@ -8,6 +8,8 @@ import { EVENT_OFFSETS } from "@/lib/page-helpers";
 import { toProfileFields } from "@/lib/vcard-import";
 import { useUploadThing } from "./uploadthing";
 import { ContactImport } from "./ContactImport";
+import { LockIcon, LockedButton } from "./UpgradePrompt";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 import { inputClass, secondaryButtonClass } from "@/components/controls";
 
 /**
@@ -75,6 +77,7 @@ export function ContentEditor({
   value: draft,
   uploads,
   videoUploads = true,
+  videoOffer,
   onChange,
 }: {
   kind: PageKind;
@@ -87,6 +90,8 @@ export function ContentEditor({
    * upgrade, and the link field works on every plan.
    */
   videoUploads?: boolean;
+  /** What clicking the locked upload explains; the page passes the live plan offer. */
+  videoOffer?: UpgradeOffer;
   onChange: Dispatch<SetStateAction<Draft>>;
 }) {
   const prefix = useId();
@@ -162,14 +167,30 @@ export function ContentEditor({
           {videoUploads ? (
             file("file", "Video file", "pageVideo")
           ) : (
-            <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
-              {fileOf("file")
-                ? "The video you uploaded stays on this page. Uploading a different one comes with Pro and Business. "
-                : "Uploading a video file comes with Pro and Business. "}
-              <Link href="/billing" className="underline underline-offset-4">
-                See plans
-              </Link>
-            </p>
+            <div className="space-y-1.5">
+              {videoOffer ? (
+                <LockedButton
+                  offer={videoOffer}
+                  className={`${secondaryButtonClass} gap-1.5 border-dashed`}
+                >
+                  <LockIcon />
+                  Upload a video file
+                </LockedButton>
+              ) : null}
+              <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
+                {fileOf("file")
+                  ? "The video you uploaded stays on this page. Uploading a different one is not on your plan."
+                  : "Uploading a video file is not on your plan. A YouTube or Vimeo link works on every plan."}
+                {videoOffer ? null : (
+                  <>
+                    {" "}
+                    <Link href="/billing" className="underline underline-offset-4">
+                      See plans
+                    </Link>
+                  </>
+                )}
+              </p>
+            </div>
           )}
         </Stack>
       );
