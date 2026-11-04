@@ -995,6 +995,30 @@ edit changed the headline, badge, tagline and FAQ, and the refund point on
 both `/pricing` and `/terms` (the old wording gone from the Terms); a garbage
 stored row fell back to defaults on both pages with no script rendered.
 
+## Retention schedule in the admin, 4 November 2026
+
+`/admin/retention` lists every lapsed account the retention sweep will reach,
+in four groups: due to erase, due a warning, warned with erasure booked, and
+coming up. Read-only; each row links to the customer page, where the actions
+already are.
+
+- **One source of truth for the rules.** `scheduleEntry` classifies with
+  `retentionStep`, the function the nightly run uses, and a test walks every
+  day around the due date to check the two agree. The page cannot promise a
+  date the sweep will not keep.
+- **Its own query, not the sweep's.** `retentionSchedule` uses the sweep's
+  eligibility (no live subscription, not erased) without its time window or
+  batch limit, so staff see what is coming as well as what is due. The
+  sweep's candidate query is unchanged.
+- **Dates shown are the ones customers get.** "Due a warning" shows the date
+  the email will promise (`promisedDeletion`); "warned" shows the warning date
+  plus 30 days or the six-month mark, whichever is later.
+- **A sidebar badge counts what the next run warns or erases**, so it clears
+  itself once the run has happened. It reads separately from the other
+  badges, and a failure there shows no badge rather than breaking the admin.
+- Recent erasures come from the `retention.erase` audit rows the sweep already
+  writes, including files left queued for the upload clean-up.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

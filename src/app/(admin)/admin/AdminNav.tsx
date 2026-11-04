@@ -12,10 +12,11 @@ export type AdminSection =
   | "/admin/customers"
   | "/admin/codes"
   | "/admin/plans"
-  | "/admin/pricing";
+  | "/admin/pricing"
+  | "/admin/retention";
 
 /** Counts the server read for this request; a badge shows only when non-zero. */
-export type AdminBadges = { reports: number; overdue: number };
+export type AdminBadges = { reports: number; overdue: number; retention: number };
 
 const ITEMS: { href: AdminSection; label: string; icon: string; badge?: keyof AdminBadges }[] = [
   { href: "/admin", label: "Overview", icon: "M2.5 8.5 8 3l5.5 5.5M4 7v6.5h8V7" },
@@ -24,13 +25,15 @@ const ITEMS: { href: AdminSection; label: string; icon: string; badge?: keyof Ad
   { href: "/admin/codes", label: "Codes", icon: "M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" },
   { href: "/admin/plans", label: "Plans", icon: "M2 4.5h12v7H2zM2 7h12" },
   { href: "/admin/pricing", label: "Pricing page", icon: "M3 2.5h7l3 3v8H3zM5.5 8h5M5.5 10.5h5" },
+  { href: "/admin/retention", label: "Retention", icon: "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 5v3l2 1.5", badge: "retention" },
 ];
 
 /**
  * The staff admin's sidebar: the dashboard's own shape (a column on wide
  * screens, a drawer below `lg`), so moving between the two sides of the
  * product changes the label, not the habits. Badges count what is waiting:
- * open reports and overdue accounts.
+ * open reports, overdue accounts, and accounts the next retention run warns
+ * or erases.
  */
 export function AdminNav({ current, badges }: { current: AdminSection; badges: AdminBadges }) {
   const pathname = usePathname();
@@ -46,7 +49,7 @@ export function AdminNav({ current, badges }: { current: AdminSection; badges: A
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  const waiting = badges.reports + badges.overdue;
+  const waiting = badges.reports + badges.overdue + badges.retention;
 
   return (
     <>
@@ -110,7 +113,13 @@ export function AdminNav({ current, badges }: { current: AdminSection; badges: A
                     {count > 0 ? (
                       <Badge
                         count={count}
-                        label={item.badge === "reports" ? `${count} open` : `${count} overdue`}
+                        label={
+                          item.badge === "reports"
+                            ? `${count} open`
+                            : item.badge === "retention"
+                              ? `${count} due`
+                              : `${count} overdue`
+                        }
                       />
                     ) : null}
                   </Link>
