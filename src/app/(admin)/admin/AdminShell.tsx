@@ -1,16 +1,26 @@
 import Link from "next/link";
 import { attentionCounts } from "@/lib/reports";
+import { retentionDueCount } from "@/lib/retention";
 import { AdminNav, type AdminBadges, type AdminSection } from "./AdminNav";
 
 /** Nav badges, or none at all if the counts cannot be read: the page still renders. */
 async function readBadges(): Promise<AdminBadges> {
-  try {
-    const counts = await attentionCounts();
-    return { reports: counts.openReports, overdue: counts.overdueAccounts };
-  } catch (error) {
-    console.error("[admin] could not read attention counts", error);
-    return { reports: 0, overdue: 0 };
-  }
+  const [counts, retention] = await Promise.all([
+    attentionCounts().catch((error) => {
+      console.error("[admin] could not read attention counts", error);
+      return null;
+    }),
+    // Its own failure: the retention badge must not hide the others.
+    retentionDueCount().catch((error) => {
+      console.error("[admin] could not read the retention schedule", error);
+      return 0;
+    }),
+  ]);
+  return {
+    reports: counts?.openReports ?? 0,
+    overdue: counts?.overdueAccounts ?? 0,
+    retention,
+  };
 }
 
 /**
@@ -156,6 +166,7 @@ const ACTION_LABELS: Record<string, string> = {
   "customer.unarchive": "Unarchived",
   "customer.erase": "Erased",
   "customer.remove_sign_in": "Sign-in account removed",
+  "retention.erase": "Erased by the retention sweep",
   "subscription.assign": "Plan assigned",
   "report.action": "Report marked handled",
   "report.dismiss": "Report dismissed",

@@ -82,6 +82,145 @@ export function promisedDeletion(lapsedSince: Date, now: Date): Date {
   return due > earliest ? due : earliest;
 }
 
+/** Where a lapsed account stands, as the staff retention page groups it. */
+export type ScheduleGroup =
+  /** The next enabled run erases it. */
+  | "erase"
+  /** The next enabled run emails the warning. */
+  | "warn"
+  /** Warned for this lapse; erasure is booked. */
+  | "warned"
+  /** Lapsed, but the warning window has not opened. */
+  | "upcoming";
+
+export type ScheduleEntry = {
+  group: ScheduleGroup;
+  /** When the warning goes out: null once it has (or for an erase). */
+  warnOn: Date | null;
+  /** When the data goes, as things stand today. */
+  deleteOn: Date;
+};
+
+/**
+ * The sweep's decision for one account, plus the dates it implies. Built on
+ * `retentionStep` rather than beside it, so the staff page cannot disagree
+ * with what the nightly run does. Pure, and tested with it.
+ */
+export function scheduleEntry(input: { lapsedSince: Date; warnedAt: Date | null; now: Date }): ScheduleEntry {
+  const step = retentionStep(input);
+  const due = deletionDue(input.lapsedSince);
+  const afterWarning = (warnedAt: Date) => {
+    const earliest = new Date(warnedAt.getTime() + WARNING_DAYS * DAY_MS);
+    return earliest > due ? earliest : due;
+  };
+
+  if (step === "erase") return { group: "erase", warnOn: null, deleteOn: afterWarning(input.warnedAt!) };
+  if (step === "warn") return { group: "warn", warnOn: input.now, deleteOn: promisedDeletion(input.lapsedSince, input.now) };
+
+  const warned = input.warnedAt !== null && input.warnedAt >= input.lapsedSince;
+  if (warned) return { group: "warned", warnOn: null, deleteOn: afterWarning(input.warnedAt!) };
+  return {
+    group: "upcoming",
+    warnOn: new Date(due.getTime() - WARNING_DAYS * DAY_MS),
+    deleteOn: due,
+  };
+}
+
+export type ScheduledAccount = ScheduleEntry & {
+  userId: string;
+  email: string;
+  name: string;
+  planName: string | null;
+  codes: number;
+  lapsedSince: Date;
+  warnedAt: Date | null;
+};
+
+/** The most the staff page lists; far beyond any month's lapses. */
+export const SCHEDULE_LIMIT = 500;
+
+/**
+ * Every lapsed account the sweep will reach, soonest first. The same
+ * eligibility as the sweep's own query (no live subscription, not erased),
+ * without its time window or batch limit, so the page shows what is coming
+ * as well as what is due.
+ */
+export async function retentionSchedule(now: Date = new Date()): Promise<ScheduledAccount[]> {
+  const rows = await query<{
+    user_id: string;
+    email: string;
+    name: string;
+    lapsed_since: Date;
+    retention_warned_at: Date | null;
+    plan_name: string | null;
+    codes: string;
+  }>(
+    `select u.id as user_id, u.email, u.name,
+            max(s.updated_at) as lapsed_since,
+            u.retention_warned_at,
+            (select p.name from qr_subscriptions s2
+               join qr_plans p on p.id = s2.plan_id
+              where s2.user_id = u.id
+              order by s2.updated_at desc
+              limit 1) as plan_name,
+            (select count(*) from qr_codes c where c.user_id = u.id) as codes
+     from qr_users u
+     join qr_subscriptions s on s.user_id = u.id
+     where u.erased_at is null
+     group by u.id
+     having bool_and(s.status not in ('active', 'past_due'))
+     order by max(s.updated_at)
+     limit $1`,
+    [SCHEDULE_LIMIT]
+  );
+
+  return rows
+    .map((row) => ({
+      ...scheduleEntry({ lapsedSince: row.lapsed_since, warnedAt: row.retention_warned_at, now }),
+      userId: row.user_id,
+      email: row.email,
+      name: row.name,
+      planName: row.plan_name,
+      codes: Number(row.codes),
+      lapsedSince: row.lapsed_since,
+      warnedAt: row.retention_warned_at,
+    }))
+    .sort((a, b) => a.deleteOn.getTime() - b.deleteOn.getTime());
+}
+
+/** Accounts the next run warns or erases: the sidebar badge. */
+export async function retentionDueCount(now: Date = new Date()): Promise<number> {
+  const schedule = await retentionSchedule(now);
+  return schedule.filter((row) => row.group === "erase" || row.group === "warn").length;
+}
+
+export type RetentionErasure = {
+  userId: string;
+  at: Date;
+  codes: number;
+  files: number;
+  filesLeft: number;
+};
+
+/** The sweep's latest erasures, from the audit rows it writes. */
+export async function recentRetentionErasures(limit = 10): Promise<RetentionErasure[]> {
+  const rows = await query<{ target_id: string; detail: Record<string, unknown>; created_at: Date }>(
+    `select target_id, detail, created_at from qr_admin_audit
+      where action = 'retention.erase'
+      order by created_at desc
+      limit $1`,
+    [limit]
+  );
+  const count = (value: unknown) => (typeof value === "number" ? value : 0);
+  return rows.map((row) => ({
+    userId: row.target_id,
+    at: row.created_at,
+    codes: count(row.detail.codes),
+    files: count(row.detail.files),
+    filesLeft: Array.isArray(row.detail.fileKeysLeft) ? row.detail.fileKeysLeft.length : 0,
+  }));
+}
+
 type Candidate = {
   user_id: string;
   email: string;
