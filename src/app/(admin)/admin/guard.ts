@@ -9,11 +9,11 @@ export type Staff = { id: string; email: string };
  * The gate on every admin page.
  *
  * Anyone who is not a signed-in admin gets the site's ordinary 404, signed-out
- * visitors included, so the admin is not discoverable by probing it. `/admin`
- * is left out of the `proxy.ts` matcher for the same reason: the proxy would
- * answer a signed-out visitor with a redirect to sign-in, which says there is
- * something here. The proxy guards pages; this check is the real one and runs
- * on every request.
+ * visitors included, so the admin is not discoverable by probing it. For the
+ * same reason `proxy.ts` never redirects `/admin` to sign-in: it runs here
+ * only to refresh the session, which this check could not do from inside a
+ * page. The proxy guards pages; this check is the real one and runs on every
+ * request.
  */
 export async function requireStaff(): Promise<Staff> {
   // Before the session read: `auth` throws on first use without its env vars,
