@@ -86,3 +86,88 @@ export async function resolveFiles(userId: string, content: unknown): Promise<Re
 
   return { ok: true, content: swap(content) };
 }
+
+export type LibraryFile = StoredFile & {
+  sizeBytes: number;
+  uploadedAt: Date;
+  /** Live codes whose page shows this file, newest code first. */
+  usedBy: { codeId: string; name: string; shortCode: string; kind: string }[];
+};
+
+type LibraryCode = { id: string; name: string; shortCode: string; kind: string; content: unknown };
+
+/**
+ * Pair each file with the codes whose saved page refers to it. Pure, so the
+ * matching can be tested without a database: a file is used by a code when
+ * the code's content carries its `fileId`, the same reference
+ * `resolveFiles` checks on every save.
+ */
+export function attachUses(
+  files: (StoredFile & { sizeBytes: number; uploadedAt: Date })[],
+  codes: LibraryCode[]
+): LibraryFile[] {
+  const uses = new Map<string, LibraryFile["usedBy"]>();
+  for (const code of codes) {
+    for (const fileId of collectFileIds(code.content)) {
+      const list = uses.get(fileId) ?? [];
+      list.push({ codeId: code.id, name: code.name, shortCode: code.shortCode, kind: code.kind });
+      uses.set(fileId, list);
+    }
+  }
+  return files.map((file) => ({ ...file, usedBy: uses.get(file.id) ?? [] }));
+}
+
+/**
+ * The Files page: every file the account has uploaded for its pages, and
+ * where each one is used. Archived codes are left out, as they are from the
+ * dashboard, so a file only an archived code used reads as unused.
+ */
+export async function listFileLibrary(userId: string): Promise<LibraryFile[]> {
+  const [files, codes] = await Promise.all([
+    query<FileRow & { size_bytes: string; created_at: Date }>(
+      `select id, url, name, mime_type, size_bytes, created_at from qr_files
+       where user_id = $1
+       order by created_at desc, id desc`,
+      [userId]
+    ),
+    query<{ id: string; name: string; short_code: string; kind: string; content: unknown }>(
+      `select id, name, short_code, kind, content from qr_codes
+       where user_id = $1 and archived_at is null and content is not null
+       order by created_at desc`,
+      [userId]
+    ),
+  ]);
+
+  return attachUses(
+    files.map((row) => ({
+      ...toFile(row),
+      sizeBytes: Number(row.size_bytes),
+      uploadedAt: row.created_at,
+    })),
+    codes.map((row) => ({
+      id: String(row.id),
+      name: row.name,
+      shortCode: row.short_code,
+      kind: row.kind,
+      content: row.content,
+    }))
+  );
+}
+
+/** A file size the way a person would say it: "840 KB", "3.2 MB". */
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  const mb = bytes / (1024 * 1024);
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
+
+/** What kind of file it is, in one word, for a list. */
+export function fileKind(mime: string): "PDF" | "Image" | "Video" | "Audio" | "File" {
+  if (mime === "application/pdf") return "PDF";
+  if (mime.startsWith("image/")) return "Image";
+  if (mime.startsWith("video/")) return "Video";
+  if (mime.startsWith("audio/")) return "Audio";
+  return "File";
+}

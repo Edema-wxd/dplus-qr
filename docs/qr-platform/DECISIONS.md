@@ -1088,6 +1088,33 @@ Postgres, a three-page PDF drew every page with no request to UploadThing
 from the browser, in both `next dev` and a production build, and every
 viewer gesture behaved, including a swipe that ends beside the photo.
 
+## The Files page, 5 November 2026
+
+`/app/files` lists every file the account has uploaded for its pages (PDFs,
+photos, video and audio), newest first, with its type, size, upload date
+and the live codes that show it. Logos keep their own library in the picker.
+
+- **A map, not a second editor.** A file is changed by opening the code that
+  shows it and pressing Replace, where that already works and keeps the
+  printed code the same. Each "Shown by" entry links straight there, so
+  there is one way to change a document.
+- **"Used" means the same thing the server checks.** A file is shown by a
+  code when the code's saved content carries its `fileId`, the reference
+  `resolveFiles` checks on every save (`attachUses`, tested). Archived codes
+  are left out, as on the dashboard. Every query filters by the session's
+  user id.
+- Files no code uses are marked, with a note that they may be cleared out a
+  week after upload. That is the upload clean-up, which only deletes once
+  `DELETION_SWEEPS_ENABLED` is on, hence "may".
+- **No reserved name was needed.** The plan said `files` would join
+  `RESERVED_CODES`, but the page sits under `/app`, which is already
+  reserved; codes only share the top-level namespace, and reserving `files`
+  would only have stopped a customer choosing it as a custom code.
+
+Tested against a local Postgres (each upload matched to its codes, an unused
+one marked, another account's file excluded) and rendered at phone and
+desktop width.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
