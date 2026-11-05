@@ -12,6 +12,7 @@
  */
 import { Pool } from "pg";
 import QRCode from "qrcode";
+import { pinSslMode } from "../src/lib/db-url";
 
 type Row = {
   short_code: string;
@@ -50,7 +51,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({ connectionString: pinSslMode(connectionString) });
   try {
     const { rows } = await pool.query<Row>(`
       select c.short_code, c.name, c.status, c.destination_url,

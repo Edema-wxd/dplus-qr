@@ -18,6 +18,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { Pool } from "pg";
 import { migrationModeFor } from "../src/lib/migration-mode";
+import { pinSslMode } from "../src/lib/db-url";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "db", "migrations");
 
@@ -120,7 +121,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({ connectionString: pinSslMode(connectionString) });
   // Held for the whole run. A session-level advisory lock needs a direct
   // connection, which is one more reason this refuses the pooler.
   const lock = await pool.connect();
