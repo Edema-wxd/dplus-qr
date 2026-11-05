@@ -1019,6 +1019,38 @@ already are.
 - Recent erasures come from the `retention.erase` audit rows the sweep already
   writes, including files left queued for the upload clean-up.
 
+## "Powered by QRiate+" on every hosted page, 5 November 2026
+
+Decided with Francis: every hosted page is also an introduction to the
+product, since whoever reads it has just scanned a code that works. The
+footer now reads "Powered by QRiate+ · Make your own QR code" and links to
+sign-up, on every plan (the 26 October decision to keep the footer stands;
+white-label remains a possible upsell, not built).
+
+**A sign-up from that link is credited to the page that sent it**
+(`src/lib/signup-source.ts`, migration `024`, `qr_signup_sources`). The link
+is `/auth/sign-up?from={code}`, the form carries the code as a hidden field,
+and a successful sign-up records which code sent it. The staff overview shows
+the count for the last 30 days and the pages that brought the most.
+
+- **No cookie.** The plan was a 30-day attribution cookie, but the privacy
+  policy promises one cookie, the sign-in session. So the code rides only in
+  the link and the form, and only a sign-up made on that same visit counts.
+  Someone who leaves and signs up a week later is not credited. A cookie
+  would need the policy changed first.
+- **Only a hosted page can be credited.** The insert selects the code by
+  short code and page kind, so an unknown code, a junk value or a link code
+  (which redirects away and has no footer) records nothing. The value is
+  cleaned with `normaliseCode` first and never blocks a sign-up.
+- **Nothing personal is stored**: the new account's id and the id of a code
+  that was already public.
+- **The staff section hides itself if the query fails**, so a preview build
+  ahead of migration 024 still renders the overview.
+
+Tested on a local Postgres: a page code credited once, a repeat a no-op, a
+link code and an unknown code credited nothing, and the overview query
+grouped two sign-ups under the page that sent them.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

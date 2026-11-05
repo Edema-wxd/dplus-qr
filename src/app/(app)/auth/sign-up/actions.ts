@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
+import { parseSignupRef, recordSignupSource, SIGNUP_REF_PARAM } from "@/lib/signup-source";
 
 const schema = z.object({
   name: z.string().trim().min(2, "Enter the business or contact name."),
@@ -80,12 +81,23 @@ export async function signUpAction(
   // Create the platform's own row for this account. Neon Auth owns the
   // account; nothing links the two automatically, so this is the seam.
   if (data?.user) {
+    let profiled = false;
     try {
       await ensureProfile({ id: data.user.id, email: data.user.email, name: data.user.name });
+      profiled = true;
     } catch (profileError) {
       // The account exists and the person is signed in. Failing here would
       // strand them; the account page retries on every load.
       console.error("[sign-up] profile creation failed", profileError);
+    }
+
+    // Credit the hosted page whose footer sent them, if one did. Needs the
+    // profile row, and is never allowed to fail the sign-up.
+    const ref = parseSignupRef(formData.get(SIGNUP_REF_PARAM));
+    if (profiled && ref) {
+      await recordSignupSource(data.user.id, ref).catch((sourceError) => {
+        console.error("[sign-up] could not record the referring page", sourceError);
+      });
     }
   }
 
