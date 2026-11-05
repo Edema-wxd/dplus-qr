@@ -5,10 +5,13 @@ import { SOCIAL_NETWORKS, type FileRef, type PageContent } from "@/lib/page-cont
 import { gs1ElementString, videoEmbedUrl } from "@/lib/page-helpers";
 import { FeedbackForm } from "./FeedbackForm";
 import { CopyText } from "./CopyText";
+import { PdfViewer } from "./PdfViewer";
+import { ImageGallery } from "./ImageGallery";
 
 /**
- * One view per hosted page type. Server components throughout; the only
- * client pieces are the feedback form and the coupon's copy button.
+ * One view per hosted page type. Server components throughout; the client
+ * pieces are the feedback form, the coupon's copy button, the PDF viewer and
+ * the photo viewer.
  *
  * Built for a phone held at arm's length in a shop or a restaurant: one
  * column, large tap targets, the one action the page exists for first.
@@ -235,16 +238,22 @@ export function PageView({
   switch (kind) {
     case "pdf": {
       const c = content as PageContent<"pdf">;
+      // The file's permanent address on this host, never the UploadThing URL:
+      // that changes whenever the owner replaces the file.
+      const documentUrl = `/p/${encodeURIComponent(code)}/document`;
       return (
         <Stack>
           <Heading title={c.title} />
           <Prose text={c.description} />
-          <a href={c.file.url} rel="noopener" className={button}>
-            Open the PDF
-          </a>
-          <a href={c.file.url} download={c.file.name} className={quiet}>
-            Download
-          </a>
+          <div className="grid grid-cols-2 gap-2">
+            <a href={documentUrl} rel="noopener" className={button}>
+              Open full screen
+            </a>
+            <a href={`${documentUrl}?download`} className={quiet}>
+              Download
+            </a>
+          </div>
+          <PdfViewer src={documentUrl} title={c.title} />
         </Stack>
       );
     }
@@ -255,29 +264,35 @@ export function PageView({
         <Stack>
           <Heading title={c.title} />
           <Prose text={c.description} />
-          <ul className="grid grid-cols-2 gap-2">
-            {c.images.map((image, i) => (
-              <li key={image.fileId} className={i === 0 ? "col-span-2" : ""}>
-                {/*
-                  The thumbnail is resized; tapping it opens the original,
-                  which is the one time a scanner has asked for full size.
-                */}
-                <a href={image.url} rel="noopener" className="block">
-                  <PageImage
-                    url={image.url}
-                    alt={`${c.title}, image ${i + 1}`}
-                    frame="aspect-square w-full rounded-lg border border-border"
-                    sizes={
-                      i === 0
-                        ? FULL_WIDTH
-                        : "(max-width: 480px) calc(50vw - 1.25rem), 220px"
-                    }
-                    eager={i < 3}
-                  />
-                </a>
-              </li>
-            ))}
-          </ul>
+          <ImageGallery
+            images={c.images.map((image, i) => ({ url: image.url, alt: `${c.title}, image ${i + 1}` }))}
+          >
+            <ul className="grid grid-cols-2 gap-2">
+              {c.images.map((image, i) => (
+                <li key={image.fileId} className={i === 0 ? "col-span-2" : ""}>
+                  {/*
+                    The thumbnail is resized; tapping it opens the original,
+                    which is the one time a scanner has asked for full size.
+                    ImageGallery shows it over the page; without JavaScript the
+                    link opens it directly.
+                  */}
+                  <a href={image.url} rel="noopener" className="block" data-gallery-index={i}>
+                    <PageImage
+                      url={image.url}
+                      alt={`${c.title}, image ${i + 1}`}
+                      frame="aspect-square w-full rounded-lg border border-border"
+                      sizes={
+                        i === 0
+                          ? FULL_WIDTH
+                          : "(max-width: 480px) calc(50vw - 1.25rem), 220px"
+                      }
+                      eager={i < 3}
+                    />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </ImageGallery>
         </Stack>
       );
     }

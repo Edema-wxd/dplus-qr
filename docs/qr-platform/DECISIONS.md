@@ -1051,6 +1051,43 @@ Tested on a local Postgres: a page code credited once, a repeat a no-op, a
 link code and an unknown code credited nothing, and the overview query
 grouped two sign-ups under the page that sent them.
 
+## Documents open inside the page, 5 November 2026
+
+Decided with Francis: a PDF or photo shared through a code is read on the
+QRiate+ page, never handed off to the raw file. Before, "Open the PDF" went
+straight to the UploadThing URL, which took the reader off this site (no
+"Shared by", no report link, no footer), broke the moment the owner replaced
+the file, and on Android showed nothing at all, since Chrome there downloads
+a PDF rather than displaying it.
+
+- **`/p/{code}/document` is a PDF's permanent address.** It streams whichever
+  file the page holds now, so a replaced file reaches every saved or shared
+  link at once. Refused like the page itself when the code is paused,
+  blocked or unknown (after the 60-second lookup cache, which the
+  dashboard's own pause clears). The type is always `application/pdf` with
+  `nosniff`, whatever the bytes, and the stored URL is checked against
+  UploadThing's hosts before it is fetched. `?download` saves instead of
+  opening. Upstream failures answer 502, never a broken PDF.
+- **The PDF is drawn in the page with PDF.js** (`PdfViewer.tsx`, pinned to
+  `6.4.299`, the newest release more than two weeks old). Pages are drawn
+  as they near the screen, at up to twice the CSS width. Canvas only: PDF.js
+  6 never evaluates code from a document, and with no annotation layer a
+  file cannot put a link or a field on our page. "Open full screen" is the
+  browser's own viewer, for selecting text or following a link. If PDF.js
+  cannot open the file, the page says so and both buttons still work.
+- **Cost:** PDF.js is loaded only on PDF pages, after first paint: about
+  1.6MB uncompressed (roughly 450KB over the wire), nothing anywhere else.
+- **Photos open in a full-screen viewer over the page** (`ImageGallery.tsx`,
+  a native `<dialog>`), with arrows, swipe and Escape. The thumbnails are
+  still links to the originals, so without JavaScript they open as before,
+  and a modified click still opens a new tab.
+
+Tested: unit tests for the route (streaming, replace, refusals, SSRF guard,
+502s) and the filename header; in Chromium at phone width against a local
+Postgres, a three-page PDF drew every page with no request to UploadThing
+from the browser, in both `next dev` and a production build, and every
+viewer gesture behaved, including a swipe that ends beside the photo.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
