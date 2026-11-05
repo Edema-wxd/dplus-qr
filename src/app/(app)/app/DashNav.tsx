@@ -102,6 +102,9 @@ export function DashNav({
             <Suspense fallback={<CodeLinks status={null} pathname={pathname} />}>
               <CodeLinksWithStatus pathname={pathname} />
             </Suspense>
+            <NavItem href="/app/files" icon={ICONS.files} active={pathname === "/app/files"}>
+              Files
+            </NavItem>
           </Group>
 
           <Group label="Account">
@@ -171,7 +174,12 @@ function CodeLinks({ status, pathname }: { status: string | null; pathname: stri
       <NavItem
         href="/app"
         icon={ICONS.all}
-        active={(onList && !filtered) || (pathname.startsWith("/app/") && pathname !== "/app/new")}
+        active={
+          (onList && !filtered) ||
+          // A code's own page counts as "All codes"; the other pages under
+          // /app have their own entries.
+          (pathname.startsWith("/app/") && pathname !== "/app/new" && pathname !== "/app/files")
+        }
       >
         All codes
       </NavItem>
@@ -249,6 +257,7 @@ const ICONS = {
   contact: "M2 3.5h12v9H2zM2 4l6 5 6-5",
   signOut: "M6 2.5H3v11h3M10 5l3 3-3 3M13 8H6",
   admin: "M8 1.5l5 2v4c0 3.2-2.1 5.6-5 7-2.9-1.4-5-3.8-5-7v-4z",
+  files: "M2 4.5V12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H7.5L6 3.5H3a1 1 0 0 0-1 1z",
 };
 
 function Icon({ d }: { d: string }) {

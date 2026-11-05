@@ -10,6 +10,7 @@ import {
 } from "@/lib/admin-billing";
 import { naira } from "@/lib/plan-tiers";
 import { attentionCounts } from "@/lib/reports";
+import { pageReferrals } from "@/lib/signup-source";
 import { audit, requireStaff } from "./guard";
 import { AdminShell, SectionHeading, Stat, day, tableClass, tdClass, thClass } from "./AdminShell";
 
@@ -22,12 +23,18 @@ export default async function AdminOverview() {
   const staff = await requireStaff();
   audit(staff, { action: "view", targetType: "page", targetId: "/admin" });
 
-  const [plans, accounts, pastDue, webhooks, attention] = await Promise.all([
+  const [plans, accounts, pastDue, webhooks, attention, referrals] = await Promise.all([
     planSubscribers(),
     accountTotals(),
     pastDueAccounts(),
     webhookHealth(),
     attentionCounts(),
+    // A figure, not something to act on, so a failure (a preview build ahead
+    // of migration 024, say) hides the section instead of breaking the page.
+    pageReferrals().catch((error) => {
+      console.error("[admin] page referrals unavailable", error);
+      return null;
+    }),
   ]);
   const revenue = summariseRevenue(plans);
   const paidPlans = plans.filter((plan) => plan.amountKobo > 0 && (plan.active || plan.pastDue));
@@ -135,6 +142,51 @@ export default async function AdminOverview() {
             note={`${accounts.newLast30Days.toLocaleString("en-NG")} new in 30 days · ${revenue.free.toLocaleString("en-NG")} on Free`}
           />
         </dl>
+
+        {referrals ? (
+          <section aria-labelledby="referrals-heading">
+            <SectionHeading id="referrals-heading">Sign-ups from hosted pages</SectionHeading>
+            <p className="mt-3 max-w-[70ch] text-sm leading-relaxed text-[var(--paper-soft)]">
+              <span className="dash-num font-medium text-[var(--paper-ink)]">
+                {referrals.total.toLocaleString("en-NG")}
+              </span>{" "}
+              {referrals.total === 1 ? "account" : "accounts"} in the last 30 days came from the &ldquo;Powered
+              by&rdquo; footer on a customer&apos;s page. Only a sign-up made on the visit that followed the
+              footer is counted; nothing is stored on the visitor&apos;s phone.
+            </p>
+            {referrals.topPages.length > 0 ? (
+              <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--paper-rule)] bg-white">
+                <table className={tableClass}>
+                  <thead className="border-b border-[var(--paper-rule)]">
+                    <tr>
+                      <th scope="col" className={thClass}>Page</th>
+                      <th scope="col" className={thClass}>Owner</th>
+                      <th scope="col" className={`${thClass} text-right`}>Sign-ups</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {referrals.topPages.map((page) => (
+                      <tr key={page.codeId} className="dash-row border-b border-[var(--paper-rule)] last:border-b-0">
+                        <td className={tdClass}>
+                          <Link href={`/admin/codes/${page.codeId}`} className="underline underline-offset-4">
+                            {page.codeName}
+                          </Link>
+                          <span className="block font-mono text-xs text-[var(--paper-soft)]">{page.shortCode}</span>
+                        </td>
+                        <td className={tdClass}>
+                          <Link href={`/admin/customers/${page.ownerId}`} className="underline underline-offset-4">
+                            {page.ownerEmail}
+                          </Link>
+                        </td>
+                        <td className={`${tdClass} dash-num text-right`}>{page.signups}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         {webhooks.unprocessed > 0 ? (
           <section id="payments" aria-labelledby="webhooks-heading" className="scroll-mt-8">

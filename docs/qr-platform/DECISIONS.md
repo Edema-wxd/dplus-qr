@@ -1019,6 +1019,102 @@ already are.
 - Recent erasures come from the `retention.erase` audit rows the sweep already
   writes, including files left queued for the upload clean-up.
 
+## "Powered by QRiate+" on every hosted page, 5 November 2026
+
+Decided with Francis: every hosted page is also an introduction to the
+product, since whoever reads it has just scanned a code that works. The
+footer now reads "Powered by QRiate+ · Make your own QR code" and links to
+sign-up, on every plan (the 26 October decision to keep the footer stands;
+white-label remains a possible upsell, not built).
+
+**A sign-up from that link is credited to the page that sent it**
+(`src/lib/signup-source.ts`, migration `024`, `qr_signup_sources`). The link
+is `/auth/sign-up?from={code}`, the form carries the code as a hidden field,
+and a successful sign-up records which code sent it. The staff overview shows
+the count for the last 30 days and the pages that brought the most.
+
+- **No cookie.** The plan was a 30-day attribution cookie, but the privacy
+  policy promises one cookie, the sign-in session. So the code rides only in
+  the link and the form, and only a sign-up made on that same visit counts.
+  Someone who leaves and signs up a week later is not credited. A cookie
+  would need the policy changed first.
+- **Only a hosted page can be credited.** The insert selects the code by
+  short code and page kind, so an unknown code, a junk value or a link code
+  (which redirects away and has no footer) records nothing. The value is
+  cleaned with `normaliseCode` first and never blocks a sign-up.
+- **Nothing personal is stored**: the new account's id and the id of a code
+  that was already public.
+- **The staff section hides itself if the query fails**, so a preview build
+  ahead of migration 024 still renders the overview.
+
+Tested on a local Postgres: a page code credited once, a repeat a no-op, a
+link code and an unknown code credited nothing, and the overview query
+grouped two sign-ups under the page that sent them.
+
+## Documents open inside the page, 5 November 2026
+
+Decided with Francis: a PDF or photo shared through a code is read on the
+QRiate+ page, never handed off to the raw file. Before, "Open the PDF" went
+straight to the UploadThing URL, which took the reader off this site (no
+"Shared by", no report link, no footer), broke the moment the owner replaced
+the file, and on Android showed nothing at all, since Chrome there downloads
+a PDF rather than displaying it.
+
+- **`/p/{code}/document` is a PDF's permanent address.** It streams whichever
+  file the page holds now, so a replaced file reaches every saved or shared
+  link at once. Refused like the page itself when the code is paused,
+  blocked or unknown (after the 60-second lookup cache, which the
+  dashboard's own pause clears). The type is always `application/pdf` with
+  `nosniff`, whatever the bytes, and the stored URL is checked against
+  UploadThing's hosts before it is fetched. `?download` saves instead of
+  opening. Upstream failures answer 502, never a broken PDF.
+- **The PDF is drawn in the page with PDF.js** (`PdfViewer.tsx`, pinned to
+  `6.4.299`, the newest release more than two weeks old). Pages are drawn
+  as they near the screen, at up to twice the CSS width. Canvas only: PDF.js
+  6 never evaluates code from a document, and with no annotation layer a
+  file cannot put a link or a field on our page. "Open full screen" is the
+  browser's own viewer, for selecting text or following a link. If PDF.js
+  cannot open the file, the page says so and both buttons still work.
+- **Cost:** PDF.js is loaded only on PDF pages, after first paint: about
+  1.6MB uncompressed (roughly 450KB over the wire), nothing anywhere else.
+- **Photos open in a full-screen viewer over the page** (`ImageGallery.tsx`,
+  a native `<dialog>`), with arrows, swipe and Escape. The thumbnails are
+  still links to the originals, so without JavaScript they open as before,
+  and a modified click still opens a new tab.
+
+Tested: unit tests for the route (streaming, replace, refusals, SSRF guard,
+502s) and the filename header; in Chromium at phone width against a local
+Postgres, a three-page PDF drew every page with no request to UploadThing
+from the browser, in both `next dev` and a production build, and every
+viewer gesture behaved, including a swipe that ends beside the photo.
+
+## The Files page, 5 November 2026
+
+`/app/files` lists every file the account has uploaded for its pages (PDFs,
+photos, video and audio), newest first, with its type, size, upload date
+and the live codes that show it. Logos keep their own library in the picker.
+
+- **A map, not a second editor.** A file is changed by opening the code that
+  shows it and pressing Replace, where that already works and keeps the
+  printed code the same. Each "Shown by" entry links straight there, so
+  there is one way to change a document.
+- **"Used" means the same thing the server checks.** A file is shown by a
+  code when the code's saved content carries its `fileId`, the reference
+  `resolveFiles` checks on every save (`attachUses`, tested). Archived codes
+  are left out, as on the dashboard. Every query filters by the session's
+  user id.
+- Files no code uses are marked, with a note that they may be cleared out a
+  week after upload. That is the upload clean-up, which only deletes once
+  `DELETION_SWEEPS_ENABLED` is on, hence "may".
+- **No reserved name was needed.** The plan said `files` would join
+  `RESERVED_CODES`, but the page sits under `/app`, which is already
+  reserved; codes only share the top-level namespace, and reserving `files`
+  would only have stopped a customer choosing it as a custom code.
+
+Tested against a local Postgres (each upload matched to its codes, an unused
+one marked, another account's file excluded) and rendered at phone and
+desktop width.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

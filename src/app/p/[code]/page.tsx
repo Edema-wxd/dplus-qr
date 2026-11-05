@@ -10,6 +10,7 @@ import { loadPublicPage, type PublicPage } from "@/lib/public-page";
 import type { PageContent } from "@/lib/page-content";
 import { LegalLinks } from "@/components/LegalLinks";
 import { pageBrand } from "@/lib/qr-style";
+import { signupLinkFor } from "@/lib/signup-ref";
 import { BrandLogo, PageView } from "./views";
 
 // A scanned page is somebody's menu or business card, not something for a
@@ -86,8 +87,19 @@ export default async function HostedPage({ params }: { params: Promise<{ code: s
               Report this page
             </Link>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4">
-            <Link href="/" className="inline-flex items-center" aria-label={PRODUCT_NAME}>
+          {/*
+            Every hosted page is also an introduction to QRiate+: whoever is
+            reading it has just scanned a code that works. The link carries
+            this page's code, so a sign-up it brings in is credited to it
+            (src/lib/signup-source.ts). Kept quiet beside the owner's content:
+            the page is theirs, and the footer only offers.
+          */}
+          <Link
+            href={signupLinkFor(code)}
+            className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-border bg-card px-4 py-3 no-underline transition-colors duration-150 hover:border-foreground/40"
+          >
+            <span className="inline-flex items-center gap-2">
+              <span>Powered by</span>
               <Image
                 src="/brand/qriate-wordmark.svg"
                 alt={PRODUCT_NAME}
@@ -102,9 +114,10 @@ export default async function HostedPage({ params }: { params: Promise<{ code: s
                 height={35}
                 className="hidden h-auto w-[84px] dark:block"
               />
-            </Link>
-            <LegalLinks tone="muted" />
-          </div>
+            </span>
+            <span className="font-medium text-foreground">Make your own QR code →</span>
+          </Link>
+          <LegalLinks tone="muted" />
         </footer>
       </div>
     </main>
