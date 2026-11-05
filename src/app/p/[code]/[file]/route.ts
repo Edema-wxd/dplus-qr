@@ -121,8 +121,11 @@ async function documentResponse(url: string, name: string, download: boolean): P
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
   });
+  // `fetch` hands back a compressed response already decompressed, but its
+  // Content-Length is still the compressed size; passing that on would cut
+  // the PDF short. Only an uncompressed length describes these bytes.
   const length = upstream.headers.get("content-length");
-  if (length) headers.set("Content-Length", length);
+  if (length && !upstream.headers.get("content-encoding")) headers.set("Content-Length", length);
 
   return new Response(upstream.body, { headers });
 }

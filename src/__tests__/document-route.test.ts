@@ -67,6 +67,16 @@ describe("/p/{code}/document", () => {
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(PDF_BYTES);
   });
 
+  it("drops a compressed upstream's length, which would cut the PDF short", async () => {
+    loadPublicPage.mockResolvedValue(pdfPage());
+    fetchMock.mockResolvedValue(
+      new Response(PDF_BYTES, { headers: { "content-encoding": "gzip", "content-length": "5" } })
+    );
+    const response = await get("document");
+    expect(response.headers.get("content-length")).toBeNull();
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PDF_BYTES);
+  });
+
   it("offers the same file as a download with ?download", async () => {
     loadPublicPage.mockResolvedValue(pdfPage());
     fetchMock.mockResolvedValue(new Response(PDF_BYTES));
