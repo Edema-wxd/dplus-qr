@@ -1154,6 +1154,39 @@ Checked with `next start` against the build: signed-out `/admin`,
 with a 404 and no mention of the admin, and `/app` still redirects to
 sign-in.
 
+## Signed-in non-staff get the real 404 too, 6 November 2026
+
+Extends the entry above, which closed the gap for signed-out visitors and
+named the one it left: a signed-in customer still got the 200, the admin's
+title and its loading screen, so any account holder could tell the admin
+exists. The proxy now answers them the same way.
+
+- `proxy.ts` answers anyone who is not staff by rewriting to `/_nowhere/404`
+  (see above), so Next gives the 404 status, the not-found page and its
+  title. Checked with `next start` against the build: for a signed-in
+  customer, `/admin`, `/admin/customers` and `/admin/codes/1` match
+  `/foo/bar`, a path outside the proxy, byte for byte, while a staff account
+  gets the real pages. (`next start` also sends `x-middleware-rewrite` on the
+  rewritten responses; production on Vercel does not.)
+- **Who is staff** comes from Neon Auth's `session_data` cookie, an HS256 JWT
+  signed with our `NEON_AUTH_COOKIE_SECRET`, verified in
+  `src/lib/session-cookie.ts` with `node:crypto` (fixed algorithm,
+  constant-time compare, expiry enforced; `jose` is ESM-only and cannot load
+  in the test suite). The middleware has just refreshed it, so it is current.
+  Then the role is read from the database, as `requireStaff()` reads it, so
+  revoking or banning takes effect on the next request (checked).
+- **It can only hide, never lock out.** No session cookie, or a sign-in
+  redirect from the middleware: not staff, with no database read. A cookie
+  that does not verify, or a database error: the proxy cannot tell, and the
+  request goes on to the page, where `requireStaff()` decides as before. The
+  cookie's name and format are Neon Auth's, not a published API; if they
+  change, the hiding stops and nothing else does. A test checks our verifier
+  against a token the library itself minted. Seen in testing: with the
+  database stopped, a customer got the page's old answer (the shell, then
+  `requireStaff()`'s refusal), not a lockout and not an error.
+- Staff keep descriptive tab titles: nobody else ever receives them.
+- `requireStaff()` and `staffForAction()` are unchanged and remain the guard.
+
 ## First-code onboarding and drop-off tracking, 6 November 2026
 
 Decided with Francis: a new account is walked from sign-up to a first code
