@@ -9,12 +9,13 @@ export type Staff = { id: string; email: string };
  * The gate on every admin page.
  *
  * Anyone who is not a signed-in admin gets the site's ordinary 404, signed-out
- * visitors included, so the admin is not discoverable by probing it. A
- * signed-out visitor is answered by `proxy.ts` before this runs, because by
- * then the page's loading shell has already been sent with a 200; the proxy
- * also refreshes the session, which this check could not do from inside a
- * page. For everyone signed in this check is the real one, and it runs on
- * every request.
+ * Anyone who is not a signed-in admin gets the site's ordinary 404, signed-out
+ * visitors included, so the admin is not discoverable by probing it.
+ * `proxy.ts` normally answers them before this runs, signed in or not,
+ * because by then the page's loading shell has already been sent with a 200.
+ * It also refreshes the session, which this check could not do from inside a
+ * page. This check is still the real one: it runs on every request, and it
+ * decides whenever the proxy cannot.
  */
 export async function requireStaff(): Promise<Staff> {
   // Before the session read: `auth` throws on first use without its env vars,
