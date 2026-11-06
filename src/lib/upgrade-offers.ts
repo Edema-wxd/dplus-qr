@@ -122,6 +122,22 @@ export function featureOffer(
   };
 }
 
+/**
+ * An offer as one sentence, for a refusal with no prompt to open: an upload
+ * the server turned away. "Video uploads are not part of your Free plan. They
+ * come with Pro." and then what to do instead.
+ */
+export function offerRefusal(offer: UpgradeOffer, instead?: string): string {
+  const unlock = offer.unlock ? ` ${comesWith(offer)} ${offer.unlock.name}.` : "";
+  return `${offer.why}${unlock}${instead ? ` ${instead}` : ""}`;
+}
+
+function comesWith(offer: UpgradeOffer): string {
+  return offer.gate !== "history" && offer.gate !== "codes" && COPY[offer.gate].plural
+    ? "They come with"
+    : "It comes with";
+}
+
 /** The prompt for a chart window longer than the plan's scan history. */
 export function historyOffer(days: number, entitlement: Entitlement | null, plans: Plan[]): UpgradeOffer {
   const kept = entitlement?.historyDays;

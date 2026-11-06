@@ -21,6 +21,7 @@ import {
 } from "@/lib/entitlement";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
+import { featureRefusal } from "@/lib/refusals";
 
 /**
  * Everything the signed-in owner can do to their own codes.
@@ -275,8 +276,9 @@ export async function createCode(
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
 
   if (isPageKind(input.kind)) {
-    const pages = canMakeHostedPages(entitlement);
-    if (!pages.ok) return { ok: false, reason: pages.reason };
+    if (!canMakeHostedPages(entitlement)) {
+      return { ok: false, reason: await featureRefusal("hosted_pages", entitlement, "Link codes are included.") };
+    }
     if (input.kind === "video" && videoFileId(content) && !canUploadVideo(entitlement)) {
       return { ok: false, reason: VIDEO_REASON };
     }
@@ -284,8 +286,9 @@ export async function createCode(
 
   let customCode: string | null = null;
   if (input.customCode) {
-    const permitted = canUseCustomCodes(entitlement);
-    if (!permitted.ok) return { ok: false, reason: permitted.reason };
+    if (!canUseCustomCodes(entitlement)) {
+      return { ok: false, reason: await featureRefusal("custom_codes", entitlement) };
+    }
     const checked = checkCustomCode(input.customCode);
     if (!checked.ok) return { ok: false, reason: checked.reason };
     customCode = checked.code;

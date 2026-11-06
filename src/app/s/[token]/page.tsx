@@ -51,7 +51,7 @@ export default async function SharedStatsPage({
   if (!shared) notFound();
 
   const entitlement = await getEntitlement(shared.userId);
-  if (!canShareStats(entitlement).ok) notFound();
+  if (!canShareStats(entitlement)) notFound();
 
   const insights = canSeeInsights(entitlement);
   const historyDays = chartDaysAllowed(entitlement);
