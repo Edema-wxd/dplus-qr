@@ -1,9 +1,20 @@
-import type { Analytics, Slice } from "@/lib/user-codes";
+import type { Analytics, FeedbackEntry, Slice } from "@/lib/user-codes";
 
 /**
- * CSV for a code's scans: the cell encoder every export uses, and the
- * per-table exports that mirror what the code page shows.
+ * CSV for a code's scans and feedback: the cell encoder every export uses,
+ * the per-table exports that mirror what the code page shows, and the
+ * response every export route sends.
  */
+
+export function csvResponse(body: string, filename: string): Response {
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
 
 /**
  * One CSV field.
@@ -64,4 +75,17 @@ export function tableCsv(table: Table, data: Analytics, insights: boolean): stri
       `${csvCell(item.label)},${item.scans},${((item.scans / denominator) * 100).toFixed(1)}`
   );
   return [`${column},scans,percent_of_all_scans`, ...lines].join("\r\n");
+}
+
+/**
+ * A feedback code's answers. The comment is typed by whoever scanned the
+ * code, with no account and no screening, so it is the least trusted text in
+ * any export: `csvCell` is what stops a comment beginning `=` arriving in the
+ * owner's spreadsheet as a formula.
+ */
+export function feedbackCsv(entries: FeedbackEntry[]): string {
+  const lines = entries.map(
+    (entry) => `${entry.createdAt.toISOString()},${entry.rating},${csvCell(entry.comment)}`
+  );
+  return ["answered_at,rating,comment", ...lines].join("\r\n");
 }

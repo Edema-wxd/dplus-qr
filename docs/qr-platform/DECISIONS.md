@@ -1115,6 +1115,27 @@ Tested against a local Postgres (each upload matched to its codes, an unused
 one marked, another account's file excluded) and rendered at phone and
 desktop width.
 
+## Feedback answers export as CSV, 6 November 2026
+
+A feedback code's page now has "Export answers as CSV"
+(`/app/{id}/export/feedback`): every answer, newest first, as
+`answered_at,rating,comment`, capped at 10,000 like the scan export. The
+panel itself still shows the latest 100 and says so when there are more.
+
+- **Behind the existing `csv_export` flag**, not a new one. It is the same
+  capability, a download of a code's data, so staff move it between plans in
+  one place. Without it the button stays clickable and opens the upgrade
+  prompt; the route refuses with 403 either way.
+- **Any other kind of code is a 404**, the same answer as a code belonging
+  to another account, so the route confirms nothing.
+- **Comments go through `csvCell`.** They are typed by anonymous scanners
+  and are the least trusted text in any export, so a comment beginning `=`
+  is defused rather than arriving in the owner's spreadsheet as a formula.
+- `csvResponse` moved into `csv-export.ts` so both export routes send the
+  same headers (`private, no-store`, attachment).
+- Nothing is stored with an answer beyond rating, comment and time, so
+  there is nothing to leave out of the file.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

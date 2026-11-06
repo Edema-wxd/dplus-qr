@@ -1,4 +1,4 @@
-import { csvCell, isTable, tableCsv } from "@/lib/csv-export";
+import { csvCell, feedbackCsv, isTable, tableCsv } from "@/lib/csv-export";
 import { isShareToken, newShareToken } from "@/lib/stat-shares";
 import { canShareStats, type Entitlement } from "@/lib/entitlement";
 import type { Analytics } from "@/lib/user-codes";
@@ -101,5 +101,32 @@ describe("csvCell", () => {
     [null, ""],
   ])("encodes %p as %p", (input, expected) => {
     expect(csvCell(input)).toBe(expected);
+  });
+});
+
+describe("feedbackCsv", () => {
+  it("lists every answer with its time and rating, and a blank for no comment", () => {
+    const csv = feedbackCsv([
+      { rating: 5, comment: "Lovely jollof", createdAt: new Date("2026-11-05T12:00:00Z") },
+      { rating: 3, comment: null, createdAt: new Date("2026-11-04T09:30:00Z") },
+    ]);
+    expect(csv.split("\r\n")).toEqual([
+      "answered_at,rating,comment",
+      "2026-11-05T12:00:00.000Z,5,Lovely jollof",
+      "2026-11-04T09:30:00.000Z,3,",
+    ]);
+  });
+
+  it("defuses a formula typed into a comment, and keeps a multi-line comment in one cell", () => {
+    const csv = feedbackCsv([
+      { rating: 1, comment: '=HYPERLINK("http://evil.example")', createdAt: new Date("2026-11-05T12:00:00Z") },
+      { rating: 4, comment: "Good food,\nslow service", createdAt: new Date("2026-11-05T11:00:00Z") },
+    ]);
+    expect(csv).toContain(`1,"'=HYPERLINK(""http://evil.example"")"`);
+    expect(csv).toContain('4,"Good food,\nslow service"');
+  });
+
+  it("has a header and nothing else when there are no answers", () => {
+    expect(feedbackCsv([])).toBe("answered_at,rating,comment");
   });
 });

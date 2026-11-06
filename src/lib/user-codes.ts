@@ -517,6 +517,23 @@ export async function codeFeedback(
 }
 
 /**
+ * Every answer on a feedback code, newest first, for the CSV export. The
+ * panel shows the latest 100; this is the rest. Capped like the scan export.
+ */
+export async function feedbackRows(userId: string, id: string): Promise<FeedbackEntry[]> {
+  const rows = await query<{ rating: number; comment: string | null; created_at: Date }>(
+    `select f.rating, f.comment, f.created_at
+     from qr_feedback f
+     join qr_codes c on c.id = f.qr_id
+     where c.user_id = $1 and c.id = $2
+     order by f.created_at desc
+     limit 10000`,
+    [userId, id]
+  );
+  return rows.map((r) => ({ rating: r.rating, comment: r.comment, createdAt: r.created_at }));
+}
+
+/**
  * Pause or resume. The owner can never set `blocked`, which is an admin
  * verdict about a destination, not a preference — hence `OwnerStatus`.
  *

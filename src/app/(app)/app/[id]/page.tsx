@@ -28,7 +28,7 @@ import { DestinationForm, RenameForm, StatusForm } from "./CodeControls";
 import { AnalyticsPanel } from "./Analytics";
 import { LockIcon, LockedButton } from "../UpgradePrompt";
 import { listPublicPlans } from "@/lib/plans";
-import { featureOffer, historyOffer } from "@/lib/upgrade-offers";
+import { featureOffer, historyOffer, type UpgradeOffer } from "@/lib/upgrade-offers";
 import { LiveRefresh } from "./LiveRefresh";
 import { SharePanel } from "./SharePanel";
 import { StyleForm, StyleScope } from "./StyleControls";
@@ -249,7 +249,11 @@ export default async function CodePage({
       {feedback ? (
         <>
           <hr className="my-12 border-[var(--paper-rule)]" />
-          <FeedbackPanel feedback={feedback} />
+          <FeedbackPanel
+            feedback={feedback}
+            exportHref={exportable.ok ? `/app/${code.id}/export/feedback` : null}
+            offer={offers.csv}
+          />
         </>
       ) : null}
 
@@ -350,9 +354,15 @@ export default async function CodePage({
 /** What customers said through a feedback code, newest first. */
 function FeedbackPanel({
   feedback,
+  exportHref,
+  offer,
 }: {
   feedback: NonNullable<Awaited<ReturnType<typeof codeFeedback>>>;
+  /** The CSV route, when the plan includes export; otherwise the button explains. */
+  exportHref: string | null;
+  offer: UpgradeOffer;
 }) {
+  const label = "Export answers as CSV";
   return (
     <section aria-labelledby="feedback-heading">
       <h2 id="feedback-heading" className="font-sarlotte text-2xl leading-none">
@@ -392,6 +402,26 @@ function FeedbackPanel({
             </li>
           ))}
         </ol>
+      ) : null}
+      {feedback.count > 0 ? (
+        <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
+          {exportHref ? (
+            <a href={exportHref} download className={secondaryButtonClass}>
+              {label}
+            </a>
+          ) : (
+            <LockedButton offer={offer} className={`${secondaryButtonClass} gap-1.5 border-dashed`}>
+              <LockIcon />
+              {label}
+            </LockedButton>
+          )}
+          {feedback.count > feedback.entries.length ? (
+            <p className="text-xs text-[var(--paper-soft)]">
+              The latest {feedback.entries.length.toLocaleString("en-NG")} are shown here; the
+              export has every answer.
+            </p>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
