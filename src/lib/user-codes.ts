@@ -18,7 +18,10 @@ import {
   canUploadVideo,
   canUseCustomCodes,
   getEntitlement,
+  type Entitlement,
 } from "@/lib/entitlement";
+import { listPublicPlans } from "@/lib/plans";
+import { featureOffer, offerRefusal } from "@/lib/upgrade-offers";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
 
@@ -236,8 +239,15 @@ async function checkContent(
   return parsePageContent(kind, resolved.content);
 }
 
-const VIDEO_REASON =
-  "Uploading video comes with Pro and Business. Link a YouTube or Vimeo video instead, or see plans.";
+/**
+ * Why a video file was refused, naming the cheapest plan that has video
+ * uploads as the plan rows say today, never a plan written into copy. Shared
+ * with the upload router, which refuses before a file is stored.
+ */
+export async function videoRefusal(entitlement: Entitlement | null): Promise<string> {
+  const offer = featureOffer("video_uploads", entitlement, await listPublicPlans());
+  return offerRefusal(offer, "Link a YouTube or Vimeo video instead.");
+}
 
 /** The uploaded file on a video page's content, by id, or null. */
 function videoFileId(content: unknown): string | null {
@@ -278,7 +288,7 @@ export async function createCode(
     const pages = canMakeHostedPages(entitlement);
     if (!pages.ok) return { ok: false, reason: pages.reason };
     if (input.kind === "video" && videoFileId(content) && !canUploadVideo(entitlement)) {
-      return { ok: false, reason: VIDEO_REASON };
+      return { ok: false, reason: await videoRefusal(entitlement) };
     }
   }
 
@@ -471,7 +481,8 @@ export async function updateCodeContent(
   if (current.kind === "video") {
     const next = videoFileId(checked.content);
     if (next && next !== videoFileId(current.content)) {
-      if (!canUploadVideo(await getEntitlement(userId))) return { ok: false, reason: VIDEO_REASON };
+      const entitlement = await getEntitlement(userId);
+      if (!canUploadVideo(entitlement)) return { ok: false, reason: await videoRefusal(entitlement) };
     }
   }
 
