@@ -154,14 +154,8 @@ export async function listFileLibrary(userId: string): Promise<LibraryFile[]> {
   );
 }
 
-/** A file size the way a person would say it: "840 KB", "3.2 MB". */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  const mb = bytes / (1024 * 1024);
-  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
-}
+/** Shared with the upload form, which names an oversized file before sending it. */
+export { formatBytes } from "@/lib/upload-limits";
 
 /** What kind of file it is, in one word, for a list. */
 export function fileKind(mime: string): "PDF" | "Image" | "Video" | "Audio" | "File" {
