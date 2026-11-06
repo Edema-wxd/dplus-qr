@@ -2,10 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth/server";
 
 /**
- * Route protection and session refresh. In Next 16 this file is `proxy.ts`;
- * `middleware.ts` is deprecated.
+ * Route protection. In Next 16 this file is `proxy.ts`; `middleware.ts` is
+ * deprecated.
  *
- * The matcher lists only the signed-in pages. It must never cover everything:
+ * The matcher lists only the protected pages. It must never cover everything:
  * a catch-all matcher redirects CSS and JavaScript for signed-out visitors, so
  * the sign-in page itself cannot load.
  *
@@ -18,39 +18,44 @@ import { auth } from "@/lib/auth/server";
  */
 const LOGIN_URL = "/auth/sign-in";
 
+const ADMIN = /^\/admin(\/|$)/;
+
 export default async function proxy(request: NextRequest) {
   const response = await auth.middleware({ loginUrl: LOGIN_URL })(request);
+  if (!ADMIN.test(request.nextUrl.pathname)) return response;
 
-  // `/admin` is here for the session refresh, never for the redirect.
-  //
-  // Neon Auth occasionally rotates the session cookie on a session read. A
-  // page cannot write cookies, so when that rotation landed on an admin
-  // page's own `getSession()` it threw ("Cookies can only be modified in a
-  // Server Action or Route Handler"). Running the middleware first does the
-  // rotation here, as it always has for `/app`.
-  //
-  // But a signed-out visitor must not be sent to sign-in from `/admin`: that
-  // redirect says there is something here. So for `/admin` a sign-in
-  // redirect becomes "carry on", and `requireStaff()` answers everyone who is
-  // not staff with the site's ordinary 404, exactly as before.
-  if (isAdminPath(request.nextUrl.pathname) && isLoginRedirect(response, request)) {
-    return NextResponse.next();
+  /*
+    The admin is here for the session refresh, not the guard.
+
+    Neon Auth refreshes a session when the proxy reads it. A page can only
+    read: `cookies().set` throws outside a Server Action or Route Handler. With
+    `/admin` outside the matcher, a staff member whose session was due for a
+    refresh had it attempted by `requireStaff()` inside the page, and the page
+    failed with "Cookies can only be modified in a Server Action or Route
+    Handler". Passing the request through the proxy first absorbs the refresh
+    here, as it already does for `/app`.
+
+    What the proxy must not do on the admin is redirect. A signed-out visitor
+    sent to sign-in learns there is something here; `requireStaff()` answers
+    them with the site's ordinary 404 instead. So a redirect to sign-in becomes
+    a pass-through, keeping any cookie the middleware cleared on the way.
+  */
+  if (!redirectsToLogin(response, request)) return response;
+  const passThrough = NextResponse.next();
+  for (const cookie of response.headers.getSetCookie()) {
+    passThrough.headers.append("Set-Cookie", cookie);
   }
-  return response;
+  return passThrough;
 }
 
-function isAdminPath(pathname: string): boolean {
-  return pathname === "/admin" || pathname.startsWith("/admin/");
-}
-
-function isLoginRedirect(response: Response, request: NextRequest): boolean {
-  if (response.status < 300 || response.status >= 400) return false;
+function redirectsToLogin(response: Response, request: NextRequest): boolean {
   const location = response.headers.get("location");
-  if (!location) return false;
-  const target = new URL(location, request.url);
-  return target.origin === request.nextUrl.origin && target.pathname === LOGIN_URL;
+  if (!location || response.status < 300 || response.status >= 400) return false;
+  return new URL(location, request.url).pathname === LOGIN_URL;
 }
 
 export const config = {
-  matcher: ["/account/:path*", "/admin/:path*", "/app/:path*", "/billing/:path*"],
+  // `/admin` is here for the session refresh only; see above. Its guard is
+  // `requireStaff()`, which runs on every request.
+  matcher: ["/account/:path*", "/app/:path*", "/billing/:path*", "/admin/:path*"],
 };

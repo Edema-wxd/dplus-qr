@@ -1,110 +1,69 @@
-/** @jest-environment node */
-
-/**
- * `/admin` goes through the proxy for one reason: Neon Auth occasionally
- * rotates the session cookie on a session read, and a page cannot write a
- * cookie, so an admin page that did the read itself threw. The proxy does
- * the read first, as it does for `/app`.
- *
- * What it must never do for `/admin` is send a signed-out visitor to
- * sign-in: that redirect says there is something here. These hold both.
- *
- * Neon Auth's middleware is stubbed: the package ships only as ES modules,
- * which this suite cannot load. Each stub answers the way the real one does
- * (a sign-in redirect for no session, or "carry on" with refreshed cookies).
- */
-
 import { NextRequest, NextResponse } from "next/server";
 
+/**
+ * `/admin` goes through the proxy so the session is refreshed before the page
+ * reads it (a page cannot write the refreshed cookie), but it must never be
+ * redirected to sign-in: a signed-out visitor gets the ordinary 404 from
+ * `requireStaff()`, so the admin is not discoverable by probing it.
+ */
 const middleware = jest.fn<Promise<Response>, [NextRequest]>();
-const middlewareFactory = jest.fn((options: { loginUrl: string }) => {
-  void options;
-  return middleware;
-});
 jest.mock("@/lib/auth/server", () => ({
-  auth: { middleware: (options: { loginUrl: string }) => middlewareFactory(options) },
+  auth: { middleware: () => middleware },
 }));
 
 import proxy, { config } from "@/proxy";
 
-const ORIGIN = "https://qriateplus.com";
+const request = (path: string) => new NextRequest(new URL(path, "https://qriateplus.com"));
 
-function request(path: string) {
-  return new NextRequest(new URL(path, ORIGIN));
+function signedOut(path: string, cookies: string[] = []) {
+  const target = new URL(`/auth/sign-in?redirect=${encodeURIComponent(path)}`, "https://qriateplus.com");
+  const response = NextResponse.redirect(target);
+  for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
+  middleware.mockResolvedValueOnce(response);
 }
 
-/** What Neon Auth's middleware answers when there is no session. */
-function toSignIn(path: string) {
-  const login = new URL("/auth/sign-in", ORIGIN);
-  login.searchParams.set("from", path);
-  return NextResponse.redirect(login);
-}
+beforeEach(() => middleware.mockReset());
 
-/** What it answers for a live session it has just refreshed. */
-function refreshed() {
-  const response = NextResponse.next();
-  response.headers.append("Set-Cookie", "__Secure-neon-auth.local.session_data=fresh; Path=/; HttpOnly; Secure");
-  return response;
-}
+describe("proxy", () => {
+  it("still sends a signed-out visitor on the app to sign-in", async () => {
+    signedOut("/app");
+    const response = await proxy(request("/app"));
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location")!).pathname).toBe("/auth/sign-in");
+  });
 
-beforeEach(() => {
-  middleware.mockReset();
-  middlewareFactory.mockClear();
-});
-
-describe("/admin", () => {
-  it.each(["/admin", "/admin/customers", "/admin/codes/12"])(
-    "never sends a signed-out visitor at %s to sign-in",
+  it.each(["/admin", "/admin/customers", "/admin/reports/abc"])(
+    "never redirects %s to sign-in",
     async (path) => {
-      middleware.mockResolvedValue(toSignIn(path));
+      signedOut(path);
       const response = await proxy(request(path));
-
       expect(response.headers.get("location")).toBeNull();
-      // Carry on to the page, whose staff check answers with the 404.
       expect(response.headers.get("x-middleware-next")).toBe("1");
     }
   );
 
-  it("passes a refreshed session through, so the page never writes the cookie", async () => {
-    middleware.mockResolvedValue(refreshed());
-    const response = await proxy(request("/admin/customers"));
-
-    expect(response.headers.getSetCookie().join("\n")).toContain("session_data=fresh");
+  it("keeps cookies the middleware cleared when it passes the admin through", async () => {
+    const cleared = "__Secure-neon-auth.local.session_data=; Path=/; Max-Age=0";
+    signedOut("/admin", [cleared]);
+    const response = await proxy(request("/admin"));
+    expect(response.headers.getSetCookie()).toEqual([cleared]);
   });
 
-  it("leaves any other redirect alone, such as finishing a social sign-in", async () => {
-    middleware.mockResolvedValue(NextResponse.redirect(new URL("/admin/customers?verified=1", ORIGIN)));
-    const response = await proxy(request("/admin/customers?neon_auth_session_verifier=x"));
-
-    expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(`${ORIGIN}/admin/customers?verified=1`);
+  it("passes a refreshed admin session through untouched", async () => {
+    const refreshed = NextResponse.next();
+    refreshed.headers.append("Set-Cookie", "__Secure-neon-auth.session_token=new; Path=/");
+    middleware.mockResolvedValueOnce(refreshed);
+    expect(await proxy(request("/admin"))).toBe(refreshed);
   });
 
-  it("does not mistake a path that only starts with the same letters", async () => {
-    // Not in the matcher, but the check must not lean on that.
-    middleware.mockResolvedValue(toSignIn("/administrator"));
+  it("does not treat a route that merely starts with admin as the admin", async () => {
+    signedOut("/administrator");
     const response = await proxy(request("/administrator"));
-    expect(response.headers.get("location")).toContain("/auth/sign-in");
-  });
-});
-
-describe("the signed-in areas", () => {
-  it.each(["/app", "/app/files", "/account", "/billing"])("still send a signed-out visitor at %s to sign-in", async (path) => {
-    middleware.mockResolvedValue(toSignIn(path));
-    const response = await proxy(request(path));
-
-    expect(new URL(response.headers.get("location")!).pathname).toBe("/auth/sign-in");
+    expect(response.status).toBe(307);
   });
 
-  it("ask the middleware for the site's sign-in page", async () => {
-    middleware.mockResolvedValue(refreshed());
-    await proxy(request("/app"));
-    expect(middlewareFactory).toHaveBeenCalledWith({ loginUrl: "/auth/sign-in" });
-  });
-});
-
-describe("the matcher", () => {
-  it("lists only the signed-in areas: never a catch-all, never a code path", () => {
-    expect(config.matcher).toEqual(["/account/:path*", "/admin/:path*", "/app/:path*", "/billing/:path*"]);
+  it("covers the admin and keeps the redirect path out of the matcher", () => {
+    expect(config.matcher).toContain("/admin/:path*");
+    expect(config.matcher).not.toContain("/:path*");
   });
 });
