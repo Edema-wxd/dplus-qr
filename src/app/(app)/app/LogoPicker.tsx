@@ -43,6 +43,14 @@ export function LogoPicker({
   // click chose a logo for a code other than the one on screen.
   const idPrefix = `${prefix}${useId()}`;
   const [logos, setLogos] = useState(initial);
+  // Only a tap here chooses a logo. The radios are `autoComplete="off"`
+  // because a browser that restores a page's form state (Safari does when
+  // iOS reloads a tab) matches controls by position, not by meaning: every
+  // React form here posts to the same placeholder action, so a logo checked in
+  // one form (another code's logo) could be restored into the new-code form,
+  // and React adopts restored state on hydration. That is how a new code came
+  // out with a logo nobody picked for it. "autocomplete=off" is what makes
+  // both WebKit and Chromium skip a control when saving and restoring state.
   const [selected, setSelected] = useState(defaultSelected);
   const [error, setError] = useState<string | null>(null);
   const [removing, startRemoving] = useTransition();
@@ -113,6 +121,7 @@ export function LogoPicker({
             value=""
             checked={selected === ""}
             onChange={() => select("")}
+            autoComplete="off"
             className="peer sr-only"
           />
           <label htmlFor={`${idPrefix}-none`} className={option}>
@@ -129,6 +138,7 @@ export function LogoPicker({
               value={logo.id}
               checked={selected === logo.id}
               onChange={() => select(logo.id)}
+              autoComplete="off"
               className="peer sr-only"
             />
             <label htmlFor={`${idPrefix}-${logo.id}`} className={option}>
