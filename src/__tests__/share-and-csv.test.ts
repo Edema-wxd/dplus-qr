@@ -47,12 +47,10 @@ describe("canShareStats", () => {
     active: true,
   };
 
-  it("allows a plan with the flag and refuses one without, naming the plans", () => {
-    expect(canShareStats(pro)).toEqual({ ok: true });
-    const starter = canShareStats({ ...pro, planName: "Starter", features: {} });
-    if (starter.ok) throw new Error("expected refusal");
-    expect(starter.reason).toMatch(/Pro and Business/);
-    expect(canShareStats(null).ok).toBe(false);
+  it("allows a plan with the flag and refuses one without", () => {
+    expect(canShareStats(pro)).toBe(true);
+    expect(canShareStats({ ...pro, planName: "Starter", features: {} })).toBe(false);
+    expect(canShareStats(null)).toBe(false);
   });
 });
 

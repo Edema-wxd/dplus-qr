@@ -294,8 +294,8 @@ export default async function CodePage({
         id={code.id}
         origin={env().QR_BASE_URL}
         initialToken={share?.token ?? null}
-        allowed={sharing.ok}
-        offer={sharing.ok ? undefined : offers.share}
+        allowed={sharing}
+        offer={sharing ? undefined : offers.share}
       />
 
       {history.length > 0 ? (
