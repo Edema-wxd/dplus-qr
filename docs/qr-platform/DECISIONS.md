@@ -1120,6 +1120,47 @@ Tested against a local Postgres (each upload matched to its codes, an unused
 one marked, another account's file excluded) and rendered at phone and
 desktop width.
 
+## The admin answers non-staff exactly like a missing page, 6 November 2026
+
+Supersedes the staff admin entry's "not in the proxy matcher". Two changes,
+the first merged in #33.
+
+**The session refresh.** Production logged "Cookies can only be modified in a
+Server Action or Route Handler" on `/admin/customers`. Neon Auth's
+`getSession()` trusts its signed `session_data` cookie for five minutes, then
+asks the service, which now and then rotates the session cookie, and a page
+may not write cookies. `/app` never hit it because the proxy refreshes first.
+`/admin` is now in the matcher, so it does too.
+
+**The hiding.** The admin was meant to be undiscoverable, but it was not: a
+signed-out visitor to `/admin/customers` got a 200, the title "Customers ·
+Admin" and the admin's loading screen, and only then the 404, streamed in;
+an address that is not a page gets a real 404. Generic titles alone would
+have left the 200 and the loading screen, so the decision moved before the
+first byte:
+
+- `proxy.ts` answers anyone who is not staff by rewriting to `/_/not-a-page`,
+  a path that is not a page, so Next gives the 404 status, the not-found page
+  and its title. Checked in a production build: byte-identical to
+  `/admin/no-such-page` for a signed-out visitor and for a signed-in customer,
+  on `/admin`, `/admin/customers` and `/admin/codes/1`, with the same headers.
+- **Who is staff** comes from Neon Auth's `session_data` cookie, an HS256 JWT
+  signed with our `NEON_AUTH_COOKIE_SECRET`, verified in
+  `src/lib/session-cookie.ts` with `node:crypto` (fixed algorithm,
+  constant-time compare, expiry enforced; `jose` is ESM-only and cannot load
+  in the test suite). The middleware has just refreshed it, so it is current.
+  Then the role is read from the database, as `requireStaff()` reads it, so
+  revoking or banning takes effect on the next request (checked).
+- **It can only hide, never lock out.** No session cookie, or a sign-in
+  redirect from the middleware: not staff, with no database read. A cookie
+  that does not verify, or a database error: the proxy cannot tell, and the
+  request goes on to the page, where `requireStaff()` decides as before. The
+  cookie's name and format are Neon Auth's, not a published API; if they
+  change, the hiding stops and nothing else does. A test checks our verifier
+  against a token the library itself minted.
+- Staff keep descriptive tab titles: nobody else ever receives them.
+- `requireStaff()` and `staffForAction()` are unchanged and remain the guard.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
