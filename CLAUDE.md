@@ -142,8 +142,11 @@ reliability for a feature, reliability wins. Everything below follows from that.
   get the ordinary 404. The proxy must never redirect `/admin` to sign-in,
   which would reveal the page exists. It is in the `proxy.ts` matcher only so
   the session is refreshed there: a page cannot write cookies, so a refresh
-  attempted by `requireStaff()` threw. `proxy.ts` turns its login redirect on
-  `/admin` into a pass-through.
+  attempted by `requireStaff()` threw. `proxy.ts` answers a signed-out
+  `/admin` itself, rewriting it to a path no route serves, so it gets the same
+  404 status and page as any dead link. The page cannot do that: its
+  `loading.tsx` shell, with the admin's title, is sent with a 200 before
+  `requireStaff()` runs.
 - Every page view, search and change writes `qr_admin_audit` (`audit()` after
   the response, `recordChange()` awaited).
 
