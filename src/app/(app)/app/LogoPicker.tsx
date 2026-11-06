@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useId, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { archiveLogoAction } from "./actions";
 import { useUploadThing } from "./uploadthing";
@@ -23,7 +23,7 @@ export function LogoPicker({
   logos: initial,
   defaultSelected = "",
   uploads,
-  idPrefix,
+  idPrefix: prefix,
   name = "logoId",
   onChange,
 }: {
@@ -31,11 +31,17 @@ export function LogoPicker({
   defaultSelected?: string;
   /** False when this deployment has no UploadThing token. */
   uploads: boolean;
-  /** Keeps radio ids unique when two pickers could share a page. */
+  /** Names the picker in its radio ids, which `useId` then makes unique. */
   idPrefix: string;
   name?: string;
   onChange?: (logoId: string) => void;
 }) {
+  // Unique per instance, not just per picker kind. Next keeps up to three
+  // visited pages mounted but hidden (Cache Components' `<Activity>`), so two
+  // pickers can share the document: with a fixed id, a label's `htmlFor`
+  // resolved to whichever radio came first, possibly on a hidden page, and a
+  // click chose a logo for a code other than the one on screen.
+  const idPrefix = `${prefix}${useId()}`;
   const [logos, setLogos] = useState(initial);
   const [selected, setSelected] = useState(defaultSelected);
   const [error, setError] = useState<string | null>(null);
