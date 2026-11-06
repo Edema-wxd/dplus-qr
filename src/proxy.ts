@@ -27,12 +27,13 @@ const LOGIN_URL = "/auth/sign-in";
 const ADMIN = /^\/admin(\/|$)/;
 
 /**
- * Where a non-staff request for the admin is sent. Nothing lives here, so
- * Next answers it exactly as it answers any address that is not a page: the
- * 404 status, the site's not-found page, its title. Two segments, so it can
- * never be read as a short code, and outside the matcher.
+ * Where a non-staff admin request is rewritten to. Two segments, so the
+ * single-segment `[code]` route cannot claim it, under an `_`-prefixed folder,
+ * which the App Router never routes. Nothing can ever be served here, so Next
+ * answers with the site's not-found page and a 404 status. It names nothing,
+ * because `next start` echoes a rewrite's target in `x-middleware-rewrite`.
  */
-const NOWHERE = "/_/not-a-page";
+const NOWHERE = "/_nowhere/404";
 
 export default async function proxy(request: NextRequest) {
   const response = await auth.middleware({ loginUrl: LOGIN_URL })(request);

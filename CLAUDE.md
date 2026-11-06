@@ -139,16 +139,18 @@ reliability for a feature, reliability wins. Everything below follows from that.
   from the session, so revoking it takes effect at once.
 - `requireStaff()` gates every page and `staffForAction()` every Server
   Action, in `src/app/(admin)/admin/guard.ts`. Non-admins, signed out included,
-  get the ordinary 404, **byte for byte the response a missing page gets**,
-  and that is decided in `proxy.ts` before the page streams: letting the page
-  run gives away a 200, its title and a loading screen first. The proxy
-  verifies Neon Auth's signed `session_data` cookie
-  (`src/lib/session-cookie.ts`), reads the role, and rewrites anyone who is not
-  staff to a path that is not a page. It never redirects `/admin` to sign-in.
-  When it cannot tell (unreadable cookie, database down) it lets the page
-  decide, so it can only hide the admin, never lock staff out. Being in the
-  matcher also refreshes the session there: a page cannot write cookies, so a
-  refresh attempted by `requireStaff()` threw.
+  get the ordinary 404, **byte for byte the response a dead link gets**, and
+  that is decided in `proxy.ts` before the page streams: the page cannot say
+  no in time, because its `loading.tsx` shell, with the admin's title, is sent
+  with a 200 before `requireStaff()` runs. The proxy rewrites anyone who is not
+  staff to `/_nowhere/404`, a path no route serves. Signed out: no database
+  read needed. Signed in: it verifies Neon Auth's signed `session_data` cookie
+  (`src/lib/session-cookie.ts`) and reads the role from the database. When it
+  cannot tell (unreadable cookie, database down) it lets the page decide, so
+  it can only hide the admin, never lock staff out. It never redirects
+  `/admin` to sign-in. Being in the matcher also refreshes the session there:
+  a page cannot write cookies, so a refresh attempted by `requireStaff()`
+  threw.
 - Every page view, search and change writes `qr_admin_audit` (`audit()` after
   the response, `recordChange()` awaited).
 

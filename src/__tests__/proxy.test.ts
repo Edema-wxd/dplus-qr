@@ -22,7 +22,7 @@ import proxy, { config } from "@/proxy";
 const SECRET = "a-test-secret-that-is-at-least-32-characters";
 const TOKEN = "__Secure-neon-auth.session_token";
 const DATA = "__Secure-neon-auth.local.session_data";
-const NOWHERE = "/_/not-a-page";
+const NOWHERE = "/_nowhere/404";
 
 const sessionData = (userId: string, secret = SECRET, expiresAt = Date.now() + 300_000) =>
   signSessionDataForTest({ session: { userId }, user: { id: userId } }, secret, expiresAt);
