@@ -1119,8 +1119,21 @@ desktop width.
 
 A feedback code's page now has "Export answers as CSV"
 (`/app/{id}/export/feedback`): every answer, newest first, as
-`answered_at,rating,comment`, capped at 10,000 like the scan export. The
-panel itself still shows the latest 100 and says so when there are more.
+`answered_at,rating,country,city,device,os,comment`, capped at 10,000 like
+the scan export. The panel itself still shows the latest 100 and says so
+when there are more.
+
+- **Answers now record where they came from** (Francis, 6 Nov 2026: "also
+  include country, OS, device, and city"). Migration `025` adds nullable
+  `country`, `city`, `device_type` and `os` to `qr_feedback`, filled by
+  `feedbackOrigin()` from the same headers and User-Agent parse a scan uses.
+  This replaces the 26 October rule that an answer kept only rating, comment
+  and time. Still no IP and no hashed visitor value. Answers from before 025
+  have blank cells. The privacy policy's scan-data section now says what an
+  answer keeps.
+- **City and OS need `insights` as well as `csv_export`**, the code page's
+  own rule for detailed analytics. Without it the file drops those two
+  columns, as the days table drops `unique_scans`. Country and device stay.
 
 - **Behind the existing `csv_export` flag**, not a new one. It is the same
   capability, a download of a code's data, so staff move it between plans in
@@ -1133,8 +1146,17 @@ panel itself still shows the latest 100 and says so when there are more.
   is defused rather than arriving in the owner's spreadsheet as a formula.
 - `csvResponse` moved into `csv-export.ts` so both export routes send the
   same headers (`private, no-store`, attachment).
-- Nothing is stored with an answer beyond rating, comment and time, so
-  there is nothing to leave out of the file.
+
+## Scans record their city again, 6 November 2026
+
+Scans had never recorded a city. `scanContext` kept only the country header,
+and `recordScan` rebuilt a `Headers` holding just that, so `readCity` never
+saw `x-vercel-ip-city`. On 6 November, 13 of the previous fortnight's 27
+scans had a country and none had a city, so every Cities panel and table was
+empty. `scanContext` now keeps the raw city header too, decoded in `after()`
+by `scanLocation()` (tested), so the redirect still does no extra work
+inline. Scans already recorded stay without a city; there is nothing to
+backfill it from.
 
 ## Still open
 

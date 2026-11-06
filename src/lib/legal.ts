@@ -432,6 +432,10 @@ export const PRIVACY: LegalDocument = {
         },
         {
           kind: "p",
+          text: `When someone answers a feedback code, we keep their rating, their comment, the time, and the same country, city, device type and operating system a scan records, worked out the same way. No hashed visitor value is kept with an answer, and the IP address is never stored.`,
+        },
+        {
+          kind: "p",
           text: `The redirect sets no cookies, runs no analytics script and loads nothing in the scanner's browser. It answers with a redirect and nothing else.`,
         },
         {

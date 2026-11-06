@@ -516,13 +516,30 @@ export async function codeFeedback(
   };
 }
 
+/** An answer as the CSV export lists it: where it came from, as a scan records it. */
+export type FeedbackExportRow = FeedbackEntry & {
+  country: string | null;
+  city: string | null;
+  device: string | null;
+  os: string | null;
+};
+
 /**
  * Every answer on a feedback code, newest first, for the CSV export. The
  * panel shows the latest 100; this is the rest. Capped like the scan export.
+ * Answers left before migration 025 have no origin, so those fields are null.
  */
-export async function feedbackRows(userId: string, id: string): Promise<FeedbackEntry[]> {
-  const rows = await query<{ rating: number; comment: string | null; created_at: Date }>(
-    `select f.rating, f.comment, f.created_at
+export async function feedbackRows(userId: string, id: string): Promise<FeedbackExportRow[]> {
+  const rows = await query<{
+    rating: number;
+    comment: string | null;
+    created_at: Date;
+    country: string | null;
+    city: string | null;
+    device_type: string | null;
+    os: string | null;
+  }>(
+    `select f.rating, f.comment, f.created_at, f.country, f.city, f.device_type, f.os
      from qr_feedback f
      join qr_codes c on c.id = f.qr_id
      where c.user_id = $1 and c.id = $2
@@ -530,7 +547,15 @@ export async function feedbackRows(userId: string, id: string): Promise<Feedback
      limit 10000`,
     [userId, id]
   );
-  return rows.map((r) => ({ rating: r.rating, comment: r.comment, createdAt: r.created_at }));
+  return rows.map((r) => ({
+    rating: r.rating,
+    comment: r.comment,
+    createdAt: r.created_at,
+    country: r.country,
+    city: r.city,
+    device: r.device_type,
+    os: r.os,
+  }));
 }
 
 /**

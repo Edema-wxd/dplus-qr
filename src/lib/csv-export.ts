@@ -1,4 +1,4 @@
-import type { Analytics, FeedbackEntry, Slice } from "@/lib/user-codes";
+import type { Analytics, FeedbackExportRow, Slice } from "@/lib/user-codes";
 
 /**
  * CSV for a code's scans and feedback: the cell encoder every export uses,
@@ -78,14 +78,33 @@ export function tableCsv(table: Table, data: Analytics, insights: boolean): stri
 }
 
 /**
- * A feedback code's answers. The comment is typed by whoever scanned the
- * code, with no account and no screening, so it is the least trusted text in
- * any export: `csvCell` is what stops a comment beginning `=` arriving in the
- * owner's spreadsheet as a formula.
+ * A feedback code's answers, with where each came from.
+ *
+ * City and operating system follow the code page's own rule: they are the
+ * detailed analytics, so a plan without `insights` gets the file without
+ * those two columns, as the days table drops `unique_scans`.
+ *
+ * Every text field goes through `csvCell`. The comment is typed by whoever
+ * scanned the code, with no account and no screening, so it is the least
+ * trusted text in any export; city and OS come from request headers, as
+ * untrusted as a User-Agent. That is what stops a cell beginning `=`
+ * arriving in the owner's spreadsheet as a formula. The comment is last
+ * because it is the long one.
  */
-export function feedbackCsv(entries: FeedbackEntry[]): string {
-  const lines = entries.map(
-    (entry) => `${entry.createdAt.toISOString()},${entry.rating},${csvCell(entry.comment)}`
+export function feedbackCsv(entries: FeedbackExportRow[], insights: boolean): string {
+  const header = insights
+    ? "answered_at,rating,country,city,device,os,comment"
+    : "answered_at,rating,country,device,comment";
+  const lines = entries.map((entry) =>
+    [
+      entry.createdAt.toISOString(),
+      String(entry.rating),
+      csvCell(entry.country),
+      ...(insights ? [csvCell(entry.city)] : []),
+      csvCell(entry.device),
+      ...(insights ? [csvCell(entry.os)] : []),
+      csvCell(entry.comment),
+    ].join(",")
   );
-  return ["answered_at,rating,comment", ...lines].join("\r\n");
+  return [header, ...lines].join("\r\n");
 }

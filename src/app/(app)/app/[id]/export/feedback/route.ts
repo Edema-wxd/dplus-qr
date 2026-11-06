@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth/server";
-import { canExportCsv, getEntitlement } from "@/lib/entitlement";
+import { canExportCsv, canSeeInsights, getEntitlement } from "@/lib/entitlement";
 import { feedbackRows, getCode, parseCodeId } from "@/lib/user-codes";
 import { csvResponse, feedbackCsv } from "@/lib/csv-export";
 
@@ -7,8 +7,9 @@ import { csvResponse, feedbackCsv } from "@/lib/csv-export";
  * Every answer left on a feedback code, as CSV.
  *
  * Held to the same `csv_export` gate as the scan export, checked here as well
- * as on the page: a route handler is an endpoint. Any other kind of code is a
- * 404, the same answer as a code that is not this account's.
+ * as on the page: a route handler is an endpoint. City and OS columns need
+ * `insights` too, as they do on the page. Any other kind of code is a 404,
+ * the same answer as a code that is not this account's.
  */
 export async function GET(
   _request: Request,
@@ -32,5 +33,8 @@ export async function GET(
   if (!permitted.ok) return new Response(permitted.reason, { status: 403 });
 
   const entries = await feedbackRows(session.user.id, id);
-  return csvResponse(feedbackCsv(entries), `${code.shortCode}-feedback.csv`);
+  return csvResponse(
+    feedbackCsv(entries, canSeeInsights(entitlement)),
+    `${code.shortCode}-feedback.csv`
+  );
 }
