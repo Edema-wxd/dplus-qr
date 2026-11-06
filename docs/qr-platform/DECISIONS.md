@@ -1115,6 +1115,74 @@ Tested against a local Postgres (each upload matched to its codes, an unused
 one marked, another account's file excluded) and rendered at phone and
 desktop width.
 
+## First-code onboarding and drop-off tracking, 6 November 2026
+
+Decided with Francis: a new account is walked from sign-up to a first code
+in **seven steps at most**, every step is recorded so staff can see where
+people stop, and the walk ends on the code's first scan. Six steps, with the
+code made on step 4:
+
+| # | Screen | Records |
+| --- | --- | --- |
+| 1 | The sign-up form, unchanged; it now lands on `/app/start` | `account_created` |
+| 2 | What the code will go on, one tap | `purpose_chosen` |
+| 3 | Where a scan leads: website, Instagram or Facebook | `destination_set` |
+| 4 | Name and colour (logo optional), then "Create code" | `code_created` |
+| 5 | Download the artwork (optional) | `artwork_downloaded` |
+| 6 | Scan it; the screen shows the scan as it arrives | `test_scanned`, then `completed` |
+
+- **The limit is a test.** `ONBOARDING_STEPS` in `src/lib/onboarding-steps.ts`
+  is the list, and `onboarding.test.ts` fails if it passes seven or if the code
+  is made after step 7.
+- **Migration `025`**: `qr_onboarding` (one row per account: origin, purpose,
+  the draft link, the code it made, skipped and from where, finished) and
+  `qr_onboarding_steps` (the first time each step was reached). A reload or a
+  second download never counts twice. The draft link lives on the server, so
+  it never rides in a URL and a person can finish on another device; it is
+  cleared once the code holds it. Account erasure deletes both.
+- **Who sees it.** `/app` sends an account with no codes there until it
+  finishes or skips. Skipping is remembered and never forced again; the empty
+  dashboard offers the way back. Accounts with codes never see it. Older
+  accounts with no codes are walked through it too, as `origin = 'existing'`,
+  and the funnel counts only `signup`.
+- **Never in the way.** Every step write is best-effort, and `/app` treats an
+  onboarding it cannot read as no onboarding, so a preview ahead of 025 still
+  opens the dashboard.
+- **Link codes only**, because a new account is always on Free. Step 4 goes
+  through `createCode`, so the first code meets the same screening, limits and
+  short-code rules as any other; step 3 screens the link early so a refusal is
+  shown where it was typed.
+- **The redirect path is untouched.** The scan screen polls
+  `/app/start/scan`, which reads the account's own code's `qr_scans` rows
+  (bots excluded) that the redirect already writes in `after()`. "Made a code"
+  and "scanned" on the staff page are read from the codes and scans
+  themselves, raw rows and rollup both, so they also count a code made on the
+  dashboard after skipping and a first scan from a customer days later.
+- **Before the code exists the panel shows an outline that cannot be
+  scanned**: finder squares and an empty dot grid, no format information and
+  no data. A real-looking symbol would invite printing a code that leads
+  nowhere. The real symbol is revealed once, on the screen after "Create code".
+- The download step is recorded by the download route when it serves a file,
+  not by the button.
+- **Staff see it at `/admin/onboarding`**: 7, 30 or 90 days of sign-ups, how
+  many reached each step, the share of the step before (scanning and
+  finishing measured against making the code, since downloading is optional),
+  median time on each step, skips by screen, the biggest drop in one line,
+  what first codes are for, and made / scanned / confirmed-email outcomes.
+- **Privacy:** onboarding answers and steps are account data. The policy now
+  says so, with legitimate interest as the basis, and that they are recorded on
+  our servers with no cookie and no analytics service. Nothing new is recorded
+  about people who scan.
+
+Tested: unit tests for the screen rules, resume and skip, the funnel maths,
+the migration's allowed values, the preset colours' contrast, the scan check's
+user filter and its route, and the privacy wording. In the browser against a
+local Postgres, at desktop and phone width: the whole flow from step 2 to the
+code page, a refused link keeping what was typed, the colour preview, the
+reveal, a download and a scan each recorded once, skip and return, and the
+staff page over synthetic sign-ups. Sign-in itself was stubbed for that check,
+since Neon Auth is hosted; the stub was never committed.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

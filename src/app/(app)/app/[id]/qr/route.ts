@@ -1,10 +1,12 @@
 import QRCode from "qrcode";
 import sharp from "sharp";
+import { after } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { codeUrl } from "@/lib/brand";
 import { getCode, parseCodeId } from "@/lib/user-codes";
 import { loadLogo } from "@/lib/logos";
 import { renderQrSvg } from "@/lib/qr-render";
+import { recordStepQuietly } from "@/lib/onboarding";
 
 /**
  * The downloadable artwork for one code.
@@ -62,6 +64,16 @@ export async function GET(
     "Cache-Control": "private, no-store",
   };
 
+  // A download is the onboarding's "got the artwork" step, recorded here
+  // rather than on the button so it counts only a file that was served. It
+  // writes nothing for an account with no onboarding, and runs after the
+  // response so it never delays the file.
+  const userId = session.user.id;
+  const served = (body: BodyInit) => {
+    after(() => recordStepQuietly(userId, "artwork_downloaded"));
+    return new Response(body, { headers });
+  };
+
   if (code.logo) {
     // Fetched and embedded, never linked: an SVG that points at a URL loses
     // its logo the moment a print shop opens it offline.
@@ -87,7 +99,7 @@ export async function GET(
 
     const body =
       format === "png" ? await sharp(Buffer.from(svg)).png().toBuffer() : svg;
-    return new Response(body as BodyInit, { headers });
+    return served(body as BodyInit);
   }
 
   const common = {
@@ -102,5 +114,5 @@ export async function GET(
       ? await QRCode.toBuffer(content, { ...common, type: "png", width: size })
       : await QRCode.toString(content, { ...common, type: "svg", width: size });
 
-  return new Response(body as BodyInit, { headers });
+  return served(body as BodyInit);
 }

@@ -16,6 +16,10 @@ export const FLASH_MESSAGES = {
     title: "Code created",
     description: "Download the artwork when you are ready to print.",
   },
+  "setup-finished": {
+    title: "Your first code is set up",
+    description: "Every scan of it appears on this page.",
+  },
   "signed-out": { title: "Signed out" },
   "plan-created": { title: "Plan created" },
 } as const satisfies Record<string, { title: string; description?: string }>;

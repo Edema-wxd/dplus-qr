@@ -695,6 +695,10 @@ export async function eraseAccountData(userId: string): Promise<EraseResult> {
 
     await run(`delete from qr_logos where user_id = $1`, [userId]);
     await run(`delete from qr_files where user_id = $1`, [userId]);
+    // What the person said their code is for, any destination still in the
+    // draft, and the steps they reached (cascaded). Funnel counts lose one
+    // account, which is what erasure asks for.
+    await run(`delete from qr_onboarding where user_id = $1`, [userId]);
     await run(
       `update qr_subscriptions
           set status = case when status in ('active', 'past_due') then 'cancelled' else status end,
