@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 /**
  * `/admin` goes through the proxy so the session is refreshed before the page
- * reads it (a page cannot write the refreshed cookie), but it must never be
- * redirected to sign-in: a signed-out visitor gets the ordinary 404 from
- * `requireStaff()`, so the admin is not discoverable by probing it.
+ * reads it (a page cannot write the refreshed cookie). It must never be
+ * redirected to sign-in: a signed-out visitor is rewritten to a path no route
+ * serves, so they get the same 404 status and page as any dead link, before
+ * any of the admin (its loading shell, its title) is rendered.
  */
 const middleware = jest.fn<Promise<Response>, [NextRequest]>();
 jest.mock("@/lib/auth/server", () => ({
@@ -33,16 +34,22 @@ describe("proxy", () => {
   });
 
   it.each(["/admin", "/admin/customers", "/admin/reports/abc"])(
-    "never redirects %s to sign-in",
+    "answers a signed-out %s with the site's 404, not sign-in",
     async (path) => {
       signedOut(path);
       const response = await proxy(request(path));
       expect(response.headers.get("location")).toBeNull();
-      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(response.headers.get("x-middleware-next")).toBeNull();
+      const target = new URL(response.headers.get("x-middleware-rewrite")!);
+      // Two segments, so `[code]` cannot claim it; `_`-prefixed, so no route can.
+      expect(target.pathname.split("/").filter(Boolean)).toHaveLength(2);
+      expect(target.pathname.startsWith("/_")).toBe(true);
+      // `next start` echoes the target to the client, so it must name nothing.
+      expect(target.pathname).not.toMatch(/admin/i);
     }
   );
 
-  it("keeps cookies the middleware cleared when it passes the admin through", async () => {
+  it("keeps cookies the middleware cleared when it 404s the admin", async () => {
     const cleared = "__Secure-neon-auth.local.session_data=; Path=/; Max-Age=0";
     signedOut("/admin", [cleared]);
     const response = await proxy(request("/admin"));

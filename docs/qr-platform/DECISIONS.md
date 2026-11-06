@@ -674,8 +674,9 @@ proxy matcher for that reason, but the proxy is also where a session gets
 refreshed, and a Server Component cannot write the refreshed cookie: on
 4 Nov 2026 `/admin` failed with "Cookies can only be modified in a Server
 Action or Route Handler". So `/admin` is in the matcher for the refresh, and
-`proxy.ts` turns its login redirect there into a pass-through. Granting the
-role is SQL, never a screen:
+`proxy.ts` answers a signed-out visitor there itself (see "A signed-out
+`/admin` is a real 404", 6 November 2026). Granting the role is SQL, never a
+screen:
 
     update neon_auth."user" set role = 'admin' where email = '...';
 
@@ -1119,6 +1120,39 @@ and the live codes that show it. Logos keep their own library in the picker.
 Tested against a local Postgres (each upload matched to its codes, an unused
 one marked, another account's file excluded) and rendered at phone and
 desktop width.
+
+## A signed-out `/admin` is a real 404, 6 November 2026
+
+"Everyone else gets the ordinary 404" was not what a signed-out visitor got.
+`admin/loading.tsx` puts the admin page inside a Suspense boundary, so Next
+prerendered a shell: the visitor was sent HTTP 200, a skeleton and the
+title "Admin · QRiate+", and the 404 from `requireStaff()` only arrived later
+in the streamed payload. Status and title both said the page exists.
+
+- **The proxy answers it, because the page cannot.** By the time any admin
+  code runs, the shell and its status are on the wire. `proxy.ts` already
+  reads the session on `/admin` for the refresh, so when that read finds no
+  one signed in it rewrites the request to `/_nowhere/404`: two segments, so
+  `[code]` cannot claim it, under a `_` folder, which the App Router never
+  routes. Next serves the site's not-found page with a 404, the same bytes as
+  any other dead link with two or more segments. Cookies the middleware
+  cleared are kept.
+- **The target names nothing**, because `next start` echoes a rewrite's
+  target to the client in `x-middleware-rewrite`.
+- **Signed-in non-admins still get the shell.** The proxy knows whether
+  someone is signed in, not their role, and the role is read from the
+  database on every request by design. `requireStaff()` still refuses them,
+  so nothing is exposed but the shell and the title, and only to people with
+  an account.
+- `/admin` is a single segment, where an unknown word on this host goes to
+  `[code]` and is redirected to `/not-found-code`. A signed-out `/admin` gets
+  the two-segment not-found page instead. It reveals nothing about the admin:
+  `admin` is a reserved word, and the page names no feature.
+
+Checked with `next start` against the build: signed-out `/admin`,
+`/admin/customers` and `/admin/plans/abc` match `/foo/bar` byte for byte,
+with a 404 and no mention of the admin, and `/app` still redirects to
+sign-in.
 
 ## Still open
 
