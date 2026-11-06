@@ -193,6 +193,11 @@ differs from older training data. What has already bitten this repo:
     shell, streamed detail.
   - A route touching no request API is evaluated at build time — use
     `await connection()` to stop that (see `src/app/health/route.ts`).
+  - **Await `connection()` before `auth.getSession()`** in any page or server
+    component. Otherwise Next prerenders it, and a session read that has to
+    ask Neon Auth starts a fetch that is cut off when the prerender ends
+    ("During prerendering, fetch() rejects…", seen on `/app/[id]`).
+    `src/__tests__/session-before-prerender.test.ts` enforces it.
   - A page whose whole content is per-request, with no useful static shell to
     stream around (an authenticated account page), sets
     `export const instant = false` instead of wrapping everything in Suspense.
