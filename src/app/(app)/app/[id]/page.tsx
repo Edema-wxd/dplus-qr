@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
+import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import {
@@ -49,6 +50,12 @@ export default async function CodePage({
 }) {
   const { id: raw } = await params;
 
+  // Before the session read, as on every dashboard page. Without it Next
+  // prerenders this page's shell, and when the session read has to ask Neon
+  // Auth (its five-minute cache has run out) that fetch starts inside the
+  // prerender and is cut off when it ends: "During prerendering, fetch()
+  // rejects when the prerender is complete" in production.
+  await connection();
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
