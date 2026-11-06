@@ -1,20 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
+import { signSessionDataForTest } from "@/lib/session-cookie";
 
 /**
  * `/admin` goes through the proxy so the session is refreshed before the page
- * reads it (a page cannot write the refreshed cookie). It must never be
- * redirected to sign-in: a signed-out visitor is rewritten to a path no route
- * serves, so they get the same 404 status and page as any dead link, before
- * any of the admin (its loading shell, its title) is rendered.
+ * reads it (a page cannot write the refreshed cookie), and so that nobody who
+ * is not staff can tell it exists: they get the response any missing page
+ * gets, never a redirect to sign-in and never the admin's own loading shell.
+ * When the proxy cannot tell, the page's `requireStaff()` decides, as before.
+ *
+ * Neon Auth's middleware and the role lookup are stubbed.
  */
 const middleware = jest.fn<Promise<Response>, [NextRequest]>();
 jest.mock("@/lib/auth/server", () => ({
   auth: { middleware: () => middleware },
 }));
+const isAdmin = jest.fn<Promise<boolean>, [string]>();
+jest.mock("@/lib/admin", () => ({ isAdmin: (id: string) => isAdmin(id) }));
 
 import proxy, { config } from "@/proxy";
 
-const request = (path: string) => new NextRequest(new URL(path, "https://qriateplus.com"));
+const SECRET = "a-test-secret-that-is-at-least-32-characters";
+const TOKEN = "__Secure-neon-auth.session_token";
+const DATA = "__Secure-neon-auth.local.session_data";
+const NOWHERE = "/_nowhere/404";
+
+const sessionData = (userId: string, secret = SECRET, expiresAt = Date.now() + 300_000) =>
+  signSessionDataForTest({ session: { userId }, user: { id: userId } }, secret, expiresAt);
+
+const request = (path: string, cookies: Record<string, string> = {}) =>
+  new NextRequest(new URL(path, "https://qriateplus.com"), {
+    headers: Object.keys(cookies).length
+      ? { cookie: Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join("; ") }
+      : {},
+  });
 
 function signedOut(path: string, cookies: string[] = []) {
   const target = new URL(`/auth/sign-in?redirect=${encodeURIComponent(path)}`, "https://qriateplus.com");
@@ -23,44 +41,115 @@ function signedOut(path: string, cookies: string[] = []) {
   middleware.mockResolvedValueOnce(response);
 }
 
-beforeEach(() => middleware.mockReset());
+function allowed(cookies: string[] = []) {
+  const response = NextResponse.next();
+  for (const cookie of cookies) response.headers.append("Set-Cookie", cookie);
+  middleware.mockResolvedValueOnce(response);
+  return response;
+}
 
-describe("proxy", () => {
-  it("still sends a signed-out visitor on the app to sign-in", async () => {
+const rewrittenTo = (response: Response) => {
+  const target = response.headers.get("x-middleware-rewrite");
+  return target ? new URL(target).pathname : null;
+};
+
+beforeEach(() => {
+  middleware.mockReset();
+  isAdmin.mockReset();
+  process.env.NEON_AUTH_COOKIE_SECRET = SECRET;
+  jest.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => jest.restoreAllMocks());
+
+describe("the app", () => {
+  it("still sends a signed-out visitor to sign-in", async () => {
     signedOut("/app");
     const response = await proxy(request("/app"));
     expect(response.status).toBe(307);
     expect(new URL(response.headers.get("location")!).pathname).toBe("/auth/sign-in");
   });
+});
 
+describe("the admin, for someone who is not staff", () => {
   it.each(["/admin", "/admin/customers", "/admin/reports/abc"])(
-    "answers a signed-out %s with the site's 404, not sign-in",
+    "answers a signed-out visitor at %s as a missing page, never a redirect",
     async (path) => {
       signedOut(path);
       const response = await proxy(request(path));
       expect(response.headers.get("location")).toBeNull();
-      expect(response.headers.get("x-middleware-next")).toBeNull();
-      const target = new URL(response.headers.get("x-middleware-rewrite")!);
-      // Two segments, so `[code]` cannot claim it; `_`-prefixed, so no route can.
-      expect(target.pathname.split("/").filter(Boolean)).toHaveLength(2);
-      expect(target.pathname.startsWith("/_")).toBe(true);
-      // `next start` echoes the target to the client, so it must name nothing.
-      expect(target.pathname).not.toMatch(/admin/i);
+      expect(rewrittenTo(response)).toBe(NOWHERE);
+      expect(isAdmin).not.toHaveBeenCalled();
     }
   );
 
-  it("keeps cookies the middleware cleared when it 404s the admin", async () => {
-    const cleared = "__Secure-neon-auth.local.session_data=; Path=/; Max-Age=0";
+  it("keeps cookies the middleware cleared", async () => {
+    const cleared = `${DATA}=; Path=/; Max-Age=0`;
     signedOut("/admin", [cleared]);
     const response = await proxy(request("/admin"));
     expect(response.headers.getSetCookie()).toEqual([cleared]);
   });
 
-  it("passes a refreshed admin session through untouched", async () => {
-    const refreshed = NextResponse.next();
-    refreshed.headers.append("Set-Cookie", "__Secure-neon-auth.session_token=new; Path=/");
-    middleware.mockResolvedValueOnce(refreshed);
-    expect(await proxy(request("/admin"))).toBe(refreshed);
+  it("answers a signed-in customer as a missing page, keeping their refreshed session", async () => {
+    isAdmin.mockResolvedValue(false);
+    const fresh = `${DATA}=${sessionData("customer-1")}; Path=/; HttpOnly; Secure`;
+    allowed([fresh]);
+
+    const response = await proxy(request("/admin/customers", { [TOKEN]: "t" }));
+
+    expect(isAdmin).toHaveBeenCalledWith("customer-1");
+    expect(rewrittenTo(response)).toBe(NOWHERE);
+    expect(response.headers.getSetCookie()).toEqual([fresh]);
+  });
+});
+
+describe("the admin, for staff", () => {
+  it("passes them through untouched, reading the session they already hold", async () => {
+    isAdmin.mockResolvedValue(true);
+    const refreshed = allowed();
+    const response = await proxy(request("/admin", { [TOKEN]: "t", [DATA]: sessionData("staff-1") }));
+    expect(isAdmin).toHaveBeenCalledWith("staff-1");
+    expect(response).toBe(refreshed);
+  });
+
+  it("reads the copy the middleware has just refreshed over a stale one", async () => {
+    isAdmin.mockImplementation(async (id) => id === "staff-1");
+    const refreshed = allowed([`${DATA}=${sessionData("staff-1")}; Path=/`]);
+    const stale = sessionData("someone-else", SECRET, Date.now() - 1000);
+
+    const response = await proxy(request("/admin", { [TOKEN]: "t", [DATA]: stale }));
+    expect(response).toBe(refreshed);
+  });
+});
+
+describe("the admin, when the proxy cannot tell", () => {
+  it.each([
+    ["a forged signature", () => sessionData("staff-1", "another-secret-that-is-32-characters-long")],
+    ["an expired copy", () => sessionData("staff-1", SECRET, Date.now() - 1000)],
+    ["no copy at all", () => undefined],
+  ])("leaves %s to the page's own staff check", async (_label, token) => {
+    const refreshed = allowed();
+    const value = token();
+    const response = await proxy(request("/admin", value ? { [TOKEN]: "t", [DATA]: value } : { [TOKEN]: "t" }));
+
+    expect(isAdmin).not.toHaveBeenCalled();
+    expect(rewrittenTo(response)).toBeNull();
+    expect(response).toBe(refreshed);
+  });
+
+  it("leaves it to the page when the role lookup fails", async () => {
+    isAdmin.mockRejectedValue(new Error("database down"));
+    const refreshed = allowed();
+    const response = await proxy(request("/admin", { [TOKEN]: "t", [DATA]: sessionData("staff-1") }));
+    expect(response).toBe(refreshed);
+  });
+});
+
+describe("everything else", () => {
+  it("leaves any other redirect to the middleware, such as finishing a social sign-in", async () => {
+    const oauth = NextResponse.redirect(new URL("/admin?verified=1", "https://qriateplus.com"));
+    middleware.mockResolvedValueOnce(oauth);
+    expect(await proxy(request("/admin?neon_auth_session_verifier=x"))).toBe(oauth);
   });
 
   it("does not treat a route that merely starts with admin as the admin", async () => {
@@ -69,8 +158,14 @@ describe("proxy", () => {
     expect(response.status).toBe(307);
   });
 
+  it("sends non-staff somewhere that can never be a page or a short code", () => {
+    // Two segments: a short code is one, and nothing is routed under `/_`.
+    expect(NOWHERE.split("/").filter(Boolean)).toHaveLength(2);
+  });
+
   it("covers the admin and keeps the redirect path out of the matcher", () => {
     expect(config.matcher).toContain("/admin/:path*");
     expect(config.matcher).not.toContain("/:path*");
+    expect(config.matcher).not.toContain("/_/:path*");
   });
 });
