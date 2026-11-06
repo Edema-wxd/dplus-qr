@@ -668,9 +668,14 @@ can be stored and assigned but is never advertised.
 **The staff admin is at `/admin`**, for accounts whose Neon Auth role
 includes `admin`, read from `neon_auth."user"` on every request rather than
 from the session, and refused to banned accounts. Everyone else, signed out
-included, gets the ordinary 404. `/admin` is deliberately not in the proxy
-matcher, which would redirect a signed-out visitor to sign-in and so reveal
-the page exists. Granting the role is SQL, never a screen:
+included, gets the ordinary 404. The proxy never redirects `/admin` to
+sign-in, which would reveal the page exists. It was first kept out of the
+proxy matcher for that reason, but the proxy is also where a session gets
+refreshed, and a Server Component cannot write the refreshed cookie: on
+4 Nov 2026 `/admin` failed with "Cookies can only be modified in a Server
+Action or Route Handler". So `/admin` is in the matcher for the refresh, and
+`proxy.ts` turns its login redirect there into a pass-through. Granting the
+role is SQL, never a screen:
 
     update neon_auth."user" set role = 'admin' where email = '...';
 
