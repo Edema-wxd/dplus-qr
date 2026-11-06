@@ -1,7 +1,7 @@
 /**
  * Small pure helpers for hosted page types: GS1 check digits, calendar files,
- * video embeds. No I/O, so the editor, the public page and the tests share
- * one implementation.
+ * video embeds, which store a phone is sent to. No I/O, so the editor, the
+ * public page and the tests share one implementation.
  */
 
 /**
@@ -140,5 +140,38 @@ export function videoEmbedUrl(raw: string): string | null {
     const vimeo = url.pathname.match(/^\/(\d{4,12})/)?.[1];
     if (vimeo) return `https://player.vimeo.com/video/${vimeo}`;
   }
+  return null;
+}
+
+/**
+ * A Huawei phone, by its user agent. Conservative on purpose: a phone wrongly
+ * read as Huawei is sent to AppGallery instead of the Play Store it has, so
+ * only tokens Huawei's own software writes count. `HUAWEI` is the uppercase
+ * model prefix Android builds report (`HUAWEI VOG-L29`), `HMSCore` is Huawei
+ * Mobile Services, which Huawei Browser announces, and `HarmonyOS` and
+ * `OpenHarmony` are the operating system. Case-sensitive, so a page or an app
+ * that merely mentions "Huawei" in its own token does not match.
+ */
+export function isHuaweiAgent(agent: string): boolean {
+  return /HUAWEI|HMSCore|HarmonyOS|OpenHarmony/.test(agent);
+}
+
+/**
+ * The store an app code sends this phone straight to, or null to show the
+ * page with every store's button.
+ *
+ * iPhone first. A Huawei phone goes to AppGallery only when the owner added
+ * an AppGallery link, and is checked before Android because Huawei phones
+ * report Android too. Without that link a Huawei phone is treated as any
+ * other Android phone, which is how it was handled before AppGallery was
+ * offered.
+ */
+export function appStoreFor(
+  app: { ios?: string; android?: string; huawei?: string },
+  agent: string
+): string | null {
+  if (app.ios && /iPhone|iPad|iPod/i.test(agent)) return app.ios;
+  if (app.huawei && isHuaweiAgent(agent)) return app.huawei;
+  if (app.android && /Android/i.test(agent)) return app.android;
   return null;
 }

@@ -16,8 +16,10 @@ import {
   parsePageContent,
 } from "@/lib/page-content";
 import {
+  appStoreFor,
   buildIcs,
   eventInstant,
+  isHuaweiAgent,
   gs1ElementString,
   isValidGtin,
   videoEmbedUrl,
@@ -46,6 +48,12 @@ describe("the code type catalog", () => {
     const list = sql.match(/qr_codes_kind_check check \(kind in \(([\s\S]*?)\)\)/)?.[1] ?? "";
     const kinds = [...list.matchAll(/'([a-z0-9]+)'/g)].map((m) => m[1]);
     expect(kinds.sort()).toEqual([...DYNAMIC_KINDS].sort());
+  });
+
+  it("does not sell the product page as a barcode a till can read", () => {
+    // The printed code is our short link, not a GS1 barcode or Digital Link.
+    const product = DYNAMIC_TYPES.find((t) => t.kind === "barcode")!;
+    expect(`${product.label} ${product.blurb}`).not.toMatch(/barcode|GS1/i);
   });
 
   it("serves hosted pages from a reserved path", () => {
@@ -134,6 +142,43 @@ describe("page content schemas", () => {
     expect(parsePageContent("app", { name: "App", ios: "https://evil.example/app" }).ok).toBe(false);
   });
 
+  it("accepts an app on AppGallery alone", () => {
+    const result = parsePageContent("app", {
+      name: "App",
+      huawei: "https://appgallery.huawei.com/app/C101234567",
+    });
+    expect(result.ok && result.content.huawei).toBe("https://appgallery.huawei.com/app/C101234567");
+  });
+
+  it("keeps the AppGallery link on AppGallery", () => {
+    expect(parsePageContent("app", { name: "App", huawei: "https://evil.example/app" })).toEqual({
+      ok: false,
+      reason: "The AppGallery link must be on appgallery.huawei.com.",
+    });
+    expect(
+      parsePageContent("app", { name: "App", huawei: "https://play.google.com/store/apps/details?id=x" }).ok
+    ).toBe(false);
+  });
+
+  it("asks for at least one store, naming all three", () => {
+    expect(parsePageContent("app", { name: "App", website: "https://example.com" })).toEqual({
+      ok: false,
+      reason: "Add at least one store link: App Store, Google Play or AppGallery.",
+    });
+  });
+
+  it("still reads an app saved before AppGallery was offered", () => {
+    const result = parsePageContent("app", {
+      name: "App",
+      description: "",
+      icon: null,
+      ios: "https://apps.apple.com/app/id123",
+      android: "",
+      website: "",
+    });
+    expect(result.ok && result.content.huawei).toBe("");
+  });
+
   it("refuses an event that ends before it starts", () => {
     expect(
       parsePageContent("event", { title: "x", start: "2026-11-20T18:00", end: "2026-11-20T17:00" })
@@ -151,6 +196,44 @@ describe("page content schemas", () => {
       sections: [{ name: "Mains", items: [{ name: "Jollof", price: "3,500" }] }],
     });
     expect(result.ok && result.content.currency).toBe("₦");
+  });
+
+  it("gives a menu dish an optional photo", () => {
+    const result = parsePageContent("menu", {
+      name: "Mama Put",
+      sections: [{ name: "Mains", items: [{ name: "Jollof", photo }, { name: "Suya", photo: null }] }],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.content.sections[0]!.items.map((item) => item.photo?.fileId ?? null)).toEqual(["8", null]);
+  });
+
+  it("still reads a menu saved before dishes had photos", () => {
+    const stored = {
+      name: "Mama Put",
+      description: "",
+      currency: "₦",
+      sections: [{ name: "Mains", items: [{ name: "Jollof", description: "", price: "3,500" }] }],
+    };
+    const result = parsePageContent("menu", stored);
+    expect(result.ok && result.content.sections[0]!.items[0]!.photo).toBeNull();
+  });
+
+  it("refuses a dish photo that is not an image", () => {
+    expect(
+      parsePageContent("menu", {
+        name: "Mama Put",
+        sections: [{ name: "Mains", items: [{ name: "Jollof", photo: pdf }] }],
+      })
+    ).toEqual({ ok: false, reason: "That file is not an image." });
+  });
+
+  it("drops the editor's upload mark from a dish", () => {
+    const result = parsePageContent("menu", {
+      name: "Mama Put",
+      sections: [{ name: "Mains", items: [{ name: "Jollof", uploadMark: "dish-1" }] }],
+    });
+    expect(result.ok && result.content.sections[0]!.items[0]).not.toHaveProperty("uploadMark");
   });
 
   it("finds every file reference, however deep", () => {
@@ -185,6 +268,68 @@ describe("page helpers", () => {
     expect(ics).toContain("DTSTART:20261120T170000Z");
     expect(ics).toContain("DTEND:20261120T180000Z");
     expect(ics).toContain("SUMMARY:Launch\\, night");
+  });
+
+  describe("which store an app code sends a phone to", () => {
+    const IPHONE =
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+    const SAMSUNG =
+      "Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+    const HUAWEI_CHROME =
+      "Mozilla/5.0 (Linux; Android 10; HUAWEI VOG-L29) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+    const HUAWEI_BROWSER =
+      "Mozilla/5.0 (Linux; Android 12; HarmonyOS; NOH-NX9; HMSCore 6.13.0.302) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.5735.196 HuaweiBrowser/15.0.4.312 Mobile Safari/537.36";
+    const HARMONY_NEXT =
+      "Mozilla/5.0 (Phone; OpenHarmony 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 ArkWeb/5.0.0.0 Mobile";
+    const DESKTOP =
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
+    const all = {
+      ios: "https://apps.apple.com/app/id1",
+      android: "https://play.google.com/store/apps/details?id=ng.app",
+      huawei: "https://appgallery.huawei.com/app/C1",
+    };
+
+    it.each([
+      ["a Huawei phone in Chrome", HUAWEI_CHROME],
+      ["Huawei Browser on HarmonyOS", HUAWEI_BROWSER],
+      ["a HarmonyOS NEXT phone", HARMONY_NEXT],
+    ])("reads %s as Huawei", (_label, agent) => {
+      expect(isHuaweiAgent(agent)).toBe(true);
+      expect(appStoreFor(all, agent)).toBe(all.huawei);
+    });
+
+    it.each([
+      ["an iPhone", IPHONE],
+      ["a Samsung", SAMSUNG],
+      ["a computer", DESKTOP],
+      ["an app that only mentions the brand", "Mozilla/5.0 (Linux; Android 14; Pixel 8) HuaweiFanApp/1.0"],
+      ["an empty agent", ""],
+    ])("does not read %s as Huawei", (_label, agent) => {
+      expect(isHuaweiAgent(agent)).toBe(false);
+    });
+
+    it("sends each phone to its own store", () => {
+      expect(appStoreFor(all, IPHONE)).toBe(all.ios);
+      expect(appStoreFor(all, SAMSUNG)).toBe(all.android);
+    });
+
+    it("sends a Huawei phone to Google Play when there is no AppGallery link, as before", () => {
+      expect(appStoreFor({ ...all, huawei: "" }, HUAWEI_CHROME)).toBe(all.android);
+    });
+
+    it("shows the page when this phone's store has no link", () => {
+      expect(appStoreFor({ ...all, android: "" }, SAMSUNG)).toBeNull();
+      expect(appStoreFor({ ios: "", android: "", huawei: all.huawei }, IPHONE)).toBeNull();
+      expect(appStoreFor(all, DESKTOP)).toBeNull();
+      // HarmonyOS NEXT says no "Android", so without AppGallery it gets the buttons.
+      expect(appStoreFor({ ...all, huawei: "" }, HARMONY_NEXT)).toBeNull();
+    });
+
+    it("is what the hosted page uses", () => {
+      const page = readFileSync(path.join(__dirname, "..", "app", "p", "[code]", "page.tsx"), "utf8");
+      expect(page).toMatch(/appStoreFor\(app,/);
+    });
   });
 
   it("embeds YouTube and Vimeo, and nothing else", () => {
