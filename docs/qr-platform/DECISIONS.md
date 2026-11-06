@@ -1115,6 +1115,41 @@ Tested against a local Postgres (each upload matched to its codes, an unused
 one marked, another account's file excluded) and rendered at phone and
 desktop width.
 
+## The proxy refreshes admin sessions too, 6 November 2026
+
+Supersedes the line in the staff admin entry above that kept `/admin` out of
+the `proxy.ts` matcher.
+
+**The bug.** Production logged "Cookies can only be modified in a Server
+Action or Route Handler" on `/admin/customers` (first 4 November). Neon
+Auth's `getSession()` trusts a signed cache cookie for 5 minutes, then asks
+the service, which from time to time answers with a rotated session cookie;
+the library writes it with `cookies().set()`, and a page is not allowed to
+write cookies, so it threw. `/app`, `/account` and `/billing` never hit it
+because the proxy runs first and does that refresh, where writing is
+allowed. `/admin` had no proxy, so the rotation could land on the page.
+
+**The fix.** `/admin` is in the matcher, but only for the refresh: when the
+middleware answers with a redirect to sign-in, the proxy turns it into
+"carry on", and `requireStaff()` answers the ordinary 404 as before. A
+signed-out visitor still learns nothing, and with no session cookie the
+middleware makes no call to Neon Auth, so the timing gives nothing away
+either. Any other redirect (finishing a social sign-in) passes through.
+
+- Verified against the library's own middleware (run under `tsx`, Neon's
+  servers stubbed): signed out at `/admin` carries on with no upstream call,
+  signed out at `/app` still redirects, and a signed-in admin with an expired
+  cache has the refresh done, and its cookie written, in the proxy.
+- Next passes cookies the proxy sets on to the page only through
+  `cookies()`, and the library reads the request's `Cookie` header, so the
+  page still makes its own session read. That is the same arrangement `/app`
+  has always run on, where the proxy's refresh leaves the page's read
+  nothing to rotate; production has never logged this error anywhere but
+  `/admin`.
+- Unit tests (`proxy.test.ts`) hold the redirect swap, the pass-through of
+  refreshed cookies and other redirects, and the matcher, which still has no
+  catch-all and no code path.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
