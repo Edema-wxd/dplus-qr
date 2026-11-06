@@ -139,9 +139,14 @@ reliability for a feature, reliability wins. Everything below follows from that.
   from the session, so revoking it takes effect at once.
 - `requireStaff()` gates every page and `staffForAction()` every Server
   Action, in `src/app/(admin)/admin/guard.ts`. Non-admins, signed out included,
-  get the ordinary 404. `/admin` is deliberately **not** in the `proxy.ts`
-  matcher: the proxy would redirect a signed-out visitor to sign-in, which
-  reveals the page exists.
+  get the ordinary 404. The proxy must never redirect `/admin` to sign-in,
+  which would reveal the page exists. It is in the `proxy.ts` matcher only so
+  the session is refreshed there: a page cannot write cookies, so a refresh
+  attempted by `requireStaff()` threw. `proxy.ts` answers a signed-out
+  `/admin` itself, rewriting it to a path no route serves, so it gets the same
+  404 status and page as any dead link. The page cannot do that: its
+  `loading.tsx` shell, with the admin's title, is sent with a 200 before
+  `requireStaff()` runs.
 - Every page view, search and change writes `qr_admin_audit` (`audit()` after
   the response, `recordChange()` awaited).
 
