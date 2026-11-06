@@ -1,75 +1,61 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { CODE_HOST, PRODUCT_NAME } from "@/lib/brand";
+import { CODE_HOST } from "@/lib/brand";
 import { DEMO_CODE, DESTINATION_LOG } from "@/lib/landing";
+import { Flaps } from "./Flaps";
 
-type Row = { when: string; url: string; note: string; added?: boolean };
+type Row = { id: number; when: string; url: string; added?: boolean };
+
+/** Rows the board shows at once; older ones roll off the top, as on a real board. */
+const VISIBLE_ROWS = 4;
+
+/** Fit a destination into a fixed run of cells, the way a board truncates a long name. */
+function fit(text: string, cells: number): string {
+  return text.length <= cells ? text : `${text.slice(0, cells - 1)}…`;
+}
 
 /**
- * The page's one authored interaction, and the whole thesis in behaviour:
- * the visitor changes the destination and the symbol does not move.
+ * The page's one authored interaction, and the whole offer in behaviour: the
+ * visitor changes the destination and the printed code does not move.
  *
- * The symbol arrives as `children`, rendered on the server, and nothing in this
- * component can touch it — no key, no transform, no re-render path that reaches
- * it. That is deliberate. The proof is structural, not animated: the one thing
- * on screen that never reacts is the thing that is printed.
+ * The QR symbol arrives as `children`, rendered on the server, and nothing in
+ * this component can touch it — no key, no transform, no re-render path that
+ * reaches it. Only the destination flaps turn over.
  *
  * It never claims to register a code. Pointing the demo is free and local;
  * keeping it is what the account is for, which is also the funnel.
  */
-export function CodeDemo({
-  heading,
-  children,
-}: {
-  heading: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  const [rows, setRows] = useState<Row[]>(() => [...DESTINATION_LOG]);
+export function DepartureBoard({ children }: { children: React.ReactNode }) {
+  const [rows, setRows] = useState<Row[]>(() =>
+    DESTINATION_LOG.slice(-VISIBLE_ROWS).map((row, id) => ({ id, when: row.when, url: row.url }))
+  );
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [changed, setChanged] = useState(false);
   const fieldId = useId();
-  const logRef = useRef<HTMLOListElement>(null);
 
   const live = rows[rows.length - 1];
-
-  // On a wide screen the log sits beside the form and grows downward, so after
-  // a few submissions the new live row lands below the fold and the click
-  // appears to do nothing. Bring it into view, but only there: on a phone the
-  // log is a screen away from the form, and yanking the page off the field the
-  // visitor is typing into would be worse. The readout under the symbol covers
-  // that case.
-  useEffect(() => {
-    if (!live.added) return;
-    const row = logRef.current?.lastElementChild;
-    if (!row || !window.matchMedia("(min-width: 1024px)").matches) return;
-    const { top, bottom } = row.getBoundingClientRect();
-    if (top >= 0 && bottom <= window.innerHeight) return;
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    row.scrollIntoView({ block: "nearest", behavior: still ? "auto" : "smooth" });
-  }, [live]);
 
   function point(event: React.FormEvent) {
     event.preventDefault();
     const raw = draft.trim();
-    if (!raw) return;
+    if (!raw) {
+      setError("Type a web address first, like yourshop.com/menu.");
+      return;
+    }
 
     // Mirrors the shape of the real server-side check without pretending to be
     // it: the destination is validated with zod on the server when a code is
-    // actually saved. Here it only has to be a URL a person meant.
-    //
-    // `new URL` alone is far too permissive for that — it happily parses
-    // "not a url at all" into a host of "not" and a percent-encoded path, which
-    // then reads as a live destination in the log and makes the demonstration
-    // lie. A destination has to carry a hostname with at least one dot and
-    // nothing in it but the characters a hostname may hold.
+    // actually saved. Here it only has to be a URL a person meant. `new URL`
+    // alone parses "not a url at all" into a host of "not", so a destination
+    // must also carry a hostname with at least one dot.
     let parsed: URL;
     try {
       parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
     } catch {
-      setError("That does not look like a web address yet.");
+      setError("That does not look like a web address yet. Try yourshop.com/menu.");
       return;
     }
     const host = parsed.hostname;
@@ -77,7 +63,7 @@ export function CodeDemo({
       /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(host) &&
       !/\s|%/.test(raw);
     if (!looksLikeHost) {
-      setError("That does not look like a web address yet.");
+      setError("That does not look like a web address yet. Try yourshop.com/menu.");
       return;
     }
     if (host === CODE_HOST || host.endsWith(".de-signplus.com") || host === "de-signplus.com") {
@@ -87,205 +73,135 @@ export function CodeDemo({
 
     setError(null);
     setDraft("");
-    setRows((previous) => [
-      // Retire whatever is currently live, whatever it happens to be labelled.
-      // Matching the literal string "Today" left a second submission with two
-      // rows both claiming to be the live destination.
-      ...previous.map((row, index) =>
-        index === previous.length - 1 ? { ...row, when: "Earlier", added: false } : row
-      ),
-      {
-        when: "Just now",
-        url: `${host}${parsed.pathname === "/" ? "" : parsed.pathname}`,
-        note: "You changed it. The symbol did not.",
-        added: true,
-      },
-    ]);
+    setChanged(true);
+    setRows((previous) => {
+      const next = [
+        ...previous.map((row, index) =>
+          index === previous.length - 1
+            ? { ...row, when: "Earlier", added: false }
+            : { ...row, added: false }
+        ),
+        {
+          id: previous[previous.length - 1].id + 1,
+          when: "Just now",
+          url: `${host.replace(/^www\./, "")}${parsed.pathname === "/" ? "" : parsed.pathname}`,
+          added: true,
+        },
+      ];
+      return next.slice(-VISIBLE_ROWS);
+    });
   }
 
   return (
-    <>
-      {/*
-        On a phone the headline comes first: a visitor who meets a QR symbol and
-        the word "specimen" before any sentence has not been told what this is.
-        On desktop the grid puts the specimen back on the left, spanning both
-        rows, where it can pin.
-      */}
-      <div className="order-1 lg:order-none lg:col-start-2 lg:row-start-1 lg:px-14 lg:pt-20 px-7 pb-2 pt-12 sm:px-10 lg:pb-0">
-        {heading}
+    <div className="lp-board p-4 sm:p-6">
+      {/* The fixed column: the printed code. */}
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-4 sm:gap-6">
+        <div className="rounded-lg bg-white p-1.5 sm:p-2">{children}</div>
+        <div className="min-w-0">
+          <p className="text-[13px] text-(--chalk-soft)">The printed code</p>
+          <p className="mt-2 hidden text-[clamp(12px,1.4vw,15px)] sm:block xl:text-[clamp(11px,1.1vw,15px)]">
+            <Flaps text={`${CODE_HOST}/${DEMO_CODE}`} />
+          </p>
+          <p className="mt-2 max-w-[30ch] text-sm leading-snug text-(--chalk-soft) sm:mt-3">
+            Printed once. It never changes. Only where it sends people does.
+          </p>
+        </div>
+        {/* On a phone the address needs the board's full width to stay legible. */}
+        <p className="col-span-2 text-[clamp(11px,3.5vw,15px)] sm:hidden">
+          <Flaps text={`${CODE_HOST}/${DEMO_CODE}`} />
+        </p>
       </div>
 
-      <div className="lp-paper order-2 flex flex-col px-7 pb-8 pt-9 sm:px-10 lg:order-none lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:sticky lg:top-0 lg:h-dvh lg:overflow-y-auto">
-        <div className="flex items-center justify-between gap-4">
-          <Image
-            src="/brand/qriate-wordmark.svg"
-            alt={PRODUCT_NAME}
-            width={150}
-            height={62}
-            priority
-            className="hidden h-auto w-[150px] lg:block"
-          />
-          <p className="text-[11px] uppercase tracking-[0.22em] text-[var(--paper-soft)]">
-            Specimen · 7 characters · base-58
-          </p>
+      {/* The moving column: where it sends people. */}
+      <div className="mt-6 border-t lp-board-rule pt-4">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 pb-2 text-xs text-[var(--chalk-muted)] sm:grid-cols-[6.5rem_minmax(0,1fr)_auto]">
+          <span className="hidden sm:block">When</span>
+          <span>Sends people to</span>
+          <span className="text-right">Status</span>
         </div>
-
-        <div className="flex flex-1 flex-col items-center justify-center py-7 lg:py-5">
-          <div className="relative">
-            {children}
-            {["-top-2 -left-2", "-top-2 -right-2", "-bottom-2 -left-2", "-bottom-2 -right-2"].map(
-              (where) => (
-                <span
-                  key={where}
-                  aria-hidden
-                  className={`absolute ${where} size-3 rounded-full bg-[var(--pin)] shadow-[0_1px_3px_rgba(0,0,0,0.35)]`}
-                />
-              )
-            )}
-          </div>
-
-          <p className="mt-6 text-center text-[11px] uppercase tracking-[0.2em] text-[var(--paper-soft)]">
-            This symbol never changes again
-          </p>
-          <p className="lp-num mt-1.5 text-center font-mono text-[15px] sm:text-base">
-            {CODE_HOST}/{DEMO_CODE}
-          </p>
-          {/*
-            Where the code leads right now, next to the form that changes it.
-            The log is the record, but it is beside the form only on a wide
-            screen; on a phone it is a full screen below, so without this line
-            pressing "Point it" changed nothing the visitor could see. Keyed on
-            the URL so each change replays a short swap, not a slow fade.
-          */}
-          <p
-            aria-live="polite"
-            className="mt-3 flex max-w-full items-baseline justify-center gap-2 text-center text-sm text-[var(--paper-soft)]"
-          >
-            <span className="shrink-0">Opens</span>
-            <span
-              key={live.url}
-              className="lp-swap min-w-0 truncate font-mono text-[var(--live-ink)]"
-            >
-              {live.url}
-            </span>
-          </p>
-        </div>
-
-        <form
-          onSubmit={point}
-          className="mt-6 border-t border-[var(--paper-rule)] pt-5"
-          noValidate
-        >
-          <label htmlFor={fieldId} className="block text-sm text-[var(--paper-soft)]">
-            Send it somewhere else
-          </label>
-          <div className="mt-2 flex gap-2">
-            <input
-              id={fieldId}
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                if (error) setError(null);
-              }}
-              placeholder="your-site.com/anywhere"
-              inputMode="url"
-              autoComplete="url"
-              aria-describedby={error ? `${fieldId}-error` : undefined}
-              className="min-w-0 flex-1 rounded-lg border border-[var(--paper-rule)] bg-white px-3.5 py-2.5 text-[15px] text-[var(--paper-ink)] placeholder:text-[var(--paper-soft)] transition-colors duration-150 focus:border-[var(--paper-ink)]"
-            />
-            <button
-              type="submit"
-              className="rounded-lg bg-[var(--paper-ink)] px-4 py-2.5 font-sarlotte text-lg text-[var(--paper)] transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.97]"
-            >
-              Point it
-            </button>
-          </div>
-          {error ? (
-            <p id={`${fieldId}-error`} role="alert" className="mt-2 text-sm text-[var(--struck-ink)]">
-              {error}
-            </p>
-          ) : (
-            <p className="mt-2 text-xs leading-relaxed text-[var(--paper-soft)]">
-              A preview, here in your browser. Nothing is saved and no code is issued yet.
-            </p>
-          )}
-        </form>
-
-        <Link
-          href="/auth/sign-up"
-          className="mt-4 flex flex-col gap-1.5 rounded-lg bg-[var(--pin)] px-5 py-4 text-[var(--paper-ink)] no-underline transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.99] sm:flex-row sm:items-baseline sm:justify-between sm:gap-4"
-          data-plain
-        >
-          <span className="whitespace-nowrap font-sarlotte text-2xl leading-none">
-            Keep this code
-          </span>
-          <span className="whitespace-nowrap text-[11px] uppercase tracking-[0.16em] opacity-70">
-            Create an account
-          </span>
-        </Link>
-      </div>
-
-      <div className="order-3 px-7 pb-16 pt-12 sm:px-10 lg:order-none lg:col-start-2 lg:row-start-2 lg:px-14 lg:pb-20 lg:pt-10">
-        <div className="mt-0 flex items-baseline justify-between gap-4 border-b border-[var(--field-rule)] pb-2.5 text-[11px] uppercase tracking-[0.2em] text-[var(--field-muted)]">
-          <span>Destination history · {DEMO_CODE}</span>
-          <span>Illustrative</span>
-        </div>
-
-        <ol ref={logRef} className="mb-10">
+        <ol aria-label={`Where ${DEMO_CODE} has pointed (illustrative)`}>
           {rows.map((row, index) => {
             const isLive = row === live;
+            const delay = row.added ? 0 : index * 140;
             return (
               <li
-                key={`${row.when}-${row.url}-${index}`}
-                className={`grid grid-cols-[5.5rem_1fr] items-baseline gap-x-4 gap-y-1 border-b border-[var(--field-rule)]/55 py-3.5 sm:grid-cols-[7rem_1fr_auto] ${
-                  row.added ? "lp-rise" : ""
-                }`}
-                style={
-                  row.added || index > DESTINATION_LOG.length
-                    ? undefined
-                    : { animationDelay: `${index * 55}ms` }
-                }
+                key={row.id}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 border-t lp-board-rule py-2 text-[clamp(11px,2.9vw,14px)] sm:grid-cols-[6.5rem_minmax(0,1fr)_auto]"
               >
-                <time className="lp-num text-[11px] uppercase tracking-[0.12em] text-[var(--field-muted)]">
-                  {row.when}
-                </time>
-                <span
-                  className={`truncate font-mono text-[13.5px] sm:text-sm ${
-                    isLive ? "text-[var(--live)]" : "text-[var(--field-muted)]"
-                  }`}
-                >
-                  {row.url}
+                <span className="hidden sm:block">
+                  <Flaps text={row.when} tone="dim" flip delayMs={delay} />
                 </span>
-                <span className="col-start-2 text-xs text-[var(--field-muted)] sm:col-start-3 sm:text-right">
-                  {isLive ? (
-                    <span className="rounded-full border border-[var(--live)] px-2 py-0.5 text-[11px] uppercase tracking-[0.16em] text-[var(--live)]">
-                      Live
-                    </span>
-                  ) : (
-                    row.note
-                  )}
+                <span className="min-w-0 overflow-hidden">
+                  <span className="sm:hidden">
+                    <Flaps text={fit(row.url, 17)} tone={isLive ? "plain" : "dim"} flip delayMs={delay} />
+                  </span>
+                  <span className="hidden sm:inline">
+                    <Flaps text={fit(row.url, 22)} tone={isLive ? "plain" : "dim"} flip delayMs={delay} />
+                  </span>
+                </span>
+                <span className="text-right">
+                  <Flaps
+                    key={isLive ? "live" : "was"}
+                    text={isLive ? "LIVE" : "WAS "}
+                    tone={isLive ? "live" : "dim"}
+                    flip
+                    delayMs={row.added ? 380 : delay + 200}
+                  />
                 </span>
               </li>
             );
           })}
         </ol>
-
-        <p className="max-w-[40ch] text-sm leading-relaxed text-[var(--field-muted)]"
-        >
-          {live.note}
-        </p>
-
-        {/*
-          The proof, in the fold. Three of the redirect contract's commitments
-          run as a hairline strip under the log, so a visitor who never scrolls
-          has still been told why a printed code keeps resolving.
-        */}
-        <ul className="mt-10 flex flex-wrap gap-x-7 gap-y-2 border-t border-[var(--field-rule)] pt-4 text-[11px] uppercase tracking-[0.15em] text-[var(--field-muted)] lg:mt-12">
-          {["302, never 301", "no-store on every response", "one cached lookup"].map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
       </div>
-    </>
+
+      <form onSubmit={point} className="mt-5 border-t lp-board-rule pt-5" noValidate>
+        <label htmlFor={fieldId} className="block text-[15px] text-[var(--chalk)]">
+          Try it: send this code somewhere else
+        </label>
+        <div className="mt-2.5 flex gap-2">
+          <input
+            id={fieldId}
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="yourshop.com/menu"
+            inputMode="url"
+            autoComplete="url"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={`${fieldId}-help`}
+            className="lp-field min-w-0 flex-1 px-3.5 py-2.5 text-base"
+          />
+          <button type="submit" className="lp-btn lp-btn-cyan shrink-0 px-4 py-2.5 text-lg leading-none">
+            Change it
+          </button>
+        </div>
+        <p
+          id={`${fieldId}-help`}
+          role={error ? "alert" : undefined}
+          aria-live="polite"
+          className={`mt-2 min-h-[2.5em] text-[13px] leading-snug ${
+            error ? "text-[var(--coral)]" : "text-[var(--chalk-muted)]"
+          }`}
+        >
+          {error ??
+            (changed
+              ? `Done. ${DEMO_CODE} now opens ${live.url}, and the printed code above did not change at all.`
+              : "A preview in your browser. The history above is illustrative and nothing is saved.")}
+        </p>
+      </form>
+
+      {changed ? (
+        <Link
+          href="/auth/sign-up"
+          className="lp-btn lp-btn-cyan mt-2 w-full justify-between px-5 py-3.5 text-xl"
+          data-plain
+        >
+          Make a real one
+          <span className="font-sans text-sm">Create an account</span>
+        </Link>
+      ) : null}
+    </div>
   );
 }
