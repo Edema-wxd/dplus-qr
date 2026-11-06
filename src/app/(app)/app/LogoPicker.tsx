@@ -34,7 +34,12 @@ export function LogoPicker({
   /** Keeps radio ids unique when two pickers could share a page. */
   idPrefix: string;
   name?: string;
-  onChange?: (logoId: string) => void;
+  /**
+   * Called with the chosen id ("" for none) and the logo itself, so a caller
+   * that draws in the browser has the URL of one uploaded a moment ago, before
+   * this picker's own list has re-rendered with it.
+   */
+  onChange?: (logoId: string, logo: PickerLogo | null) => void;
 }) {
   const [logos, setLogos] = useState(initial);
   const [selected, setSelected] = useState(defaultSelected);
@@ -42,20 +47,18 @@ export function LogoPicker({
   const [removing, startRemoving] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function select(id: string) {
-    setSelected(id);
-    onChange?.(id);
+  function select(logo: PickerLogo | null) {
+    setSelected(logo?.id ?? "");
+    onChange?.(logo?.id ?? "", logo);
   }
 
   const { startUpload, isUploading } = useUploadThing("logo", {
     onClientUploadComplete: (results) => {
       const data = results[0]?.serverData;
       if (!data) return;
-      setLogos((previous) => [
-        { id: data.logoId, url: data.url, name: data.name },
-        ...previous.filter((logo) => logo.id !== data.logoId),
-      ]);
-      select(data.logoId);
+      const added = { id: data.logoId, url: data.url, name: data.name };
+      setLogos((previous) => [added, ...previous.filter((logo) => logo.id !== data.logoId)]);
+      select(added);
       setError(null);
       toast.success("Logo uploaded", {
         id: "logo-library",
@@ -83,7 +86,7 @@ export function LogoPicker({
         return;
       }
       setLogos((previous) => previous.filter((item) => item.id !== logo.id));
-      if (selected === logo.id) select("");
+      if (selected === logo.id) select(null);
       toast.success("Logo removed from your library", {
         id: "logo-library",
         description: "Codes already drawn with it keep it.",
@@ -106,7 +109,7 @@ export function LogoPicker({
             name={name}
             value=""
             checked={selected === ""}
-            onChange={() => select("")}
+            onChange={() => select(null)}
             className="peer sr-only"
           />
           <label htmlFor={`${idPrefix}-none`} className={option}>
@@ -122,7 +125,7 @@ export function LogoPicker({
               name={name}
               value={logo.id}
               checked={selected === logo.id}
-              onChange={() => select(logo.id)}
+              onChange={() => select(logo)}
               className="peer sr-only"
             />
             <label htmlFor={`${idPrefix}-${logo.id}`} className={option}>

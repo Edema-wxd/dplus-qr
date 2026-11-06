@@ -107,7 +107,16 @@ export default async function NewCodePage({
     const type = staticType(fixed);
     return (
       <DashShell heading={type.label} meta={`Static code · ${type.blurb}`} back={back}>
-        <StaticCodeForm kind={fixed} />
+        {/*
+          The library is the session user's own (`listLogos` filters by
+          user id). Colours and logos are on every plan, so nothing is gated;
+          the code's content still never comes to the server.
+        */}
+        <StaticCodeForm
+          kind={fixed}
+          logos={library.map(({ id, url, name }) => ({ id, url, name }))}
+          uploads={uploads}
+        />
       </DashShell>
     );
   }
