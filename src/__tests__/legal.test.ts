@@ -8,6 +8,7 @@ import {
 } from "@/lib/legal";
 import { INBOX_DOMAIN, LAPSE_RETENTION_MONTHS } from "@/lib/brand";
 import { ALPHABET, CODE_LENGTH, isReserved } from "@/lib/short-code";
+import { INVITE_DAYS, INVITE_KEEP_DAYS } from "@/lib/team-invite";
 
 /** Every word of a document, flattened, for clause assertions. */
 function text(doc: LegalDocument): string {
@@ -122,6 +123,22 @@ describe("legal pages", () => {
    * `hashIp()` in src/lib/ip.ts salts with the UTC day, and the redirect sets
    * no cookies. If either changes, this page has to change with it.
    */
+  it("says the owner answers for their team, and that a lapse locks people out rather than removing them", () => {
+    const terms = text(TERMS);
+    expect(terms).toMatch(/responsible for what the people you invite do in your account/);
+    expect(terms).toMatch(/Only you, the account owner, can invite people/);
+    expect(terms).toMatch(/lose access until it does again\. Nobody is removed/);
+  });
+
+  it("explains invitee addresses and team visibility, quoting the constants that set them", () => {
+    const privacy = text(PRIVACY);
+    expect(privacy).toContain(`while it can be accepted (${INVITE_DAYS} days)`);
+    expect(privacy).toContain(`for ${INVITE_KEEP_DAYS} days after it is accepted, cancelled or expires`);
+    expect(privacy).toMatch(/owner can see your name, email address and role/);
+    expect(privacy).toMatch(/not your email address/);
+    expect(privacy).toMatch(/an invitation when someone invites you to their team/);
+  });
+
   it("keeps the privacy claims the redirect path actually honours", () => {
     const body = text(PRIVACY);
     expect(body).toMatch(/never store the IP address/i);

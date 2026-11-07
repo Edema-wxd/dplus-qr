@@ -1,8 +1,7 @@
 # Plan: Team seats
 
-**Status: approved 7 November 2026; steps 1 to 6 built (migration 028,
-`account-scope.ts`, `seats.ts`, `team.ts`, lock-outs in `resolve-scope.ts`,
-staff admin and erasure) and switched off until step 7, see DECISIONS.md.** Answers: Business only, 5 people
+**Status: built and launched 7 November 2026 (steps 1 to 7), see
+DECISIONS.md. Kept as the record of the design.** Answers: Business only, 5 people
 including the owner; owner, editor and viewer; lock members out and keep
 memberships; every other recommendation as written. Changes from the text
 below: the account check is `access(n)` with the actor and roles appended

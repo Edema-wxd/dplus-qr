@@ -37,6 +37,13 @@ export const inviteSchema = z.object({
 /** How long an invite can be accepted for. */
 export const INVITE_DAYS = 7;
 
+/**
+ * How long a settled invitation (accepted, cancelled or expired) is kept,
+ * address and all, before `pruneInvites` deletes it. Long enough for the
+ * owner to see what became of an invite; the privacy policy quotes it.
+ */
+export const INVITE_KEEP_DAYS = 30;
+
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 /** 32 random bytes as base64url: the only credential an invite has. */

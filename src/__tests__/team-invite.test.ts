@@ -95,8 +95,8 @@ describe("what an invitee is shown", () => {
 });
 
 describe("the launch switch", () => {
-  it("keeps teams dark until team_seats is built", () => {
-    expect(teamSeatsLive()).toBe(false);
+  it("is on, because team_seats is built", () => {
+    expect(teamSeatsLive()).toBe(true);
   });
 });
 

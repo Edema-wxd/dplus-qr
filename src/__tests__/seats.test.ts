@@ -132,10 +132,11 @@ describe("team_seats in the plan catalogue", () => {
     expect(featuresFromForm(form, { team_seats: 5 }).team_seats).toBeUndefined();
   });
 
-  it("is not advertised until it is built, and then says how many people", () => {
-    expect(def.built).toBe(false);
-    expect(advertisedFeatures({ team_seats: 5 }).join(" ")).not.toMatch(/people|seat/i);
-    expect(def.kind === "number" && def.advertise?.(5)).toBe("Up to 5 people, with their own sign-in");
+  it("is advertised from the plan's count, and not at all without a team", () => {
+    expect(def.built).toBe(true);
+    expect(advertisedFeatures({ team_seats: 5 })).toContain("Up to 5 people, with their own sign-in");
+    expect(advertisedFeatures({ team_seats: 1 }).join(" ")).not.toMatch(/people/);
+    expect(advertisedFeatures({}).join(" ")).not.toMatch(/people/);
   });
 
   it("is offered from the cheapest plan with a team, read from the rows", () => {

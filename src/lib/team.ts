@@ -7,6 +7,7 @@ import { canInvite, MEMBER_USABLE_SQL, planSeats, seatState, seatsHeldSql } from
 import {
   hashInviteToken,
   INVITE_DAYS,
+  INVITE_KEEP_DAYS,
   inviteEmail,
   invitePath,
   isInviteToken,
@@ -657,4 +658,24 @@ export async function staffRevokeInvite(accountId: string, inviteId: string): Pr
     await logEvent(run, { accountId, actorId: null, action: "invite.revoke", detail: { inviteId, by: "staff" } });
     return { ok: true as const, role: rows[0].role };
   });
+}
+
+/**
+ * Delete invitations that were settled more than `INVITE_KEEP_DAYS` ago:
+ * accepted, cancelled, or expired unanswered. An invitation holds the
+ * address of someone who may never have used the service, so it is kept
+ * only as long as it is useful. Membership itself is in
+ * `qr_account_members`; the team log names invites by id only. Run nightly
+ * by the scan maintenance job, and harmless to run twice.
+ */
+export async function pruneInvites(): Promise<number> {
+  const rows = await query<{ id: string }>(
+    `delete from qr_account_invites
+      where (accepted_at is not null and accepted_at < now() - make_interval(days => $1))
+         or (revoked_at is not null and revoked_at < now() - make_interval(days => $1))
+         or (accepted_at is null and revoked_at is null and expires_at < now() - make_interval(days => $1))
+      returning id`,
+    [INVITE_KEEP_DAYS]
+  );
+  return rows.length;
 }

@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { env } from "@/lib/env";
 import { pruneScans, rollupScans } from "@/lib/rollup";
+import { pruneInvites } from "@/lib/team";
 
 /**
  * Nightly maintenance: roll scans up, then prune what retention no longer
@@ -28,9 +29,15 @@ export async function GET(request: Request) {
   try {
     const rolled = await rollupScans();
     const pruned = await pruneScans();
+    // Old team invitations, which hold the address of someone who may never
+    // have joined. After the scan work, and never allowed to fail it.
+    const invites = await pruneInvites().catch((error) => {
+      console.error("[cron] invite prune failed", error);
+      return null;
+    });
 
     return Response.json(
-      { ok: true, rolled, pruned },
+      { ok: true, rolled, pruned, invitesDeleted: invites },
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {

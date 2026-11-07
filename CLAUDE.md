@@ -338,8 +338,8 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
   retention and upload sweeps exist but run only with `DELETION_SWEEPS_ENABLED`.
 - Accounts on Neon Auth, the dashboard (sidebar, plan meter, code types and
   hosted pages, logos, colours, custom links, analytics, share-stats links,
-  CSV export, bulk creation with zip download), and upgrade prompts on every
-  locked feature.
+  CSV export, bulk creation with zip download, team seats with invitations
+  and an account switcher), and upgrade prompts on every locked feature.
 - Billing: Paystack checkout and webhooks, grace and lapse, the public
   `/pricing` page and `/billing`, both read from `qr_plans`.
 - Staff admin: overview with what needs attention, abuse-report queue,

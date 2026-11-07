@@ -152,11 +152,12 @@ describe("plan schemas", () => {
 describe("advertisedFeatures", () => {
   it("advertises built flags only", () => {
     // No hosted_pages flag, so the plan reads as link codes only (its `absent`
-    // line); team_seats is unbuilt and analytics retired, so neither is
-    // advertised.
+    // line); analytics is retired, so it is never advertised; team seats are
+    // built and read from the count.
     expect(advertisedFeatures({ csv_export: true, team_seats: 5, analytics: "trends", support: "email" })).toEqual([
       "CSV export of scans",
       "Link codes only",
+      "Up to 5 people, with their own sign-in",
       "Email support",
     ]);
   });
