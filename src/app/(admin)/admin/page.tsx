@@ -14,7 +14,10 @@ import { pageReferrals } from "@/lib/signup-source";
 import { audit, requireStaff } from "./guard";
 import { AdminShell, SectionHeading, Stat, day, tableClass, tdClass, thClass } from "./AdminShell";
 
-export const metadata: Metadata = { title: "Admin" };
+// No admin page names the admin in its title. A title is in the prerendered
+// shell, and when `proxy.ts` cannot tell who is staff it lets the shell go out
+// to whoever asked, before `requireStaff()` refuses them.
+export const metadata: Metadata = { title: "Overview" };
 
 // Live figures for one staff member, with nothing useful to stream around.
 export const instant = false;

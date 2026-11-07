@@ -17,7 +17,7 @@ import { AssignPlan } from "../AssignPlan";
 import { AccountActions } from "../AccountActions";
 import { EraseAccount, RetryRemoveSignIn } from "../EraseAccount";
 
-export const metadata: Metadata = { title: "Customer · Admin" };
+export const metadata: Metadata = { title: "Customer" };
 export const instant = false;
 
 /**

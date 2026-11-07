@@ -1404,6 +1404,24 @@ been logged so far. The fix for that is not in code: stop Neon pausing the
 production compute (its "scale to zero" setting), which costs compute hours
 for every hour it stays awake. That is a plan and budget decision, left open.
 
+## Admin page titles no longer name the admin, 7 November 2026
+
+Reverses "Staff keep descriptive tab titles: nobody else ever receives
+them" in the entry above. Someone else can receive them. When the proxy
+cannot tell who is staff (a session cookie that does not verify, the
+database not answering), it passes the request on to the page, and the page
+sends its prerendered shell with a 200 before `requireStaff()` refuses. The
+title is in that shell. That entry's own database-down test saw a customer
+get it.
+
+- Every admin page's `metadata` title drops "· Admin": "Customers", "Plans",
+  "Code" and so on. The overview, titled "Admin", becomes "Overview". With
+  the root template they read "Customers · QRiate+".
+- In that fallback a customer can still tell that some page answered with a
+  200, but nothing in it names the admin.
+- What staff lose is "Admin" in their tab titles. The sidebar still says
+  where they are.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

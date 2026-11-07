@@ -152,8 +152,9 @@ reliability for a feature, reliability wins. Everything below follows from that.
   read needed. Signed in: it verifies Neon Auth's signed `session_data` cookie
   (`src/lib/session-cookie.ts`) and reads the role from the database. When it
   cannot tell (unreadable cookie, database down) it lets the page decide, so
-  it can only hide the admin, never lock staff out. It never redirects
-  `/admin` to sign-in. Being in the matcher also refreshes the session there:
+  it can only hide the admin, never lock staff out, and then the shell does
+  go out, so no admin page names the admin in its `metadata` title. It never
+  redirects `/admin` to sign-in. Being in the matcher also refreshes the session there:
   a page cannot write cookies, so a refresh attempted by `requireStaff()`
   threw.
 - Every page view, search and change writes `qr_admin_audit` (`audit()` after
