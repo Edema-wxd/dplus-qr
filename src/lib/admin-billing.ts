@@ -203,6 +203,8 @@ export type CustomerRow = {
   currentPeriodEnd: Date | null;
   cancelAtPeriodEnd: boolean;
   codes: number;
+  /** Live members of this account's team (owner not counted). */
+  teamMembers: number;
 };
 
 export const CUSTOMER_STATES = [
@@ -272,12 +274,15 @@ export async function listCustomers(
     current_period_end: Date | null;
     cancel_at_period_end: boolean | null;
     codes: string;
+    team_members: string;
     total: string;
   }>(
     `select u.id, u.email, u.name, u.created_at, u.suspended_at,
             u.archived_at is not null as archived, u.erased_at is not null as erased,
             p.name as plan_name, p.interval, s.status, s.current_period_end, s.cancel_at_period_end,
             (select count(*) from qr_codes c where c.user_id = u.id) as codes,
+            (select count(*) from qr_account_members m
+              where m.account_id = u.id and m.removed_at is null) as team_members,
             count(*) over () as total
      from qr_users u
      left join lateral (
@@ -329,6 +334,7 @@ export async function listCustomers(
       currentPeriodEnd: row.current_period_end,
       cancelAtPeriodEnd: row.cancel_at_period_end === true,
       codes: Number(row.codes),
+      teamMembers: Number(row.team_members),
     })),
     total: Number(rows[0]?.total ?? 0),
     hasMore: rows.length > CUSTOMERS_PER_PAGE,

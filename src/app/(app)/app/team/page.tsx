@@ -24,7 +24,7 @@ const ROLE: Record<string, string> = { owner: "Owner", admin: "Admin", editor: "
 
 /** The team log in words. Ids and roles only are stored; names come from the join. */
 function describe(event: { action: string; actor: string | null; subject: string | null; detail: Record<string, unknown> }): string {
-  const actor = event.actor ?? "Someone";
+  const actor = event.detail.by === "staff" ? "QRiate+ support" : (event.actor ?? "Someone");
   const subject = event.subject ?? "a former member";
   const role = typeof event.detail.role === "string" ? ` as ${ROLE[event.detail.role]?.toLowerCase() ?? "member"}` : "";
   switch (event.action) {

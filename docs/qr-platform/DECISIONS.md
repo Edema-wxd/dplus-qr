@@ -1781,16 +1781,62 @@ throughout, and locked members see none of the team's codes and lose it
 from their switcher. Checked the member dialog, notice and read-only note at
 375px.
 
+## Team seats, part 5: staff admin and erasure, 7 November 2026
+
+Step 6 of `docs/qr-platform/plans/team-seats.md`. Still switched off for
+customers with the rest of team seats; the staff pages show team data
+whenever there is any.
+
+**Staff see teams.** A customer's page has a Team section (each member with
+address, role, join date and whether they are over the seats; pending
+invitations; the last 20 entries of the team's log) and a Member-of section
+for the teams that account belongs to. The customer list shows "Team of N".
+`teamForStaff` in `src/lib/team.ts` reads it.
+
+**Staff take people out, never put them in.** "Remove" and "Cancel invite"
+on the customer page go through `teamAction` (`staffForAction`, zod) and
+each writes one `qr_admin_audit` row, `team.member.remove` or
+`team.invite.revoke`, with the ids and the role, never an address. The
+team's own log records it as done by staff, with no staff name; the owner's
+team page reads "QRiate+ support removed …". To cut someone off from
+everything, staff still suspend them or ban their sign-in; suspending a
+person does not take them out of other teams.
+
+**Erasure covers teams** (`eraseAccountData`, used by staff and by the
+retention sweep, so both behave alike), in the same transaction and before
+the email is blanked:
+
+- **An erased owner's team is deleted outright:** members, invitations, the
+  team log, and anyone's choice to work in it. The members keep their own
+  accounts, untouched. The confirm screen says how many people lose access
+  (`erasePrecheck().teamMembers`), and the audit row records the number.
+- **An erased member leaves no trace in other teams:** their memberships,
+  invitations addressed to them, and their own choice of team are deleted;
+  their id is cleared from other teams' logs, as inviter, remover, actor and
+  subject, while the entries stay so those owners keep their record.
+  Anything they made in a team belongs to that team's account and stays;
+  destination history already forgot who made each change.
+
+Tested on a local Postgres 16 with two teams sharing a member: the precheck
+counted each team; erasing the shared member removed both memberships, the
+invitation addressed to them and their choice of team, cleared their id
+from both logs while keeping the entries, and left the team's code and its
+history intact; erasing an owner deleted their team's members, invitation,
+log and the other member's choice of it, and left that member's own account
+and another team's invitation to them alone; staff removal and revocation
+each worked once and refused a repeat, logged as by staff with no name.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
 
 Not built yet:
 
-- **Team seats**, in progress and switched off: the schema, access check,
-  seat rules, invites and lock-outs are built (see those entries); staff
-  admin and erasure, and the launch copy remain, per
-  `docs/qr-platform/plans/team-seats.md`.
+- **Team seats**, built and switched off: everything but the launch is in
+  (see those entries). Launching needs the privacy and terms copy (invitee
+  addresses are processed to send invitations; members see the account's
+  data; the owner answers for their members), a lawyer's pass on it, and
+  `team_seats` marked built, per `docs/qr-platform/plans/team-seats.md`.
   The flag stays `built: false` until then.
 - **A reputation check on destinations.** `checkReputation()` in
   `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
