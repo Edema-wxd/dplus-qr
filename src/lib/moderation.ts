@@ -677,6 +677,7 @@ export async function eraseAccountData(userId: string): Promise<EraseResult> {
     const owned = `select id from qr_codes where user_id = $1`;
     await run(`delete from qr_scans where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_scan_daily where qr_id in (${owned})`, [userId]);
+    await run(`delete from qr_scan_daily_visitors where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_destination_history where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_feedback where qr_id in (${owned})`, [userId]);
     await run(`update qr_destination_history set changed_by = null where changed_by = $1`, [userId]);

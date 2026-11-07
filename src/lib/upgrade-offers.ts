@@ -143,8 +143,8 @@ export function historyOffer(days: number, entitlement: Entitlement | null, plan
   const kept = entitlement?.historyDays;
   return {
     gate: "history",
-    title: `${days} days of scans`,
-    benefit: `Look back over the last ${days} days of scans, and keep scan history for longer.`,
+    title: `${historyLabel(days)} of scans`,
+    benefit: `Look back over the last ${historyLabel(days)} of scans, and keep scan history for longer.`,
     why: kept
       ? `Your ${entitlement!.planName} plan keeps ${historyLabel(kept)} of scan history.`
       : "Your account has no active plan, so scan history is not kept.",

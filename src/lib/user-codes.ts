@@ -25,6 +25,14 @@ import { featureOffer, offerRefusal } from "@/lib/upgrade-offers";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
 import { featureRefusal } from "@/lib/refusals";
+import {
+  analyticsWindow,
+  bucketFor,
+  LONGEST_DAILY_WINDOW,
+  toBuckets,
+  type Bucket,
+  type ChartPoint,
+} from "@/lib/chart-buckets";
 
 /**
  * Everything the signed-in owner can do to their own codes.
@@ -627,33 +635,7 @@ export async function destinationHistory(
   }));
 }
 
-/** The only windows the analytics queries will accept. */
-export const ANALYTICS_WINDOWS = [7, 30, 90] as const;
-export type AnalyticsWindow = (typeof ANALYTICS_WINDOWS)[number];
-
-/**
- * Clamp a requested range to a known window.
- *
- * This is a security boundary, not a convenience. Postgres will not take a
- * bound parameter inside an `interval` literal, so the number below is
- * interpolated into SQL — which is safe only because nothing but 7, 30 or 90
- * can ever come out of here. Anything else, including `NaN` from a malformed
- * query string, collapses to 30.
- */
-export function analyticsWindow(days: number): AnalyticsWindow {
-  return (ANALYTICS_WINDOWS as readonly number[]).includes(days)
-    ? (days as AnalyticsWindow)
-    : 30;
-}
-
-/**
- * One day's scans, for the chart. Days with no scans are present and zero.
- *
- * `unique` is distinct visitors that day, from the daily-rotating IP hash, so
- * the same phone on two days counts on both. Zero when the hash is not being
- * recorded (no `SCAN_IP_SALT`), which the panel reads as "not available".
- */
-export type DayPoint = { day: string; scans: number; unique: number };
+export { ANALYTICS_WINDOWS, analyticsWindow, type AnalyticsWindow } from "@/lib/chart-buckets";
 
 /** A share of scans by some dimension, biggest first. */
 export type Slice = { label: string; scans: number };
@@ -673,16 +655,20 @@ export type AnalyticsDetail = {
 };
 
 export type Analytics = {
-  days: DayPoint[];
+  /** How `points` is bucketed: a bar per day, week or month. */
+  bucket: Bucket;
+  points: ChartPoint[];
   countries: Slice[];
   devices: Slice[];
   total: number;
+  /** Scans so far today (UTC), whatever the bucket. */
+  today: number;
   detail: AnalyticsDetail | null;
 };
 
 /**
- * Scans by day, country and device for one code, and with `detail` also by
- * operating system and city, with uniques and the previous period.
+ * Scans over time, by country and device for one code, and with `detail` also
+ * by operating system and city, with uniques and the previous period.
  *
  * Reads the `qr_scan_daily` rollup for every completed day and raw `qr_scans`
  * only for today. That split is not an optimisation -- it is the only correct
@@ -694,7 +680,14 @@ export type Analytics = {
  *
  * `generate_series` fills the gaps: a chart that silently omits quiet days
  * compresses time and makes a flat week look busy. Every day in the window is
- * present whether or not anything scanned.
+ * present whether or not anything scanned. Long windows are then summed into
+ * weeks or months in `toBuckets`, from those same days, so a week's bar is
+ * exactly its days added up.
+ *
+ * Unique visitors per day come from `qr_scan_daily_visitors` (migration 026),
+ * one figure per day, never by adding the rollup's per-group counts, which
+ * double-counts anyone seen in two groups. A day with no row there (partly
+ * pruned before 026 could be back-filled) falls back to that sum.
  *
  * Days are UTC, matching the rollup, so a scan is never counted on one day by
  * the chart and another by the totals.
@@ -706,18 +699,28 @@ export async function codeAnalytics(
   options: { detail?: boolean } = {}
 ): Promise<Analytics> {
   const window = analyticsWindow(days);
-  const empty: Analytics = { days: [], countries: [], devices: [], total: 0, detail: null };
+  const bucket = bucketFor(window);
+  const empty: Analytics = {
+    bucket,
+    points: [],
+    countries: [],
+    devices: [],
+    total: 0,
+    today: 0,
+    detail: null,
+  };
 
-  const owns = await queryOne<{ id: string }>(
-    `select id from qr_codes where user_id = $1 and id = $2`,
+  const owns = await queryOne<{ id: string; created_day: string }>(
+    `select id, to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as created_day
+     from qr_codes where user_id = $1 and id = $2`,
     [userId, id]
   );
   if (!owns) return empty;
 
-  // The rollup plus today, as one set of rows every query below groups from.
+  // The rollup plus today, as one set of rows every breakdown groups from.
   const COMBINED = `
     with combined as (
-      select d.day, d.country, d.device_type, d.os, d.city, d.scans, d.unique_scans
+      select d.day, d.country, d.device_type, d.os, d.city, d.scans
       from qr_scan_daily d
       where d.qr_id = $1
         and d.day >= (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1)
@@ -729,8 +732,7 @@ export async function codeAnalytics(
         coalesce(nullif(s.device_type, ''), 'unknown'),
         coalesce(nullif(s.os, ''), 'unknown'),
         coalesce(nullif(s.city, ''), 'unknown'),
-        count(*),
-        count(distinct s.ip_hash)
+        count(*)
       from qr_scans s
       where s.qr_id = $1
         and not s.is_bot
@@ -755,17 +757,43 @@ export async function codeAnalytics(
     // for anyone east of UTC. Formatting in Postgres keeps the day the rollup
     // stored and the day the chart prints the same day.
     query<{ day: string; scans: string; unique_scans: string }>(
-      `${COMBINED}
+      `with rolled as (
+         select d.day, sum(d.scans) as scans, sum(d.unique_scans) as summed_unique
+         from qr_scan_daily d
+         where d.qr_id = $1
+           and d.day >= (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1)
+           and d.day <  (now() at time zone 'UTC')::date
+         group by d.day
+       ),
+       visitors as (
+         select v.day, v.unique_scans
+         from qr_scan_daily_visitors v
+         where v.qr_id = $1
+           and v.day >= (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1)
+           and v.day <  (now() at time zone 'UTC')::date
+       ),
+       today as (
+         select count(*) as scans, count(distinct s.ip_hash) as unique_scans
+         from qr_scans s
+         where s.qr_id = $1
+           and not s.is_bot
+           and s.scanned_at >= (now() at time zone 'UTC')::date
+       )
        select to_char(g.day, 'YYYY-MM-DD') as day,
-              coalesce(sum(c.scans), 0) as scans,
-              coalesce(sum(c.unique_scans), 0) as unique_scans
+              case when g.day::date = (now() at time zone 'UTC')::date
+                   then t.scans
+                   else coalesce(r.scans, 0) end as scans,
+              case when g.day::date = (now() at time zone 'UTC')::date
+                   then t.unique_scans
+                   else coalesce(v.unique_scans, r.summed_unique, 0) end as unique_scans
        from generate_series(
               (now() at time zone 'UTC')::date - make_interval(days => ${window} - 1),
               (now() at time zone 'UTC')::date,
               interval '1 day'
             ) as g(day)
-       left join combined c on c.day = g.day::date
-       group by g.day
+       cross join today t
+       left join rolled r on r.day = g.day::date
+       left join visitors v on v.day = g.day::date
        order by g.day`,
       [id]
     ),
@@ -787,7 +815,7 @@ export async function codeAnalytics(
       : Promise.resolve(null),
   ]);
 
-  const dayPoints = dayRows.map((r) => ({
+  const daily = dayRows.map((r) => ({
     day: r.day,
     scans: Number(r.scans),
     unique: Number(r.unique_scans),
@@ -803,14 +831,16 @@ export async function codeAnalytics(
         label: item.label === "unknown" ? "Unknown" : item.label,
       }));
 
-  const total = dayPoints.reduce((sum, point) => sum + point.scans, 0);
-  const unique = dayPoints.reduce((sum, point) => sum + point.unique, 0);
+  const total = daily.reduce((sum, d) => sum + d.scans, 0);
+  const unique = daily.reduce((sum, d) => sum + d.unique, 0);
 
   return {
-    days: dayPoints,
+    bucket,
+    points: toBuckets(daily, bucket, owns.created_day),
     countries: toSlices(countryRows),
     devices: toSlices(deviceRows),
     total,
+    today: daily.at(-1)?.scans ?? 0,
     detail: detail
       ? {
           os: toSlices(osRows),
@@ -839,7 +869,9 @@ export async function scanRows(
 ): Promise<
   { scannedAt: Date; country: string | null; device: string | null; os: string | null; browser: string | null }[]
 > {
-  const window = analyticsWindow(days);
+  // Individual scans only ever cover a daily window: raw rows are pruned to
+  // the plan's history anyway, and a year of rows is not what this file is for.
+  const window = Math.min(analyticsWindow(days), LONGEST_DAILY_WINDOW);
 
   const rows = await query<{
     scanned_at: Date;

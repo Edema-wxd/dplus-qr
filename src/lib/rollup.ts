@@ -96,6 +96,26 @@ export async function rollupScans(
                  and f.os = d.os and f.city = d.city
              )
        returning 1
+     ),
+     -- One distinct-visitor count per code and day (migration 026). It has to
+     -- come from the raw rows, not from "fresh": distinct counts per group do
+     -- not add up to the distinct count of the day.
+     day_visitors as (
+       select
+         s.qr_id,
+         (s.scanned_at at time zone 'UTC')::date                as day,
+         count(distinct s.ip_hash)                              as unique_scans
+       from qr_scans s
+       where not s.is_bot
+         and s.scanned_at >= (now() at time zone 'UTC')::date - make_interval(days => $1 - 1)
+       group by 1, 2
+     ),
+     visitors as (
+       insert into qr_scan_daily_visitors (qr_id, day, unique_scans)
+       select * from day_visitors
+       on conflict (qr_id, day) do update
+         set unique_scans = excluded.unique_scans
+       returning 1
      )
      select (select count(*) from upserted) as written`,
     [days]
