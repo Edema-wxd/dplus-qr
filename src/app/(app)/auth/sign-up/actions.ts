@@ -5,6 +5,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
 import { parseSignupRef, recordSignupSource, SIGNUP_REF_PARAM } from "@/lib/signup-source";
+import { recordStep, startOnboarding } from "@/lib/onboarding";
 
 const schema = z.object({
   name: z.string().trim().min(2, "Enter the business or contact name."),
@@ -99,7 +100,18 @@ export async function signUpAction(
         console.error("[sign-up] could not record the referring page", sourceError);
       });
     }
+
+    // Step 1 of the onboarding is this form. Recorded here, where the account
+    // is known to be new, so the funnel counts only real sign-ups. Never
+    // allowed to fail the sign-up: the dashboard opens the onboarding anyway.
+    if (profiled) {
+      await startOnboarding(data.user.id, "signup")
+        .then(() => recordStep(data.user.id, "account_created"))
+        .catch((onboardingError) => {
+          console.error("[sign-up] could not open the onboarding", onboardingError);
+        });
+    }
   }
 
-  redirect("/app");
+  redirect("/app/start");
 }
