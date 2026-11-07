@@ -3,7 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
-import { resolveScope } from "@/lib/resolve-scope";
+import { resolveAccess, resolveScope } from "@/lib/resolve-scope";
+import { roleAllows } from "@/lib/account-scope";
 import { ensureProfile } from "@/lib/profile";
 import { canBulkCreate, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { listPublicPlans } from "@/lib/plans";
@@ -14,6 +15,7 @@ import { listBatches } from "@/lib/bulk-create";
 import { BULK_MAX_ROWS } from "@/lib/bulk-import";
 import { secondaryButtonClass } from "@/components/controls";
 import { DashShell } from "../../DashShell";
+import { ReadOnlyNote } from "../../TeamNotices";
 import { LockIcon, LockedButton } from "../../UpgradePrompt";
 import { BulkForm } from "./BulkForm";
 
@@ -41,6 +43,16 @@ export default async function BulkPage() {
   // is working in a team they belong to; every read below proves access.
   const scope = await resolveScope();
   if (!scope) redirect("/auth/sign-in");
+
+  // A viewer makes nothing; say so rather than show a form the server refuses.
+  if (!roleAllows(scope.role, "write")) {
+    const access = await resolveAccess();
+    return (
+      <DashShell heading="Make many codes" back={{ href: "/app", label: "All codes" }}>
+        <ReadOnlyNote ownerName={access?.team?.ownerName ?? null} className="max-w-2xl" />
+      </DashShell>
+    );
+  }
 
   const [entitlement, plans, library, batches] = await Promise.all([
     getEntitlement(scope.accountId),

@@ -148,3 +148,28 @@ describe("team_seats in the plan catalogue", () => {
     expect(offer.why).toBe("Team seats are not part of your Pro plan.");
   });
 });
+
+describe("the lock-out rule in SQL", () => {
+  // Proven against Postgres (DECISIONS, 7 Nov 2026); these pin its parts so an
+  // edit cannot quietly drop one.
+  const { MEMBER_USABLE_SQL, PLAN_SEATS_SQL } = jest.requireActual("@/lib/seats") as typeof import("@/lib/seats");
+
+  it("needs the owner in good standing", () => {
+    expect(MEMBER_USABLE_SQL).toContain("o.suspended_at is null and o.archived_at is null and o.erased_at is null");
+  });
+
+  it("needs an active plan, or one still in its grace period", () => {
+    expect(MEMBER_USABLE_SQL).toContain("s.status = 'active' or (s.status = 'past_due' and s.grace_until > now())");
+  });
+
+  it("gives seats by join order, the owner taking one, as seatState does", () => {
+    expect(MEMBER_USABLE_SQL).toContain("(e.joined_at, e.user_id) < (m.joined_at, m.user_id)");
+    expect(MEMBER_USABLE_SQL).toContain(`< ${PLAN_SEATS_SQL} - 1`);
+  });
+
+  it("reads seats as planSeats does: a whole number of 2 or more, else 1", () => {
+    expect(PLAN_SEATS_SQL).toContain("'^[0-9]{1,6}$'");
+    expect(PLAN_SEATS_SQL).toContain(">= 2");
+    expect(PLAN_SEATS_SQL).toContain("else 1");
+  });
+});

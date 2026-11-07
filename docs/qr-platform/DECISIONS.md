@@ -1726,6 +1726,61 @@ removal (the member sees no codes on their next read and the team leaves
 their switcher), leaving, and revoking each work and are logged with no
 address. Checked at 375px.
 
+## Team seats, part 4: lock-outs and what members see, 7 November 2026
+
+Step 5 of `docs/qr-platform/plans/team-seats.md`. Still switched off with the
+rest of team seats (`teamSeatsLive()`).
+
+**Members are locked out, never removed** (decided 7 Nov 2026). A team is
+usable by a member only while `MEMBER_USABLE_SQL` (`src/lib/seats.ts`)
+holds: the owner is not suspended, archived or erased; the account has an
+active plan, or one still in its grace period, that includes a team; and the
+member is within the seats, the owner taking one and the rest going to
+members in the order they joined (`seatState`'s rule, now in SQL). One
+fragment, used by `resolveScope` and by the switcher, so the switcher never
+offers a team that would send someone home.
+
+- When it fails, `resolveAccess()` (`src/lib/resolve-scope.ts`) gives the
+  person their own account and says why (`lapsed`, `no-team`, `seats`, or
+  `unavailable` for an owner taken down, which a member is not told in so
+  many words). Their membership and their choice of team are kept, so the
+  moment the owner pays, is restored or frees a seat they are back in, with
+  no deploy and nothing to redo.
+- **A notice above every dashboard page** explains the lock-out, naming the
+  owner, with "Stay in my own account and stop showing this".
+- **The owner sees a seat shortfall** on the team page: how many people are
+  over the seats, each marked "no seat, locked out", and that nobody has been
+  removed.
+
+**Viewers see, download and export; they do not change.** The new-code and
+bulk pages show "You can view this account but not change it. Ask {owner}"
+in place of the forms; a code's page shows its destination read-only in
+place of the edit controls and drops the share-link panel; the codes list
+drops the new-code buttons. The server refuses regardless (`writable`,
+`access(n)`).
+
+**Only the owner is sold a plan.** In a team, the upgrade prompt says
+"{owner} manages the plan for this account. Ask them" and offers no way to
+plans, which would be the member's own account's; the header's Upgrade
+button and the free-plan banners are not shown to members; `/billing`,
+which is always the person's own account, says the team's billing is the
+owner's.
+
+**The invitation page's title** is now set only for a real invitation. A
+guessed or dead link gets the site's default title, as a page that does not
+exist does (it had carried "Join a team" on the not-found answer).
+
+Tested on a local Postgres 16 with three members joined a day apart:
+Business with 5 seats lets all three in; lowering seats to 3 locks out the
+last to join only; removing the first gives the locked member their seat
+back at once; past due but in grace keeps everyone in, grace over locks all
+three out, and paying again lets all three back; suspending or archiving the
+owner locks everyone out, and unarchiving restores them; moving to a plan
+without a team locks everyone out; the owner keeps their own account
+throughout, and locked members see none of the team's codes and lose it
+from their switcher. Checked the member dialog, notice and read-only note at
+375px.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
@@ -1733,8 +1788,8 @@ Reviewed 7 November 2026 against `main`.
 Not built yet:
 
 - **Team seats**, in progress and switched off: the schema, access check,
-  seat rules and invites are built (see those entries); role-aware UI and
-  lock-out, staff admin and erasure, and the launch copy remain, per
+  seat rules, invites and lock-outs are built (see those entries); staff
+  admin and erasure, and the launch copy remain, per
   `docs/qr-platform/plans/team-seats.md`.
   The flag stays `built: false` until then.
 - **A reputation check on destinations.** `checkReputation()` in

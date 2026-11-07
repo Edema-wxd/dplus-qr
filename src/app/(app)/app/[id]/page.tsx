@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
-import { resolveScope } from "@/lib/resolve-scope";
+import { resolveAccess, resolveScope } from "@/lib/resolve-scope";
+import { roleAllows } from "@/lib/account-scope";
+import { ReadOnlyNote } from "../TeamNotices";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import {
   canExportCsv,
@@ -65,6 +67,8 @@ export default async function CodePage({
   // is working in a team they belong to; every read below proves access.
   const scope = await resolveScope();
   if (!scope) redirect("/auth/sign-in");
+  const canWrite = roleAllows(scope.role, "write");
+  const access = canWrite ? null : await resolveAccess();
 
   // Parsed before it reaches a query: the id column is a bigint, so a
   // non-numeric path segment is a database error rather than an empty result.
@@ -220,6 +224,17 @@ export default async function CodePage({
           </p>
         </div>
 
+        {!canWrite ? (
+          <div className="space-y-6">
+            <div>
+              <p className="mb-1 text-sm">{page ? "Shows" : "Points to"}</p>
+              <p className="break-all rounded-md border border-[var(--paper-rule)] bg-white px-3 py-2 font-mono text-sm">
+                {page ? `${dynamicType(code.kind).label} page` : code.destinationUrl}
+              </p>
+            </div>
+            <ReadOnlyNote ownerName={access?.team?.ownerName ?? null} />
+          </div>
+        ) : (
         <div className="space-y-10">
           {page ? (
             <ContentForm
@@ -261,6 +276,7 @@ export default async function CodePage({
             <StatusForm id={code.id} status={code.status} />
           )}
         </div>
+        )}
       </StyleScope>
 
       {feedback ? (
@@ -310,15 +326,19 @@ export default async function CodePage({
         )}
       </div>
 
-      <hr className="my-12 border-[var(--paper-rule)]" />
-
-      <SharePanel
-        id={code.id}
-        origin={env().QR_BASE_URL}
-        initialToken={share?.token ?? null}
-        allowed={sharing}
-        offer={sharing ? undefined : offers.share}
-      />
+      {/* Publishing a stats link changes the account, so it is not a viewer's. */}
+      {canWrite ? (
+        <>
+          <hr className="my-12 border-[var(--paper-rule)]" />
+          <SharePanel
+            id={code.id}
+            origin={env().QR_BASE_URL}
+            initialToken={share?.token ?? null}
+            allowed={sharing}
+            offer={sharing ? undefined : offers.share}
+          />
+        </>
+      ) : null}
 
       {history.length > 0 ? (
         <>
