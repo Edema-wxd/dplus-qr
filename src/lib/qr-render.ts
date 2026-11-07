@@ -17,7 +17,11 @@ import type { QrStyle } from "@/lib/qr-style";
  * the artwork and never where a scan goes.
  */
 
-export type QrLevel = "Q" | "H";
+/**
+ * "M" is for static codes only, which carry their whole content in the
+ * symbol and so stay one level lower without a logo; see `static-artwork.ts`.
+ */
+export type QrLevel = "M" | "Q" | "H";
 
 /** Width of the logo box, quiet zone excluded, as a share of the symbol. */
 export const LOGO_FRACTION = 0.22;
@@ -25,7 +29,7 @@ export const LOGO_FRACTION = 0.22;
 /** Modules of clear ground around the symbol. Part of the code, not padding. */
 export const QUIET_ZONE = 4;
 
-export function levelFor(hasLogo: boolean): QrLevel {
+export function levelFor(hasLogo: boolean): "Q" | "H" {
   return hasLogo ? "H" : "Q";
 }
 
@@ -34,6 +38,8 @@ export type Geometry = {
   path: string;
   /** Modules per side, quiet zone excluded. */
   size: number;
+  /** One byte per module, row by row, non-zero for dark. */
+  modules: Uint8Array;
 };
 
 export function qrGeometry(content: string, level: QrLevel): Geometry {
@@ -47,7 +53,7 @@ export function qrGeometry(content: string, level: QrLevel): Geometry {
       if (data[y * n + x]) path += `M${x} ${y}h1v1h-1z`;
     }
   }
-  return { path, size: n };
+  return { path, size: n, modules: data };
 }
 
 /**
@@ -83,8 +89,10 @@ export function renderQrSvg(options: {
   /** Output width and height in pixels. */
   px: number;
   logoHref?: string;
+  /** Overrides `levelFor`. Static codes pass their own; see `static-artwork.ts`. */
+  level?: QrLevel;
 }): string {
-  const level = levelFor(Boolean(options.logoHref));
+  const level = options.level ?? levelFor(Boolean(options.logoHref));
   const { path, size } = qrGeometry(options.content, level);
   const span = size + QUIET_ZONE * 2;
   const { dark, light } = options.style;

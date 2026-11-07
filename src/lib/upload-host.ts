@@ -29,3 +29,24 @@ export function isOptimisableImage(url: string): boolean {
     return false;
   }
 }
+
+/**
+ * Whether a URL is one UploadThing serves files from.
+ *
+ * Checked before the server fetches a logo or a page file, so a route can only
+ * ever be made to fetch from UploadThing, never from an address someone
+ * slipped into a row. The static code form runs it too before fetching a logo
+ * in the browser. v7 serves from `<app-id>.ufs.sh`; older files from
+ * `utfs.io`. Wider than `isOptimisableImage` on purpose: this asks "is it an
+ * UploadThing file", not "is it ours to resize".
+ */
+export function isUploadThingUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  return url.hostname.endsWith(".ufs.sh") || url.hostname === "utfs.io";
+}

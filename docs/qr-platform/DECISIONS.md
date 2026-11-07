@@ -1285,6 +1285,88 @@ Tested with unit tests (schemas, old content, the nested dish photo through
 `resolveFiles` with the database mocked, the store choice for each agent).
 Not tried on a real Huawei handset or against UploadThing.
 
+## Static codes get colours and logos, and Bitcoin checksums, 6 November 2026
+
+**Static codes take colours and a logo, the way dynamic codes do.** Both are
+on every plan, so nothing is gated. The static form uses the same
+`ColourPicker` as the code page (pulled out of `StyleControls.tsx`, which now
+renders it too) and the same `LogoPicker`, offered the account's library.
+`/app/new` loads that library on the server with `listLogos(user.id)`, as it
+already did for dynamic codes.
+
+**Still nothing is stored or sent.** No row, no short code, no round trip
+with the content: a Wi-Fi password stays on the page. The only request the
+form makes is for the logo image itself, from the account's own library.
+
+- **The same rules.** `checkQrStyle` decides which pairs may be downloaded;
+  a failing pair still previews, as on the code page, but both download
+  buttons are disabled. With a logo the code is drawn at H in the box
+  `logoBox` gives, exactly as a dynamic code. Without one it stays at M, as
+  static codes always were: a static code carries up to 1,000 characters of
+  its own content, not a 30-character link, and a higher level shrinks every
+  module at the same print size.
+- **One picture, three outputs.** `src/lib/static-artwork.ts` (pure) decides
+  what to draw. The SVG is the dynamic codes' own `renderQrSvg`, given the
+  level; the preview is that SVG; the PNG is painted on a canvas from the same
+  geometry at a whole number of pixels per module, so edges stay sharp.
+  `renderQrSvg` gained an optional `level` and `qrGeometry` now returns the
+  module bitmap; neither changes what a dynamic code draws.
+- **The canvas is never tainted.** A logo drawn onto a canvas straight from
+  UploadThing's origin would block `toBlob`. The form instead fetches it as a
+  blob (CORS), reads it into a data URL, and redraws it to a PNG of at most
+  512px, the size the server normalises logos to. That data URL is also what
+  the SVG embeds, so the file keeps its logo offline. `isUploadThingUrl`
+  moved to the pure `upload-host.ts` (re-exported from `logos.ts`) so the
+  browser checks the host before fetching.
+- **A logo that cannot be used is said, never dropped silently.** If it
+  cannot load, the code is drawn and downloads without it, with a notice and
+  "Try again" beside the buttons. Downloads wait while it loads, so none
+  quietly lacks it. Content too long to carry a logo at H falls back to M
+  without it, also with a notice; content too long even for M (1,000
+  characters of CJK text, say) is refused inline instead of the preview
+  silently never appearing, which it did before.
+
+**Evidence a styled static code with a logo scans.**
+`src/__tests__/static-artwork.test.ts` rasterises the SVG with sharp and runs
+the real PNG painter onto a pixel buffer, then decodes both with jsQR, for
+Wi-Fi, vCard and Bitcoin payloads in brand colours with a busy logo. The
+canvas path was also checked in Chrome on macOS through a throwaway harness
+(not committed): a logo served from a second origin with CORS, a control
+showing that drawing it directly taints the canvas, then the real
+fetch-to-data-URL path, with each PNG decoded in the page by jsQR and by the
+browser's own `BarcodeDetector`, and the saved files decoded again in Node.
+Not checked: a phone camera scan of a printed copy, the form in a signed-in
+browser session, or that UploadThing's live file host sends the CORS headers
+the fetch needs. If it does not, every static logo takes the fallback above,
+visibly, until the fetch goes through a same-origin route.
+
+**Bitcoin addresses are checked, checksum and all**
+(`src/lib/bitcoin-address.ts`). It used to match the shape only, so one
+wrong character in a printed code sent every payment to an address nobody
+holds.
+
+- Legacy (`1…`) and P2SH (`3…`): Base58Check, version byte 0x00 or 0x05, and
+  the first four bytes of double SHA-256.
+- `bc1…`: BIP 173 bech32 for witness v0 with a 20- or 32-byte program, BIP
+  350 bech32m for v1 to v16, mixed case refused. An all-capitals address is
+  accepted and written lowercase.
+- Mainnet only. A testnet address gets its own message, as do mixed case, a
+  checksum that does not match ("a character is wrong, missing or extra; copy
+  it again from the wallet") and a string that is not an address at all.
+- **SHA-256 is a small pure-TS implementation** (`src/lib/sha256.ts`), not a
+  dependency. The check must run synchronously as the person types, which
+  rules out Web Crypto's async `digest`, and nothing hashing was already a
+  direct dependency. `@noble/hashes` 2.x is ESM-only, which this repo's
+  CommonJS ts-jest would need reconfiguring for, and 1.x is the superseded
+  line; forty lines tested against `node:crypto` and the FIPS examples cost
+  less than either. It is not constant-time and need not be: it hashes a
+  public address.
+- Tested against every vector in BIP 173 and BIP 350 (copied verbatim),
+  including BIP 173's v1+ addresses, which BIP 350 made invalid; real
+  mainnet P2PKH, P2SH, P2WPKH and Taproot addresses; real testnet ones; and
+  every single-character substitution of a legacy, a P2SH, a bech32 and a
+  bech32m address.
+
 ## Still open
 
 Business decisions, none of which block the current phase:
