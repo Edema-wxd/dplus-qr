@@ -106,6 +106,7 @@ export default async function BulkPage() {
       </p>
 
       <BulkForm
+        accountId={scope.accountId}
         free={free}
         customLinks={canUseCustomCodes(entitlement)}
         logos={library.map(({ id, url, name }) => ({ id, url, name }))}

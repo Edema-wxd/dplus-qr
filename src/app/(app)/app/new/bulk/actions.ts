@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { writable, type AccountScope } from "@/lib/account-scope";
+import { pinMismatch, writable, type AccountScope } from "@/lib/account-scope";
 import { resolveScope } from "@/lib/resolve-scope";
 import { canBulkCreate, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { featureRefusal } from "@/lib/refusals";
@@ -96,6 +96,8 @@ export async function checkBulkAction(
   formData: FormData
 ): Promise<BulkCheckState> {
   const scope = await requireScope();
+  const stale = pinMismatch(scope, formData);
+  if (stale) return { error: stale };
 
   const input = await batchText(formData);
   if (!input.ok) return { error: input.error };
@@ -141,6 +143,8 @@ export async function createBulkAction(
   formData: FormData
 ): Promise<BulkCreateState> {
   const scope = await requireScope();
+  const stale = pinMismatch(scope, formData);
+  if (stale) return { error: stale };
 
   const parsed = createSchema.safeParse({
     text: formData.get("text"),

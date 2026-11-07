@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { writable, type AccountScope } from "@/lib/account-scope";
+import { pinMismatch, writable, type AccountScope } from "@/lib/account-scope";
 import { resolveScope } from "@/lib/resolve-scope";
 import {
   changeDestination,
@@ -93,6 +93,8 @@ export async function createCodeAction(
   const scope = await requireScope();
   const may = writable(scope);
   if (!may.ok) return { error: may.reason };
+  const stale = pinMismatch(scope, formData);
+  if (stale) return { error: stale };
 
   const common = z
     .object({

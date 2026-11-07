@@ -20,6 +20,12 @@ export const FLASH_MESSAGES = {
     title: "Codes created",
     description: "Download them all as one zip when you are ready to print.",
   },
+  "team-joined": {
+    title: "You joined the team",
+    description: "Switch between your own account and the team from the menu.",
+  },
+  "team-left": { title: "You left the team" },
+  "account-switched": { title: "Switched account" },
   "signed-out": { title: "Signed out" },
   "plan-created": { title: "Plan created" },
 } as const satisfies Record<string, { title: string; description?: string }>;

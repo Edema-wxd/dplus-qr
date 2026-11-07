@@ -21,10 +21,13 @@ import { signOutAction } from "../auth/sign-in/actions";
 export function DashNav({
   usage,
   staff,
+  team,
 }: {
   usage?: React.ReactNode;
   /** The staff admin link, rendered by the server only for admins. */
   staff?: React.ReactNode;
+  /** The account switcher and team link, rendered by the server once teams are live. */
+  team?: React.ReactNode;
 }) {
   const pathname = usePathname();
   // The drawer is open *on a path*, so any navigation closes it: a drawer left
@@ -97,6 +100,8 @@ export function DashNav({
           </Link>
         </div>
 
+        {team}
+
         <nav aria-label="Main" className="mt-6 flex-1 overflow-y-auto px-3">
           <Group label="Codes">
             <Suspense fallback={<CodeLinks status={null} pathname={pathname} />}>
@@ -157,6 +162,61 @@ export function StaffGroup() {
 }
 
 /**
+ * Which account the dashboard is working in, and the way to the team page.
+ * Exported for `TeamSlot`, the server component that decides whether to
+ * render it and with which accounts. Choosing posts to
+ * `switchAccountAction`, which writes nothing unless the account is the
+ * person's own or a team they belong to.
+ */
+export function TeamGroup({
+  choices,
+  current,
+  action,
+}: {
+  choices: { accountId: string; name: string; role: string }[];
+  current: string;
+  action: (formData: FormData) => Promise<void>;
+}) {
+  const pathname = usePathname();
+  return (
+    <div className="mt-5 px-4">
+      {choices.length > 1 ? (
+        <form action={action}>
+          <label htmlFor="account-switch" className="mb-1 block text-xs uppercase tracking-[0.12em] text-[var(--field-soft)]">
+            Working in
+          </label>
+          <div className="flex gap-2">
+            <select
+              id="account-switch"
+              name="accountId"
+              defaultValue={current}
+              onChange={(event) => event.currentTarget.form?.requestSubmit()}
+              className="min-w-0 flex-1 rounded-md border border-[var(--field-rule)] bg-transparent px-2 py-1.5 text-sm text-[var(--field-ink)]"
+            >
+              {choices.map((choice) => (
+                <option key={choice.accountId} value={choice.accountId} className="text-black">
+                  {choice.role === "owner" ? `${choice.name} (yours)` : `${choice.name} (${choice.role})`}
+                </option>
+              ))}
+            </select>
+            <noscript>
+              <button type="submit" className="rounded-md border border-[var(--field-rule)] px-2 text-sm">
+                Go
+              </button>
+            </noscript>
+          </div>
+        </form>
+      ) : null}
+      <ul className="mt-3">
+        <NavItem href="/app/team" icon={ICONS.team} active={pathname === "/app/team"}>
+          Team
+        </NavItem>
+      </ul>
+    </div>
+  );
+}
+
+/**
  * `useSearchParams` sits in its own Suspense boundary: under Cache Components
  * a page that prerenders (the not-found page does) would otherwise fail the
  * build. The fallback is the same list with no status highlighted.
@@ -178,7 +238,10 @@ function CodeLinks({ status, pathname }: { status: string | null; pathname: stri
           (onList && !filtered) ||
           // A code's own page counts as "All codes"; the other pages under
           // /app have their own entries.
-          (pathname.startsWith("/app/") && pathname !== "/app/new" && pathname !== "/app/files")
+          (pathname.startsWith("/app/") &&
+            pathname !== "/app/new" &&
+            pathname !== "/app/files" &&
+            pathname !== "/app/team")
         }
       >
         All codes
@@ -258,6 +321,7 @@ const ICONS = {
   signOut: "M6 2.5H3v11h3M10 5l3 3-3 3M13 8H6",
   admin: "M8 1.5l5 2v4c0 3.2-2.1 5.6-5 7-2.9-1.4-5-3.8-5-7v-4z",
   files: "M2 4.5V12a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1H7.5L6 3.5H3a1 1 0 0 0-1 1z",
+  team: "M5.5 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM1.5 13c0-2.2 1.8-4 4-4s4 1.8 4 4M11 7a1.7 1.7 0 1 0 0-3.4M12 9.2c1.5.4 2.5 1.8 2.5 3.8",
 };
 
 function Icon({ d }: { d: string }) {

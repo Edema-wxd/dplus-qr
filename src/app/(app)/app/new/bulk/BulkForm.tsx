@@ -10,6 +10,7 @@ import {
 } from "./actions";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { problemsCsv } from "@/lib/csv-export";
+import { ACCOUNT_PIN_FIELD } from "@/lib/account-scope";
 import type { UpgradeOffer } from "@/lib/upgrade-offers";
 import { LogoPicker, type PickerLogo } from "../../LogoPicker";
 import { LockIcon, LockedButton } from "../../UpgradePrompt";
@@ -31,12 +32,15 @@ const OVER_LIMIT = "No dynamic code left on your plan for this row.";
  * many codes it will make and how many rows it will leave out.
  */
 export function BulkForm({
+  accountId,
   free,
   customLinks,
   logos,
   uploads,
   codesOffer,
 }: {
+  /** The account this page was drawn for; see `pinMismatch`. */
+  accountId: string;
   /** Code slots left when the page loaded; the server counts again. */
   free: number;
   customLinks: boolean;
@@ -52,6 +56,7 @@ export function BulkForm({
   return (
     <div className="max-w-3xl space-y-10">
       <form action={check} className="space-y-5">
+        <input type="hidden" name={ACCOUNT_PIN_FIELD} value={accountId} />
         <div role="group" aria-label="How to add rows" className="inline-flex rounded-md border border-[var(--paper-rule)] bg-white p-0.5">
           {(["file", "paste"] as const).map((m) => (
             <button
@@ -146,6 +151,7 @@ export function BulkForm({
         <Preview
           key={preview.text}
           preview={preview}
+          accountId={accountId}
           free={free}
           logos={logos}
           uploads={uploads}
@@ -161,6 +167,7 @@ export function BulkForm({
 
 function Preview({
   preview,
+  accountId,
   free,
   logos,
   uploads,
@@ -170,6 +177,7 @@ function Preview({
   error,
 }: {
   preview: NonNullable<BulkCheckState["preview"]>;
+  accountId: string;
   free: number;
   logos: PickerLogo[];
   uploads: boolean;
@@ -250,6 +258,7 @@ function Preview({
 
       <form action={create} className="space-y-6 rounded-lg border border-[var(--paper-rule)] bg-white p-4 sm:p-5">
         <input type="hidden" name="text" value={preview.text} />
+        <input type="hidden" name={ACCOUNT_PIN_FIELD} value={accountId} />
         <input type="hidden" name="source" value={preview.source} />
         {uploads || logos.length > 0 ? (
           <LogoPicker logos={logos} uploads={uploads} idPrefix="bulk-logo" />

@@ -96,3 +96,20 @@ export function writable(
     ? { ok: true, scope }
     : { ok: false, reason: "You can view this account but not change it. Ask the account owner." };
 }
+
+/** The hidden field a create form carries, naming the account it was drawn for. */
+export const ACCOUNT_PIN_FIELD = "accountId";
+
+/**
+ * Whether a form was drawn for a different account than the one the
+ * session is now working in: the person switched accounts in another tab.
+ * Only forms that create things carry the pin; a form about an existing
+ * code names that code, and `access()` already refuses a code that belongs
+ * to another account. A form without the field passes, and the field only
+ * ever refuses, never grants: the scope still comes from the session.
+ */
+export function pinMismatch(scope: AccountScope, formData: FormData): string | null {
+  const pinned = formData.get(ACCOUNT_PIN_FIELD);
+  if (typeof pinned !== "string" || pinned === "" || pinned === scope.accountId) return null;
+  return "You switched accounts in another tab, so this page is out of date. Reload it and try again.";
+}
