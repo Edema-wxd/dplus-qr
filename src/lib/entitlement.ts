@@ -1,6 +1,7 @@
 import { queryOne } from "@/lib/db";
 import type { PlanFeatures } from "@/lib/plans";
 import { ANALYTICS_WINDOWS } from "@/lib/chart-buckets";
+import { planSeats, seatsHeldSql } from "@/lib/seats";
 
 /**
  * What an account is currently allowed to do.
@@ -33,6 +34,10 @@ export type Entitlement = {
   features: PlanFeatures;
   /** True while the subscription is good for serving traffic. */
   active: boolean;
+  /** People the plan allows, owner included; 1 means no team (`planSeats`). */
+  seats: number;
+  /** The owner, live members and pending invites (`seatsHeldSql`). */
+  seatsUsed: number;
 };
 
 type Row = {
@@ -43,6 +48,7 @@ type Row = {
   codes_used: string;
   features: PlanFeatures | null;
   active: boolean;
+  seats_used: string;
 };
 
 /**
@@ -55,7 +61,7 @@ type Row = {
  * archived: it is gone from the owner's dashboard, so counting it would spend
  * their allowance on a code they can no longer see.
  */
-export async function getEntitlement(userId: string): Promise<Entitlement | null> {
+export async function getEntitlement(accountId: string): Promise<Entitlement | null> {
   const row = await queryOne<Row>(
     `select
        p.name                                     as plan_name,
@@ -65,13 +71,14 @@ export async function getEntitlement(userId: string): Promise<Entitlement | null
        p.features,
        (select count(*) from qr_codes where user_id = $1 and archived_at is null) as codes_used,
        (s.status = 'active'
-         or (s.status = 'past_due' and s.grace_until > now()))  as active
+         or (s.status = 'past_due' and s.grace_until > now()))  as active,
+       ${seatsHeldSql(1)}                                     as seats_used
      from qr_subscriptions s
      join qr_plans p on p.id = s.plan_id
      where s.user_id = $1
        and s.status in ('active', 'past_due')
      limit 1`,
-    [userId]
+    [accountId]
   );
 
   if (!row) return null;
@@ -84,6 +91,8 @@ export async function getEntitlement(userId: string): Promise<Entitlement | null
     codesUsed: Number(row.codes_used),
     features: row.features ?? {},
     active: row.active,
+    seats: planSeats(row.features),
+    seatsUsed: Number(row.seats_used),
   };
 }
 

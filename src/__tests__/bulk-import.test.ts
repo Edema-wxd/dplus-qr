@@ -206,7 +206,7 @@ describe("the bulk gate", () => {
     plan({ id: 2, slug: "pro-monthly", name: "Pro", amountKobo: 1_000_000, sortOrder: 20 }),
     plan({ id: 3, slug: "business-monthly", name: "Business", amountKobo: 2_500_000, sortOrder: 30, features: { bulk_creation: true } }),
   ];
-  const free: Entitlement = { planName: "Free", planSlug: "free", maxCodes: 5, historyDays: 30, codesUsed: 0, features: {}, active: true };
+  const free: Entitlement = { planName: "Free", planSlug: "free", maxCodes: 5, historyDays: 30, codesUsed: 0, features: {}, active: true, seats: 1, seatsUsed: 1 };
 
   it("follows the flag, and the offer names the cheapest plan that has it", () => {
     expect(canBulkCreate(free)).toBe(false);

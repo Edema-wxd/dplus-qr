@@ -1,6 +1,7 @@
 import type { Entitlement } from "@/lib/entitlement";
 import type { Plan } from "@/lib/plans";
 import { historyLabel, naira } from "@/lib/plan-tiers";
+import { hasTeam } from "@/lib/seats";
 
 /**
  * What the dashboard says when a customer reaches for something their plan
@@ -22,6 +23,7 @@ export type Gate =
   | "share_stats"
   | "video_uploads"
   | "bulk_creation"
+  | "team_seats"
   | "history"
   | "codes";
 
@@ -70,6 +72,11 @@ const COPY: Record<Exclude<Gate, "history" | "codes">, { title: string; benefit:
     benefit: "Upload a video file to a video page, rather than linking to YouTube or Vimeo.",
     plural: true,
   },
+  team_seats: {
+    title: "Team seats",
+    benefit: "Invite people to work in your account with their own sign-in, as editors or as viewers.",
+    plural: true,
+  },
   bulk_creation: {
     title: "Bulk creation",
     benefit: "Make up to 500 codes at once from a spreadsheet, then download every QR image in one zip.",
@@ -112,6 +119,15 @@ function whyNot(entitlement: Entitlement | null, title: string, plural: boolean)
   return `${title} ${verb} not part of your ${entitlement.planName} plan.`;
 }
 
+/**
+ * Whether a plan has the feature a gate asks for. Flags are `true`; team
+ * seats are a count, and a plan has a team when it allows more than one
+ * person (`hasTeam`).
+ */
+function holds(features: Plan["features"], gate: Exclude<Gate, "history" | "codes">): boolean {
+  return gate === "team_seats" ? hasTeam(features) : features[gate] === true;
+}
+
 /** The prompt for a feature flag in `qr_plans.features`. */
 export function featureOffer(
   gate: Exclude<Gate, "history" | "codes">,
@@ -124,7 +140,7 @@ export function featureOffer(
     title,
     benefit,
     why: whyNot(entitlement, title, plural),
-    unlock: priced(candidates(plans).find((plan) => plan.features[gate] === true)),
+    unlock: priced(candidates(plans).find((plan) => holds(plan.features, gate))),
   };
 }
 

@@ -1,13 +1,14 @@
 # Plan: Team seats
 
-**Status: approved 7 November 2026; steps 1 and 2 built (migration 028,
-`account-scope.ts`), see DECISIONS.md.** Answers: Business only, 5 people
+**Status: approved 7 November 2026; steps 1 to 3 built (migration 028,
+`account-scope.ts`, `seats.ts`), see DECISIONS.md.** Answers: Business only, 5 people
 including the owner; owner, editor and viewer; lock members out and keep
 memberships; every other recommendation as written. Changes from the text
 below: the account check is `access(n)` with the actor and roles appended
 after a statement's own parameters, so existing numbering stays; the
 session-reading `resolveScope` lives in `resolve-scope.ts` so the query
-libraries stay pure; the hidden `accountId` on forms moves to step 4.
+libraries stay pure; the hidden `accountId` on forms moves to step 4; seat
+rules live in `src/lib/seats.ts` rather than `entitlement.ts`.
 
 **Migration number:** this plan says `025`, which `025_feedback_context`
 (PR #34) has since taken. Use the next free number when building, and update

@@ -101,7 +101,7 @@ describe("canUseCustomCodes", () => {
     historyDays: 90,
     codesUsed: 0,
     features: {},
-    active: true,
+    active: true, seats: 1, seatsUsed: 1,
   };
 
   it("refuses a plan without the flag", () => {

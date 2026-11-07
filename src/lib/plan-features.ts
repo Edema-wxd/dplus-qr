@@ -39,6 +39,8 @@ export type FeatureDef =
       min: number;
       max: number;
       help: string;
+      /** Said on the price table for a plan that has a value; absent: never listed. */
+      advertise?: (value: number) => string;
     };
 
 /**
@@ -128,6 +130,7 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     built: false,
     min: 2,
     max: 50,
+    advertise: (people) => `Up to ${people} people, with their own sign-in`,
     help: "People who can use the account, the owner included. Not built yet: stored, never advertised. Empty means no team.",
   },
   {
@@ -154,6 +157,8 @@ export function advertisedFeatures(features: PlanFeatures): string[] {
       else if (def.absent) lines.push(def.absent);
     } else if (def.kind === "choice") {
       if (typeof value === "string" && def.options[value]) lines.push(def.options[value]);
+    } else if (def.advertise && typeof value === "number" && Number.isInteger(value) && value >= def.min) {
+      lines.push(def.advertise(value));
     }
   }
   return lines;

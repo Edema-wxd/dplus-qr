@@ -17,6 +17,8 @@ function entitlement(overrides: Partial<Entitlement> = {}): Entitlement {
     codesUsed: 0,
     features: {},
     active: true,
+    seats: 1,
+    seatsUsed: 1,
     ...overrides,
   };
 }

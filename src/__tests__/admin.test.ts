@@ -63,7 +63,7 @@ describe("revenue", () => {
 });
 
 describe("assignRefusal", () => {
-  const plan = { slug: "pro-monthly", name: "Pro", maxCodes: 50, isActive: true };
+  const plan = { slug: "pro-monthly", name: "Pro", maxCodes: 50, isActive: true, features: {} };
   const base = { liveViaPaystack: false, currentSlug: "free" };
 
   it("allows an assignment that fits", () => {
@@ -81,6 +81,14 @@ describe("assignRefusal", () => {
 
   it("refuses the plan the account is already on", () => {
     expect(assignRefusal({ ...base, plan, codesHeld: 0, currentSlug: "pro-monthly" })).toMatch(/already on Pro/);
+  });
+
+  it("never removes people to fit a plan: a team larger than its seats is refused", () => {
+    const business = { ...plan, slug: "business-monthly", name: "Business", features: { team_seats: 5 } };
+    expect(assignRefusal({ ...base, plan: business, codesHeld: 0, seatsHeld: 5 })).toBeNull();
+    expect(assignRefusal({ ...base, plan: business, codesHeld: 0, seatsHeld: 6 })).toMatch(/team is 6 people.*covers 5/);
+    expect(assignRefusal({ ...base, plan, codesHeld: 0, seatsHeld: 2 })).toMatch(/covers 1/);
+    expect(assignRefusal({ ...base, plan, codesHeld: 0, seatsHeld: 1 })).toBeNull();
   });
 });
 
