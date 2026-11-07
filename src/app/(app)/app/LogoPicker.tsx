@@ -4,6 +4,7 @@ import { useId, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { archiveLogoAction } from "./actions";
 import { useUploadThing } from "./uploadthing";
+import { UPLOAD_LIMITS, checkPicked, clientUploadMessage } from "@/lib/upload-limits";
 import { secondaryButtonClass } from "@/components/controls";
 
 export type PickerLogo = { id: string; url: string; name: string };
@@ -34,7 +35,12 @@ export function LogoPicker({
   /** Names the picker in its radio ids, which `useId` then makes unique. */
   idPrefix: string;
   name?: string;
-  onChange?: (logoId: string) => void;
+  /**
+   * Called with the chosen id ("" for none) and the logo itself, so a caller
+   * that draws in the browser has the URL of one uploaded a moment ago, before
+   * this picker's own list has re-rendered with it.
+   */
+  onChange?: (logoId: string, logo: PickerLogo | null) => void;
 }) {
   // Unique per instance, not just per picker kind. Next keeps up to three
   // visited pages mounted but hidden (Cache Components' `<Activity>`), so two
@@ -56,20 +62,23 @@ export function LogoPicker({
   const [removing, startRemoving] = useTransition();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function select(id: string) {
-    setSelected(id);
-    onChange?.(id);
+  function select(logo: PickerLogo | null) {
+    setSelected(logo?.id ?? "");
+    onChange?.(logo?.id ?? "", logo);
   }
 
   const { startUpload, isUploading } = useUploadThing("logo", {
     onClientUploadComplete: (results) => {
       const data = results[0]?.serverData;
-      if (!data) return;
-      setLogos((previous) => [
-        { id: data.logoId, url: data.url, name: data.name },
-        ...previous.filter((logo) => logo.id !== data.logoId),
-      ]);
-      select(data.logoId);
+      // The server records a logo only once it decodes as an image, and a
+      // refusal there cannot carry a message back; no data is how it shows.
+      if (!data) {
+        setError("That logo could not be saved. Check it is a PNG, JPEG or WebP image, then try again.");
+        return;
+      }
+      const added = { id: data.logoId, url: data.url, name: data.name };
+      setLogos((previous) => [added, ...previous.filter((logo) => logo.id !== data.logoId)]);
+      select(added);
       setError(null);
       toast.success("Logo uploaded", {
         id: "logo-library",
@@ -77,7 +86,7 @@ export function LogoPicker({
       });
     },
     onUploadError: (uploadError) => {
-      setError(uploadError.message || "That upload did not finish. Please try again.");
+      setError(clientUploadMessage(uploadError));
     },
   });
 
@@ -85,8 +94,9 @@ export function LogoPicker({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    setError(null);
-    startUpload([file]);
+    const { accepted, problem } = checkPicked("logo", [file], 1);
+    setError(problem);
+    if (accepted.length) startUpload(accepted);
   }
 
   function remove(logo: PickerLogo) {
@@ -97,7 +107,7 @@ export function LogoPicker({
         return;
       }
       setLogos((previous) => previous.filter((item) => item.id !== logo.id));
-      if (selected === logo.id) select("");
+      if (selected === logo.id) select(null);
       toast.success("Logo removed from your library", {
         id: "logo-library",
         description: "Codes already drawn with it keep it.",
@@ -120,7 +130,7 @@ export function LogoPicker({
             name={name}
             value=""
             checked={selected === ""}
-            onChange={() => select("")}
+            onChange={() => select(null)}
             autoComplete="off"
             className="peer sr-only"
           />
@@ -137,7 +147,7 @@ export function LogoPicker({
               name={name}
               value={logo.id}
               checked={selected === logo.id}
-              onChange={() => select(logo.id)}
+              onChange={() => select(logo)}
               autoComplete="off"
               className="peer sr-only"
             />
@@ -193,7 +203,7 @@ export function LogoPicker({
       ) : (
         <p className="mt-2 max-w-[48ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           {uploads
-            ? "PNG, JPEG or WebP, up to 1MB. A logo you upload stays in your library for your next code. A square mark on a plain background reads best at small sizes."
+            ? `PNG, JPEG or WebP, up to ${UPLOAD_LIMITS.logo.maxFileSize}. A logo you upload stays in your library for your next code. A square mark on a plain background reads best at small sizes.`
             : logos.length > 0
               ? "Pick a logo from your library."
               : "Logo uploads are not available yet."}

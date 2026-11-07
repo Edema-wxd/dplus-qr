@@ -58,7 +58,7 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-export type StyleCheck = { ok: true } | { ok: false; reason: string };
+export type StyleCheck = { ok: true } | { ok: false; reason: string; inverted: boolean };
 
 /**
  * Whether a pair will scan once printed.
@@ -67,19 +67,26 @@ export type StyleCheck = { ok: true } | { ok: false; reason: string };
  * modules on a dark ground) has the same ratio, but a share of scanner apps,
  * older Android ones especially, only look for dark finder patterns and never
  * read it at all.
+ *
+ * Every reason quotes the pair's contrast. White on black is 21:1, the best
+ * there is, and refused anyway; a reason that read the same for every
+ * inverted pair looked to owners like a check that had stopped re-running.
  */
 export function checkQrStyle(style: QrStyle): StyleCheck {
-  if (luminance(style.dark) >= luminance(style.light)) {
+  const ratio = contrastRatio(style.dark, style.light);
+  // Strictly lighter: two equally bright colours are not inverted, just too
+  // close, and the contrast check below refuses them as that.
+  if (luminance(style.dark) > luminance(style.light)) {
     return {
       ok: false,
-      reason:
-        "The code colour must be darker than the background. Many scanners cannot read a light code on a dark ground.",
+      inverted: true,
+      reason: `Contrast ${ratio.toFixed(1)}:1, but the code is lighter than its background. The code colour must be the darker one: many scanners cannot read a light code on a dark ground.`,
     };
   }
-  const ratio = contrastRatio(style.dark, style.light);
   if (ratio < MIN_QR_CONTRAST) {
     return {
       ok: false,
+      inverted: false,
       reason: `Those two colours are too close to scan reliably once printed (contrast ${ratio.toFixed(1)}:1, minimum ${MIN_QR_CONTRAST}:1). Darken the code colour or lighten the background.`,
     };
   }

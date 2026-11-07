@@ -213,10 +213,12 @@ export const PAGE_SCHEMAS = {
       icon: optionalFile("image"),
       ios: hostLink(["apps.apple.com", "itunes.apple.com"], "The iOS link must be on apps.apple.com."),
       android: hostLink(["play.google.com"], "The Android link must be on play.google.com."),
+      // Huawei phones sold since 2019 have no Google Play, only AppGallery.
+      huawei: hostLink(["appgallery.huawei.com"], "The AppGallery link must be on appgallery.huawei.com."),
       website: optionalLink,
     })
-    .refine((v) => v.ios || v.android, {
-      message: "Add an App Store link, a Google Play link, or both.",
+    .refine((v) => v.ios || v.android || v.huawei, {
+      message: "Add at least one store link: App Store, Google Play or AppGallery.",
     }),
 
   mp3: z.object({
@@ -253,6 +255,9 @@ export const PAGE_SCHEMAS = {
                 name: required("a name for each dish", 80),
                 description: optional("dish description", 300),
                 price: optional("price", 20),
+                // Optional, and absent from menus saved before it existed:
+                // those parse with no photo.
+                photo: optionalFile("image"),
               })
             )
             .min(1, "Each section needs at least one item.")

@@ -75,7 +75,7 @@ export default async function NewCodePage({
   // Free makes link codes only. A page type is not offered (and not served as
   // a form by URL) on a plan without hosted pages; the server refuses it too.
   const pages = canMakeHostedPages(entitlement);
-  const lockedPage = (kind: string) => !pages.ok && isPageKind(kind);
+  const lockedPage = (kind: string) => !pages && isPageKind(kind);
 
   // What a locked card or field says when clicked, with the cheapest plan
   // that unlocks it read from the plan rows rather than written into copy.
@@ -107,7 +107,16 @@ export default async function NewCodePage({
     const type = staticType(fixed);
     return (
       <DashShell heading={type.label} meta={`Static code · ${type.blurb}`} back={back}>
-        <StaticCodeForm kind={fixed} />
+        {/*
+          The library is the session user's own (`listLogos` filters by
+          user id). Colours and logos are on every plan, so nothing is gated;
+          the code's content still never comes to the server.
+        */}
+        <StaticCodeForm
+          kind={fixed}
+          logos={library.map(({ id, url, name }) => ({ id, url, name }))}
+          uploads={uploads}
+        />
       </DashShell>
     );
   }
@@ -135,7 +144,7 @@ export default async function NewCodePage({
         locked={(kind) => (atLimit ? offers.codes : lockedPage(kind) ? offers.hosted : null)}
       />
 
-      {!pages.ok && !atLimit ? (
+      {!pages && !atLimit ? (
         <p className="-mt-4 mb-10 max-w-[60ch] text-sm leading-relaxed text-[var(--paper-soft)]">
           {offers.hosted.why}{" "}
           {offers.hosted.unlock ? `Hosted pages come with ${offers.hosted.unlock.name} and up; ` : ""}

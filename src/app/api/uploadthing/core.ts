@@ -9,6 +9,8 @@ import {
 } from "@/lib/logos";
 import { recordFile } from "@/lib/files";
 import { canUploadVideo, getEntitlement } from "@/lib/entitlement";
+import { UPLOAD_LIMITS, uploadRefusal, type UploadEndpoint } from "@/lib/upload-limits";
+import { videoRefusal } from "@/lib/user-codes";
 
 /**
  * Every customer upload goes through here: logos, and the files hosted pages
@@ -22,10 +24,25 @@ import { canUploadVideo, getEntitlement } from "@/lib/entitlement";
  *
  * SVG is not accepted. It can carry script, and logos are drawn inside the
  * dashboard's own page.
+ *
+ * **What a refusal can say.** A message thrown from `middleware` reaches the
+ * browser, through `errorFormatter`, which also rewrites UploadThing's own
+ * refusals ("Invalid config: FileSizeMismatch") into sentences. A throw from
+ * `onUploadComplete` reaches no one: UploadThing logs it and never answers
+ * the browser, so the form only learns that no file came back. Anything the
+ * owner must be told is decided in `middleware`, before a file is stored.
  */
-const f = createUploadthing();
+const f = createUploadthing({
+  errorFormatter: (error) => ({ message: uploadRefusal(error.message, error.cause) }),
+});
 
-const image = { maxFileSize: "1MB", maxFileCount: 1 } as const;
+/** An endpoint's limits, from the table the dashboard checks against too. */
+function limits(endpoint: UploadEndpoint) {
+  const { maxFileSize, maxFileCount } = UPLOAD_LIMITS[endpoint];
+  return { maxFileSize, maxFileCount };
+}
+
+const image = limits("logo");
 
 /** The session check every page-file endpoint shares. */
 async function pageFileOwner() {
@@ -35,17 +52,14 @@ async function pageFileOwner() {
 }
 
 /**
- * Video files are the one real storage cost, so uploading them is a Pro and
- * Business feature. Checked here, before UploadThing hands out an upload URL,
- * so no file is stored for a plan that cannot use it.
+ * Video files are the one real storage cost, so uploading them is a plan
+ * feature (`video_uploads`). Checked here, before UploadThing hands out an
+ * upload URL, so no file is stored for a plan that cannot use it.
  */
 async function videoFileOwner() {
   const owner = await pageFileOwner();
-  if (!canUploadVideo(await getEntitlement(owner.userId))) {
-    throw new UploadThingError(
-      "Uploading video comes with Pro and Business. Link a YouTube or Vimeo video instead."
-    );
-  }
+  const entitlement = await getEntitlement(owner.userId);
+  if (!canUploadVideo(entitlement)) throw new UploadThingError(await videoRefusal(entitlement));
   return owner;
 }
 
@@ -53,6 +67,10 @@ async function videoFileOwner() {
  * Recorded against the account so a page can only ever show a file its owner
  * uploaded; see `resolveFiles`. Sent back to the browser, which places the
  * file in the page being edited.
+ *
+ * A file that cannot be recorded is deleted again. Without a `qr_files` row
+ * nothing refers to it, and the cleanup sweep, which finds orphans from those
+ * rows, would never find it either.
  */
 async function recordPageFile({
   metadata,
@@ -61,17 +79,24 @@ async function recordPageFile({
   metadata: { userId: string };
   file: { key: string; ufsUrl: string; name: string; type: string; size: number };
 }) {
-  const stored = await recordFile(metadata.userId, {
-    key: file.key,
-    url: file.ufsUrl,
-    name: file.name,
-    type: file.type,
-    size: file.size,
-  });
+  let stored;
+  try {
+    stored = await recordFile(metadata.userId, {
+      key: file.key,
+      url: file.ufsUrl,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
+  } catch (error) {
+    console.error("[uploads] page file not recorded", error);
+    await new UTApi().deleteFiles(file.key).catch(() => {});
+    throw error;
+  }
   return { fileId: stored.id, url: stored.url, name: stored.name, mime: stored.mime };
 }
 
-const photo = { maxFileSize: "4MB", maxFileCount: 10 } as const;
+const photo = limits("pageImage");
 
 export const uploadRouter = {
   logo: f({ "image/png": image, "image/jpeg": image, "image/webp": image })
@@ -89,22 +114,24 @@ export const uploadRouter = {
     .onUploadComplete(async ({ metadata, file }) => {
       // Decoded before it is recorded: UploadThing accepts a file by its
       // declared type, and a "logo" that is not an image would otherwise sit
-      // in the library and fail every download that used it.
+      // in the library and fail every download that used it. The throw only
+      // reaches the log (see the note at the top); `LogoPicker` tells the
+      // owner when no logo comes back.
+      let logo;
       try {
         await loadLogo(file.ufsUrl);
+        logo = await recordLogo(metadata.userId, {
+          key: file.key,
+          url: file.ufsUrl,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+        });
       } catch (error) {
-        console.error("[uploads] logo did not decode", error);
+        console.error("[uploads] logo not decoded or not recorded", error);
         await new UTApi().deleteFiles(file.key).catch(() => {});
-        throw new UploadThingError("That file could not be read as an image.");
+        throw error;
       }
-
-      const logo = await recordLogo(metadata.userId, {
-        key: file.key,
-        url: file.ufsUrl,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      });
       // Sent back to the browser, which selects the new logo straight away.
       return { logoId: logo.id, url: logo.url, name: logo.name };
     }),
@@ -120,19 +147,19 @@ export const uploadRouter = {
     .middleware(pageFileOwner)
     .onUploadComplete(recordPageFile),
 
-  pagePdf: f({ "application/pdf": { maxFileSize: "16MB", maxFileCount: 1 } })
+  pagePdf: f({ "application/pdf": limits("pagePdf") })
     .middleware(pageFileOwner)
     .onUploadComplete(recordPageFile),
 
   pageVideo: f({
-    "video/mp4": { maxFileSize: "64MB", maxFileCount: 1 },
-    "video/webm": { maxFileSize: "64MB", maxFileCount: 1 },
-    "video/quicktime": { maxFileSize: "64MB", maxFileCount: 1 },
+    "video/mp4": limits("pageVideo"),
+    "video/webm": limits("pageVideo"),
+    "video/quicktime": limits("pageVideo"),
   })
     .middleware(videoFileOwner)
     .onUploadComplete(recordPageFile),
 
-  pageAudio: f({ audio: { maxFileSize: "16MB", maxFileCount: 10 } })
+  pageAudio: f({ audio: limits("pageAudio") })
     .middleware(pageFileOwner)
     .onUploadComplete(recordPageFile),
 } satisfies FileRouter;

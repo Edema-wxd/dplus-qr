@@ -42,7 +42,22 @@ describe("checkQrStyle", () => {
   it("refuses an inverted code even at full contrast, because many scanners cannot read one", () => {
     const result = checkQrStyle({ dark: "#FFFFFF", light: "#000000" });
     if (result.ok) throw new Error("expected refusal");
-    expect(result.reason).toMatch(/darker than the background/i);
+    expect(result.inverted).toBe(true);
+    expect(result.reason).toMatch(/must be the darker one/i);
+  });
+
+  it("quotes each inverted pair's own contrast, so a new pick reads as a new check", () => {
+    const a = checkQrStyle({ dark: "#FFFFFF", light: "#000000" });
+    const b = checkQrStyle({ dark: "#FFFFFF", light: "#555555" });
+    if (a.ok || b.ok) throw new Error("expected refusal");
+    expect(a.reason).toContain("21.0:1");
+    expect(b.reason).not.toEqual(a.reason);
+  });
+
+  it("does not call a dull pair inverted", () => {
+    const result = checkQrStyle({ dark: "#808080", light: "#FFFFFF" });
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.inverted).toBe(false);
   });
 
   it("refuses identical colours", () => {
@@ -157,4 +172,13 @@ describe("pageBrand", () => {
       expect(contrastRatio(brand.fill, brand.ink)).toBeGreaterThanOrEqual(4.5);
     }
   );
+});
+
+describe("checkQrStyle on identical colours", () => {
+  it("calls them too close, not inverted", () => {
+    const result = checkQrStyle({ dark: "#FFFFFF", light: "#FFFFFF" });
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.inverted).toBe(false);
+    expect(result.reason).toMatch(/too close/);
+  });
 });

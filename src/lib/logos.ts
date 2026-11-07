@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { query, queryOne } from "@/lib/db";
+import { isUploadThingUrl } from "@/lib/upload-host";
 
 /**
  * Each account's logo library.
@@ -51,23 +52,11 @@ export function parseLogoId(raw: string): string | null {
 }
 
 /**
- * Whether a URL is one UploadThing serves files from.
- *
- * Checked before the server fetches a logo, so the download route can only
- * ever be made to fetch from UploadThing, never from an address someone
- * slipped into a row. v7 serves from `<app-id>.ufs.sh`; older files from
- * `utfs.io`.
+ * Whether a URL is one UploadThing serves files from. It lives in
+ * `upload-host.ts`, which is pure, so the browser can run the same check
+ * before it fetches a logo; re-exported here for the server callers.
  */
-export function isUploadThingUrl(raw: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== "https:") return false;
-  return url.hostname.endsWith(".ufs.sh") || url.hostname === "utfs.io";
-}
+export { isUploadThingUrl };
 
 export async function listLogos(userId: string): Promise<Logo[]> {
   const rows = await query<LogoRow>(

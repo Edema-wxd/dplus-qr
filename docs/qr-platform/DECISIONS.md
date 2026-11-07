@@ -674,8 +674,9 @@ proxy matcher for that reason, but the proxy is also where a session gets
 refreshed, and a Server Component cannot write the refreshed cookie: on
 4 Nov 2026 `/admin` failed with "Cookies can only be modified in a Server
 Action or Route Handler". So `/admin` is in the matcher for the refresh, and
-`proxy.ts` turns its login redirect there into a pass-through. Granting the
-role is SQL, never a screen:
+`proxy.ts` answers a signed-out visitor there itself (see "A signed-out
+`/admin` is a real 404", 6 November 2026). Granting the role is SQL, never a
+screen:
 
     update neon_auth."user" set role = 'admin' where email = '...';
 
@@ -1119,6 +1120,252 @@ and the live codes that show it. Logos keep their own library in the picker.
 Tested against a local Postgres (each upload matched to its codes, an unused
 one marked, another account's file excluded) and rendered at phone and
 desktop width.
+
+## A signed-out `/admin` is a real 404, 6 November 2026
+
+"Everyone else gets the ordinary 404" was not what a signed-out visitor got.
+`admin/loading.tsx` puts the admin page inside a Suspense boundary, so Next
+prerendered a shell: the visitor was sent HTTP 200, a skeleton and the
+title "Admin · QRiate+", and the 404 from `requireStaff()` only arrived later
+in the streamed payload. Status and title both said the page exists.
+
+- **The proxy answers it, because the page cannot.** By the time any admin
+  code runs, the shell and its status are on the wire. `proxy.ts` already
+  reads the session on `/admin` for the refresh, so when that read finds no
+  one signed in it rewrites the request to `/_nowhere/404`: two segments, so
+  `[code]` cannot claim it, under a `_` folder, which the App Router never
+  routes. Next serves the site's not-found page with a 404, the same bytes as
+  any other dead link with two or more segments. Cookies the middleware
+  cleared are kept.
+- **The target names nothing**, because `next start` echoes a rewrite's
+  target to the client in `x-middleware-rewrite`.
+- **Signed-in non-admins still get the shell.** The proxy knows whether
+  someone is signed in, not their role, and the role is read from the
+  database on every request by design. `requireStaff()` still refuses them,
+  so nothing is exposed but the shell and the title, and only to people with
+  an account.
+- `/admin` is a single segment, where an unknown word on this host goes to
+  `[code]` and is redirected to `/not-found-code`. A signed-out `/admin` gets
+  the two-segment not-found page instead. It reveals nothing about the admin:
+  `admin` is a reserved word, and the page names no feature.
+
+Checked with `next start` against the build: signed-out `/admin`,
+`/admin/customers` and `/admin/plans/abc` match `/foo/bar` byte for byte,
+with a 404 and no mention of the admin, and `/app` still redirects to
+sign-in.
+
+## Signed-in non-staff get the real 404 too, 6 November 2026
+
+Extends the entry above, which closed the gap for signed-out visitors and
+named the one it left: a signed-in customer still got the 200, the admin's
+title and its loading screen, so any account holder could tell the admin
+exists. The proxy now answers them the same way.
+
+- `proxy.ts` answers anyone who is not staff by rewriting to `/_nowhere/404`
+  (see above), so Next gives the 404 status, the not-found page and its
+  title. Checked with `next start` against the build: for a signed-in
+  customer, `/admin`, `/admin/customers` and `/admin/codes/1` match
+  `/foo/bar`, a path outside the proxy, byte for byte, while a staff account
+  gets the real pages. (`next start` also sends `x-middleware-rewrite` on the
+  rewritten responses; production on Vercel does not.)
+- **Who is staff** comes from Neon Auth's `session_data` cookie, an HS256 JWT
+  signed with our `NEON_AUTH_COOKIE_SECRET`, verified in
+  `src/lib/session-cookie.ts` with `node:crypto` (fixed algorithm,
+  constant-time compare, expiry enforced; `jose` is ESM-only and cannot load
+  in the test suite). The middleware has just refreshed it, so it is current.
+  Then the role is read from the database, as `requireStaff()` reads it, so
+  revoking or banning takes effect on the next request (checked).
+- **It can only hide, never lock out.** No session cookie, or a sign-in
+  redirect from the middleware: not staff, with no database read. A cookie
+  that does not verify, or a database error: the proxy cannot tell, and the
+  request goes on to the page, where `requireStaff()` decides as before. The
+  cookie's name and format are Neon Auth's, not a published API; if they
+  change, the hiding stops and nothing else does. A test checks our verifier
+  against a token the library itself minted. Seen in testing: with the
+  database stopped, a customer got the page's old answer (the shell, then
+  `requireStaff()`'s refusal), not a lockout and not an error.
+- Staff keep descriptive tab titles: nobody else ever receives them.
+- `requireStaff()` and `staffForAction()` are unchanged and remain the guard.
+
+## Feedback answers export as CSV, 6 November 2026
+
+A feedback code's page now has "Export answers as CSV"
+(`/app/{id}/export/feedback`): every answer, newest first, as
+`answered_at,rating,country,city,device,os,comment`, capped at 10,000 like
+the scan export. The panel itself still shows the latest 100 and says so
+when there are more.
+
+- **Answers now record where they came from** (Francis, 6 Nov 2026: "also
+  include country, OS, device, and city"). Migration `025` adds nullable
+  `country`, `city`, `device_type` and `os` to `qr_feedback`, filled by
+  `feedbackOrigin()` from the same headers and User-Agent parse a scan uses.
+  This replaces the 26 October rule that an answer kept only rating, comment
+  and time. Still no IP and no hashed visitor value. Answers from before 025
+  have blank cells. The privacy policy's scan-data section now says what an
+  answer keeps.
+- **City and OS need `insights` as well as `csv_export`**, the code page's
+  own rule for detailed analytics. Without it the file drops those two
+  columns, as the days table drops `unique_scans`. Country and device stay.
+- **Behind the existing `csv_export` flag**, not a new one. It is the same
+  capability, a download of a code's data, so staff move it between plans in
+  one place. Without it the button stays clickable and opens the upgrade
+  prompt; the route refuses with 403 either way.
+- **Any other kind of code is a 404**, the same answer as a code belonging
+  to another account, so the route confirms nothing.
+- **Comments go through `csvCell`.** They are typed by anonymous scanners
+  and are the least trusted text in any export, so a comment beginning `=`
+  is defused rather than arriving in the owner's spreadsheet as a formula.
+- `csvResponse` moved into `csv-export.ts` so both export routes send the
+  same headers (`private, no-store`, attachment).
+
+## Scans record their city again, 6 November 2026
+
+Scans had never recorded a city. `scanContext` kept only the country header,
+and `recordScan` rebuilt a `Headers` holding just that, so `readCity` never
+saw `x-vercel-ip-city`. On 6 November, 13 of the previous fortnight's 27
+scans had a country and none had a city, so every Cities panel and table was
+empty. `scanContext` now keeps the raw city header too, decoded in `after()`
+by `scanLocation()` (tested), so the redirect still does no extra work
+inline. Scans already recorded stay without a city; there is nothing to
+backfill it from.
+
+## Page type gaps: social icons, dish photos, AppGallery, Product Info, 6 November 2026
+
+Four gaps in the hosted page types, closed together. No migration: every
+change is inside `content` jsonb, and every new field is optional with a
+default, so pages saved before today parse and render unchanged.
+
+- **Social pages show each network's icon beside its name**
+  (`src/app/p/[code]/SocialIcon.tsx`). Inline line drawings in the manner of
+  `TypeIcon`, in `currentColor`, so they follow the page's brand theming. No
+  icon package: `lucide-react` is installed but dropped its brand marks. The
+  name stays on the button; the icon only helps the eye find the row.
+- **A menu dish can have a photo** (`photo`, an optional image, default
+  null). The page shows it as a 64px thumbnail beside the dish, loaded lazily,
+  since a menu can run to hundreds of dishes on mobile data. The file is a
+  `fileId` like every other page file, so `resolveFiles` checks it against
+  the account's own uploads on save and the Files page counts it as a use
+  (both tested on a nested dish). The editor has **one uploader for the whole
+  menu**, not one per dish, because each uploader fetches the upload route's
+  config when it mounts. The dish an upload is for is marked in the draft
+  (`uploadMark`, which the schema drops), so moving or removing dishes while
+  it runs cannot put the photo on the wrong one. Without `UPLOADTHING_TOKEN`
+  a dish keeps and can remove a photo it has, and the note says uploads are
+  not available, as every other optional image field does.
+- **App codes take a Huawei AppGallery link** (`huawei`, on
+  `appgallery.huawei.com` only). At least one of App Store, Google Play or
+  AppGallery is now required. Huawei phones sold since 2019 have no Google
+  Play, so the Play button was a dead end for them. The store choice moved
+  out of the page into `appStoreFor` in `src/lib/page-helpers.ts`, pure and
+  tested: iPhone first, then a Huawei phone **only when an AppGallery link is
+  set**, then Android. Without the link a Huawei phone goes to Google Play,
+  as before.
+  - **The Huawei rule is conservative and case-sensitive**: `HUAWEI` (the
+    model prefix, `HUAWEI VOG-L29`), `HMSCore` (Huawei Mobile Services,
+    which Huawei Browser announces), `HarmonyOS`, and `OpenHarmony`.
+    `OpenHarmony` was added beyond the original three because HarmonyOS
+    NEXT writes only that, and it cannot install Android apps at all. A
+    wrong match costs a Play Store user a detour to AppGallery, so a token
+    that merely mentions the brand ("HuaweiFanApp") does not count. Newer
+    Huawei phones in Chrome report only a model code (`ELS-NX9`); they are
+    not detected and fall through to Google Play or the buttons, which is
+    the price of not guessing from model codes.
+- **"2D Barcode" is now "Product Info"**, "Product details: GTIN, batch,
+  expiry". The old label overpromised: the printed code is our short link to
+  a product page, not a GS1 barcode or a GS1 Digital Link, so a shop till
+  will not read a GTIN from it (the 26 October entry's caveat, now said in
+  the picker). The kind stays `barcode`, which migration `015`'s check
+  constraint names. The editor says so above the GTIN field: it opens a
+  product page and is not a retail barcode, so the pack keeps its own. The
+  page itself is unchanged and still prints the GS1 element string for a
+  person to read. No other copy said "2D Barcode" or "GS1" (landing,
+  pricing and site content checked); a test holds the label to that.
+
+Tested with unit tests (schemas, old content, the nested dish photo through
+`resolveFiles` with the database mocked, the store choice for each agent).
+Not tried on a real Huawei handset or against UploadThing.
+
+## Static codes get colours and logos, and Bitcoin checksums, 6 November 2026
+
+**Static codes take colours and a logo, the way dynamic codes do.** Both are
+on every plan, so nothing is gated. The static form uses the same
+`ColourPicker` as the code page (pulled out of `StyleControls.tsx`, which now
+renders it too) and the same `LogoPicker`, offered the account's library.
+`/app/new` loads that library on the server with `listLogos(user.id)`, as it
+already did for dynamic codes.
+
+**Still nothing is stored or sent.** No row, no short code, no round trip
+with the content: a Wi-Fi password stays on the page. The only request the
+form makes is for the logo image itself, from the account's own library.
+
+- **The same rules.** `checkQrStyle` decides which pairs may be downloaded;
+  a failing pair still previews, as on the code page, but both download
+  buttons are disabled. With a logo the code is drawn at H in the box
+  `logoBox` gives, exactly as a dynamic code. Without one it stays at M, as
+  static codes always were: a static code carries up to 1,000 characters of
+  its own content, not a 30-character link, and a higher level shrinks every
+  module at the same print size.
+- **One picture, three outputs.** `src/lib/static-artwork.ts` (pure) decides
+  what to draw. The SVG is the dynamic codes' own `renderQrSvg`, given the
+  level; the preview is that SVG; the PNG is painted on a canvas from the same
+  geometry at a whole number of pixels per module, so edges stay sharp.
+  `renderQrSvg` gained an optional `level` and `qrGeometry` now returns the
+  module bitmap; neither changes what a dynamic code draws.
+- **The canvas is never tainted.** A logo drawn onto a canvas straight from
+  UploadThing's origin would block `toBlob`. The form instead fetches it as a
+  blob (CORS), reads it into a data URL, and redraws it to a PNG of at most
+  512px, the size the server normalises logos to. That data URL is also what
+  the SVG embeds, so the file keeps its logo offline. `isUploadThingUrl`
+  moved to the pure `upload-host.ts` (re-exported from `logos.ts`) so the
+  browser checks the host before fetching.
+- **A logo that cannot be used is said, never dropped silently.** If it
+  cannot load, the code is drawn and downloads without it, with a notice and
+  "Try again" beside the buttons. Downloads wait while it loads, so none
+  quietly lacks it. Content too long to carry a logo at H falls back to M
+  without it, also with a notice; content too long even for M (1,000
+  characters of CJK text, say) is refused inline instead of the preview
+  silently never appearing, which it did before.
+
+**Evidence a styled static code with a logo scans.**
+`src/__tests__/static-artwork.test.ts` rasterises the SVG with sharp and runs
+the real PNG painter onto a pixel buffer, then decodes both with jsQR, for
+Wi-Fi, vCard and Bitcoin payloads in brand colours with a busy logo. The
+canvas path was also checked in Chrome on macOS through a throwaway harness
+(not committed): a logo served from a second origin with CORS, a control
+showing that drawing it directly taints the canvas, then the real
+fetch-to-data-URL path, with each PNG decoded in the page by jsQR and by the
+browser's own `BarcodeDetector`, and the saved files decoded again in Node.
+Not checked: a phone camera scan of a printed copy, the form in a signed-in
+browser session, or that UploadThing's live file host sends the CORS headers
+the fetch needs. If it does not, every static logo takes the fallback above,
+visibly, until the fetch goes through a same-origin route.
+
+**Bitcoin addresses are checked, checksum and all**
+(`src/lib/bitcoin-address.ts`). It used to match the shape only, so one
+wrong character in a printed code sent every payment to an address nobody
+holds.
+
+- Legacy (`1…`) and P2SH (`3…`): Base58Check, version byte 0x00 or 0x05, and
+  the first four bytes of double SHA-256.
+- `bc1…`: BIP 173 bech32 for witness v0 with a 20- or 32-byte program, BIP
+  350 bech32m for v1 to v16, mixed case refused. An all-capitals address is
+  accepted and written lowercase.
+- Mainnet only. A testnet address gets its own message, as do mixed case, a
+  checksum that does not match ("a character is wrong, missing or extra; copy
+  it again from the wallet") and a string that is not an address at all.
+- **SHA-256 is a small pure-TS implementation** (`src/lib/sha256.ts`), not a
+  dependency. The check must run synchronously as the person types, which
+  rules out Web Crypto's async `digest`, and nothing hashing was already a
+  direct dependency. `@noble/hashes` 2.x is ESM-only, which this repo's
+  CommonJS ts-jest would need reconfiguring for, and 1.x is the superseded
+  line; forty lines tested against `node:crypto` and the FIPS examples cost
+  less than either. It is not constant-time and need not be: it hashes a
+  public address.
+- Tested against every vector in BIP 173 and BIP 350 (copied verbatim),
+  including BIP 173's v1+ addresses, which BIP 350 made invalid; real
+  mainnet P2PKH, P2SH, P2WPKH and Taproot addresses; real testnet ones; and
+  every single-character substitution of a legacy, a P2SH, a bech32 and a
+  bech32m address.
 
 ## Still open
 

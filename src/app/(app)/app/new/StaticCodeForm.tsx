@@ -1,15 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import QRCode from "qrcode";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildStaticPayload,
   PAYPAL_CURRENCIES,
   type StaticFields,
   type StaticKind,
 } from "@/lib/static-payload";
+import { checkQrStyle, DEFAULT_QR_STYLE, isDefaultQrStyle, type QrStyle } from "@/lib/qr-style";
+import {
+  planStaticArtwork,
+  staticSvg,
+  type LogoState,
+  type StaticLogo,
+} from "@/lib/static-artwork";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { ContactImport } from "../ContactImport";
+import { ColourPicker } from "../ColourPicker";
+import { LogoPicker, type PickerLogo } from "../LogoPicker";
+import { loadStaticLogo, renderStaticPng } from "./browser-artwork";
 
 function Field({
   id,
@@ -40,7 +49,15 @@ function download(href: string, filename: string) {
   a.click();
 }
 
-const INK = { dark: "#1A1A1AFF", light: "#FFFFFFFF" };
+/** Download a Blob, releasing its object URL once the click has used it. */
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  download(url, filename);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** The chosen logo and where loading it has got to, keyed by its URL. */
+type LogoLoad = { url: string; state: LogoState };
 
 /**
  * A static code, built entirely in the browser.
@@ -48,12 +65,32 @@ const INK = { dark: "#1A1A1AFF", light: "#FFFFFFFF" };
  * Nothing is posted, saved or counted -- the content never reaches the
  * server, which is also why this path needs no session check or plan limit.
  * The payload rules live in `buildStaticPayload`, which the tests pin.
+ *
+ * Colours and a logo work as they do on a dynamic code: the same picker
+ * components, the same contrast check, the same logo box and level H with a
+ * logo. They are composed by `planStaticArtwork`, which is pure and tested,
+ * and drawn here. The only request this form makes is for the logo image
+ * itself, from the account's own library; the content stays on the page.
  */
-export function StaticCodeForm({ kind }: { kind: StaticKind }) {
+export function StaticCodeForm({
+  kind,
+  logos,
+  uploads,
+}: {
+  kind: StaticKind;
+  /** The account's logo library, loaded on the server for this session. */
+  logos: PickerLogo[];
+  /** False when this deployment has no UploadThing token. */
+  uploads: boolean;
+}) {
   const [fields, setFields] = useState<StaticFields>({ security: "WPA", currency: "USD" });
-  // Keyed by the content it was drawn for, so a stale image is never shown
-  // against newer input while the next one renders.
-  const [drawn, setDrawn] = useState<{ content: string; url: string } | null>(null);
+  const [style, setStyle] = useState<QrStyle>(DEFAULT_QR_STYLE);
+  const [logo, setLogo] = useState<PickerLogo | null>(null);
+  const [load, setLoad] = useState<LogoLoad | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  // Logos already brought in, so switching back to one is instant.
+  const loaded = useRef(new Map<string, StaticLogo>());
 
   const result = buildStaticPayload(kind, fields);
   const content = result.ok ? result.content : null;
@@ -63,17 +100,53 @@ export function StaticCodeForm({ kind }: { kind: StaticKind }) {
   );
 
   useEffect(() => {
+    if (!logo) return;
+    const url = logo.url;
+    const cached = loaded.current.get(url);
     let live = true;
-    if (!content) return;
-    QRCode.toDataURL(content, { errorCorrectionLevel: "M", margin: 2, width: 512, color: INK })
-      .then((url) => live && setDrawn({ content, url }))
-      .catch(() => {});
+    (cached ? Promise.resolve(cached) : loadStaticLogo(url))
+      .then((ready) => {
+        loaded.current.set(url, ready);
+        if (live) setLoad({ url, state: { status: "ready", logo: ready } });
+      })
+      .catch((error) => {
+        console.error("[static] logo could not be loaded", error);
+        if (live) setLoad({ url, state: { status: "failed" } });
+      });
     return () => {
       live = false;
     };
-  }, [content]);
+  }, [logo, attempt]);
 
-  const preview = drawn && drawn.content === content ? drawn.url : null;
+  // Only a load for the logo chosen now counts; until it lands, it is loading.
+  const logoState: LogoState = useMemo(
+    () =>
+      !logo
+        ? { status: "none" }
+        : load && load.url === logo.url
+          ? load.state
+          : { status: "loading" },
+    [logo, load]
+  );
+  const logoFailed = logoState.status === "failed";
+
+  const plan = useMemo(
+    () => (content ? planStaticArtwork(content, style, logoState) : null),
+    [content, style, logoState]
+  );
+  const artwork = plan?.ok ? plan.artwork : null;
+
+  // The preview is the SVG itself, so what is shown is exactly what the SVG
+  // download holds, and the PNG is painted from the same geometry.
+  const preview = useMemo(
+    () =>
+      artwork
+        ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(staticSvg(artwork, 512))}`
+        : null,
+    [artwork]
+  );
+  const styleOk = checkQrStyle(style).ok;
+  const canDownload = Boolean(plan?.ok && plan.downloadable);
 
   const set =
     (name: string) =>
@@ -122,29 +195,35 @@ export function StaticCodeForm({ kind }: { kind: StaticKind }) {
   } as const;
   const phoneProps = { type: "tel", inputMode: "tel", placeholder: "+234 801 234 5678" } as const;
 
-  async function downloadSvg() {
-    if (!content) return;
-    const svg = await QRCode.toString(content, {
-      type: "svg",
-      errorCorrectionLevel: "M",
-      margin: 4,
-      width: 1024,
-      color: INK,
-    });
-    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
-    download(url, `${base}.svg`);
-    URL.revokeObjectURL(url);
+  function downloadSvg() {
+    if (!artwork || !canDownload) return;
+    setDownloadError(null);
+    downloadBlob(new Blob([staticSvg(artwork, 1024)], { type: "image/svg+xml" }), `${base}.svg`);
   }
 
   async function downloadPng() {
-    if (!content) return;
-    const url = await QRCode.toDataURL(content, {
-      errorCorrectionLevel: "M",
-      margin: 4,
-      width: 1024,
-      color: INK,
-    });
-    download(url, `${base}.png`);
+    if (!artwork || !canDownload) return;
+    setDownloadError(null);
+    try {
+      downloadBlob(await renderStaticPng(artwork, 1024), `${base}.png`);
+    } catch (error) {
+      console.error("[static] PNG could not be drawn", error);
+      setDownloadError(
+        "The PNG could not be drawn in this browser. Download the SVG instead, or try again."
+      );
+    }
+  }
+
+  function chooseLogo(_id: string, chosen: PickerLogo | null) {
+    setLogo(chosen);
+    setDownloadError(null);
+    // Choosing a logo again is a retry: show it loading, not the old failure.
+    setLoad((previous) => (previous?.state.status === "failed" ? null : previous));
+  }
+
+  function retryLogo() {
+    setLoad(null);
+    setAttempt((n) => n + 1);
   }
 
   return (
@@ -286,7 +365,40 @@ export function StaticCodeForm({ kind }: { kind: StaticKind }) {
           <p role="alert" className="text-sm text-[var(--struck-ink)]">
             {result.reason}
           </p>
+        ) : plan && !plan.ok ? (
+          <p role="alert" className="text-sm text-[var(--struck-ink)]">
+            {plan.reason}
+          </p>
         ) : null}
+
+        <div className="space-y-6 border-t border-[var(--paper-rule)] pt-6">
+          <div>
+            <ColourPicker style={style} onChange={setStyle} idPrefix="static-qr" />
+            {isDefaultQrStyle(style) ? null : (
+              <button
+                type="button"
+                onClick={() => setStyle(DEFAULT_QR_STYLE)}
+                className={`${secondaryButtonClass} mt-3`}
+              >
+                Reset to black on white
+              </button>
+            )}
+          </div>
+
+          {/*
+            As on a dynamic code: shown when there is anything to pick or a
+            way to add something, never as a fieldset holding only "None".
+          */}
+          {uploads || logos.length > 0 ? (
+            <LogoPicker
+              logos={logos}
+              uploads={uploads}
+              idPrefix="static-logo"
+              name="staticLogoId"
+              onChange={chooseLogo}
+            />
+          ) : null}
+        </div>
 
         <p className="max-w-[56ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           Static codes are not saved to your account and cannot be edited or tracked. Want to
@@ -315,7 +427,7 @@ export function StaticCodeForm({ kind }: { kind: StaticKind }) {
           <button
             type="button"
             onClick={downloadPng}
-            disabled={!preview}
+            disabled={!canDownload}
             className={primaryButtonClass}
           >
             Download PNG
@@ -323,11 +435,49 @@ export function StaticCodeForm({ kind }: { kind: StaticKind }) {
           <button
             type="button"
             onClick={downloadSvg}
-            disabled={!preview}
+            disabled={!canDownload}
             className={secondaryButtonClass}
           >
             Download SVG
           </button>
+        </div>
+
+        {/*
+          Every reason the artwork differs from what was chosen, or cannot be
+          downloaded yet, is said here beside the buttons it affects.
+        */}
+        <div aria-live="polite" className="mt-3 max-w-[18rem] space-y-2">
+          {plan?.ok && plan.notice ? (
+            <p
+              key={plan.notice}
+              className={`text-xs leading-relaxed ${
+                logoFailed || logoState.status === "ready"
+                  ? "text-[var(--struck-ink)]"
+                  : "text-[var(--paper-soft)]"
+              }`}
+            >
+              {plan.notice}{" "}
+              {logoFailed ? (
+                <button
+                  type="button"
+                  onClick={retryLogo}
+                  className="underline underline-offset-4"
+                >
+                  Try again
+                </button>
+              ) : null}
+            </p>
+          ) : null}
+          {artwork && !styleOk ? (
+            <p className="text-xs leading-relaxed text-[var(--struck-ink)]">
+              Pick colours that pass the contrast check to download.
+            </p>
+          ) : null}
+          {downloadError ? (
+            <p role="alert" className="text-xs leading-relaxed text-[var(--struck-ink)]">
+              {downloadError}
+            </p>
+          ) : null}
         </div>
       </div>
     </div>

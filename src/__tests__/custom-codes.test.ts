@@ -104,18 +104,16 @@ describe("canUseCustomCodes", () => {
     active: true,
   };
 
-  it("refuses a plan without the flag and names the plans that have it", () => {
-    const result = canUseCustomCodes(base);
-    if (result.ok) throw new Error("expected refusal");
-    expect(result.reason).toMatch(/Pro and Business/);
+  it("refuses a plan without the flag", () => {
+    expect(canUseCustomCodes(base)).toBe(false);
   });
 
   it("allows a plan with the flag", () => {
-    expect(canUseCustomCodes({ ...base, features: { custom_codes: true } })).toEqual({ ok: true });
+    expect(canUseCustomCodes({ ...base, features: { custom_codes: true } })).toBe(true);
   });
 
   it("refuses an account with no plan", () => {
-    expect(canUseCustomCodes(null).ok).toBe(false);
+    expect(canUseCustomCodes(null)).toBe(false);
   });
 });
 

@@ -118,26 +118,20 @@ export function canExportCsv(
  * instead of a generated one. A paid capability from `qr_plans.features`,
  * read the way `canExportCsv` reads `csv_export`, so the form that offers the
  * field and the save that honours it ask the same question.
+ *
+ * This gate and the two like it answer yes or no and nothing more. The
+ * sentence a refusal shows names the plan that unlocks the feature, which is
+ * a read of the plan rows, so it is built where the refusal is sent:
+ * `featureRefusal()` in `src/lib/refusals.ts`.
  */
-export function canUseCustomCodes(
-  entitlement: Entitlement | null
-): { ok: true } | { ok: false; reason: string } {
-  if (!entitlement) {
-    return { ok: false, reason: "Your account has no active plan yet." };
-  }
-  if (entitlement.features.custom_codes !== true) {
-    return {
-      ok: false,
-      reason: `Custom links are not part of the ${entitlement.planName} plan. They come with Pro and Business.`,
-    };
-  }
-  return { ok: true };
+export function canUseCustomCodes(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.custom_codes === true;
 }
 
 /**
  * Whether this account sees the detailed analytics: unique scans, operating
  * systems, cities and the change against the previous period. From
- * `qr_plans.features.insights` (Starter and up, migration 018). When false,
+ * `qr_plans.features.insights` (migration 018). When false,
  * `codeAnalytics` does not run those queries at all, so a locked panel has
  * nothing to leak.
  */
@@ -152,38 +146,23 @@ export function canSeeInsights(entitlement: Entitlement | null): boolean {
  * Only *making* is gated. A page that already exists keeps serving and stays
  * editable whatever the plan, because it may already be printed.
  */
-export function canMakeHostedPages(
-  entitlement: Entitlement | null
-): { ok: true } | { ok: false; reason: string } {
-  if (entitlement?.features.hosted_pages === true) return { ok: true };
-  return {
-    ok: false,
-    reason: entitlement
-      ? `Hosted pages are not part of the ${entitlement.planName} plan. They come with Starter and up; link codes are included.`
-      : "Your account has no active plan yet.",
-  };
+export function canMakeHostedPages(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.hosted_pages === true;
 }
 
 /**
- * Whether this account may upload a video file to a video page. Pro and up
- * (decided 1 Nov 2026): video is the one real storage cost. Every plan with
- * hosted pages can still show a YouTube or Vimeo link.
+ * Whether this account may upload a video file to a video page, from
+ * `qr_plans.features.video_uploads` (decided 1 Nov 2026): video is the one
+ * real storage cost. Every plan with hosted pages can still show a YouTube or
+ * Vimeo link.
  */
 export function canUploadVideo(entitlement: Entitlement | null): boolean {
   return entitlement?.features.video_uploads === true;
 }
 
 /** Whether this account may publish a read-only stats link for a code. */
-export function canShareStats(
-  entitlement: Entitlement | null
-): { ok: true } | { ok: false; reason: string } {
-  if (entitlement?.features.share_stats === true) return { ok: true };
-  return {
-    ok: false,
-    reason: entitlement
-      ? `Share links are not part of the ${entitlement.planName} plan. They come with Pro and Business.`
-      : "Your account has no active plan yet.",
-  };
+export function canShareStats(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.share_stats === true;
 }
 
 /**

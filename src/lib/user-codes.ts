@@ -18,9 +18,13 @@ import {
   canUploadVideo,
   canUseCustomCodes,
   getEntitlement,
+  type Entitlement,
 } from "@/lib/entitlement";
+import { listPublicPlans } from "@/lib/plans";
+import { featureOffer, offerRefusal } from "@/lib/upgrade-offers";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
+import { featureRefusal } from "@/lib/refusals";
 
 /**
  * Everything the signed-in owner can do to their own codes.
@@ -236,8 +240,15 @@ async function checkContent(
   return parsePageContent(kind, resolved.content);
 }
 
-const VIDEO_REASON =
-  "Uploading video comes with Pro and Business. Link a YouTube or Vimeo video instead, or see plans.";
+/**
+ * Why a video file was refused, naming the cheapest plan that has video
+ * uploads as the plan rows say today, never a plan written into copy. Shared
+ * with the upload router, which refuses before a file is stored.
+ */
+export async function videoRefusal(entitlement: Entitlement | null): Promise<string> {
+  const offer = featureOffer("video_uploads", entitlement, await listPublicPlans());
+  return offerRefusal(offer, "Link a YouTube or Vimeo video instead.");
+}
 
 /** The uploaded file on a video page's content, by id, or null. */
 function videoFileId(content: unknown): string | null {
@@ -275,17 +286,19 @@ export async function createCode(
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
 
   if (isPageKind(input.kind)) {
-    const pages = canMakeHostedPages(entitlement);
-    if (!pages.ok) return { ok: false, reason: pages.reason };
+    if (!canMakeHostedPages(entitlement)) {
+      return { ok: false, reason: await featureRefusal("hosted_pages", entitlement, "Link codes are included.") };
+    }
     if (input.kind === "video" && videoFileId(content) && !canUploadVideo(entitlement)) {
-      return { ok: false, reason: VIDEO_REASON };
+      return { ok: false, reason: await videoRefusal(entitlement) };
     }
   }
 
   let customCode: string | null = null;
   if (input.customCode) {
-    const permitted = canUseCustomCodes(entitlement);
-    if (!permitted.ok) return { ok: false, reason: permitted.reason };
+    if (!canUseCustomCodes(entitlement)) {
+      return { ok: false, reason: await featureRefusal("custom_codes", entitlement) };
+    }
     const checked = checkCustomCode(input.customCode);
     if (!checked.ok) return { ok: false, reason: checked.reason };
     customCode = checked.code;
@@ -471,7 +484,8 @@ export async function updateCodeContent(
   if (current.kind === "video") {
     const next = videoFileId(checked.content);
     if (next && next !== videoFileId(current.content)) {
-      if (!canUploadVideo(await getEntitlement(userId))) return { ok: false, reason: VIDEO_REASON };
+      const entitlement = await getEntitlement(userId);
+      if (!canUploadVideo(entitlement)) return { ok: false, reason: await videoRefusal(entitlement) };
     }
   }
 
@@ -514,6 +528,48 @@ export async function codeFeedback(
     count: Number(summary?.count ?? 0),
     average: summary?.average ? Number(summary.average) : null,
   };
+}
+
+/** An answer as the CSV export lists it: where it came from, as a scan records it. */
+export type FeedbackExportRow = FeedbackEntry & {
+  country: string | null;
+  city: string | null;
+  device: string | null;
+  os: string | null;
+};
+
+/**
+ * Every answer on a feedback code, newest first, for the CSV export. The
+ * panel shows the latest 100; this is the rest. Capped like the scan export.
+ * Answers left before migration 025 have no origin, so those fields are null.
+ */
+export async function feedbackRows(userId: string, id: string): Promise<FeedbackExportRow[]> {
+  const rows = await query<{
+    rating: number;
+    comment: string | null;
+    created_at: Date;
+    country: string | null;
+    city: string | null;
+    device_type: string | null;
+    os: string | null;
+  }>(
+    `select f.rating, f.comment, f.created_at, f.country, f.city, f.device_type, f.os
+     from qr_feedback f
+     join qr_codes c on c.id = f.qr_id
+     where c.user_id = $1 and c.id = $2
+     order by f.created_at desc
+     limit 10000`,
+    [userId, id]
+  );
+  return rows.map((r) => ({
+    rating: r.rating,
+    comment: r.comment,
+    createdAt: r.created_at,
+    country: r.country,
+    city: r.city,
+    device: r.device_type,
+    os: r.os,
+  }));
 }
 
 /**
