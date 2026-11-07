@@ -1,5 +1,6 @@
 import { queryOne } from "@/lib/db";
 import type { PlanFeatures } from "@/lib/plans";
+import { ANALYTICS_WINDOWS } from "@/lib/chart-buckets";
 
 /**
  * What an account is currently allowed to do.
@@ -172,6 +173,27 @@ export function canShareStats(entitlement: Entitlement | null): boolean {
  */
 export function chartDaysAllowed(entitlement: Entitlement | null): number {
   return entitlement?.historyDays ?? 7;
+}
+
+/**
+ * The chart ranges offered to this account: every window its scan history
+ * covers, and the next one up shown locked, as the way in to a longer plan.
+ * Only one locked window, so a short plan is not handed a row of padlocks.
+ *
+ * This is the "basic or trends" split the retired `analytics` flag stood for
+ * (see `RETIRED_FEATURE_KEYS`), read from `history_days` instead: how far
+ * back a plan keeps scans and how far back its chart reaches are one promise.
+ */
+export function chartWindows(
+  entitlement: Entitlement | null
+): { days: number; locked: boolean }[] {
+  const allowed = chartDaysAllowed(entitlement);
+  const open = ANALYTICS_WINDOWS.filter((days) => days <= allowed);
+  const next = ANALYTICS_WINDOWS.find((days) => days > allowed);
+  return [
+    ...open.map((days) => ({ days, locked: false })),
+    ...(next === undefined ? [] : [{ days: next, locked: true }]),
+  ];
 }
 
 /** Whether another code may be created, and why not when it may not. */

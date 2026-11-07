@@ -1404,6 +1404,78 @@ been logged so far. The fix for that is not in code: stop Neon pausing the
 production compute (its "scale to zero" setting), which costs compute hours
 for every hour it stays awake. That is a plan and budget decision, left open.
 
+## Long-range charts, and the analytics flag retired, 7 November 2026
+
+Built from section 2 of `docs/qr-platform/plans/bulk-creation-and-analytics.md`,
+approved by Francis on 7 Nov 2026 as written, with the unique-scans fix below
+added.
+
+**A plan's chart reaches as far back as its scan history.** Pro and Business
+kept 12 and 24 months of history but saw the same 90-day chart as Starter.
+The code page now offers 6, 12 and 24 months as well as 7, 30 and 90 days:
+every window within the plan's `history_days`, and the next one up shown
+locked, which opens the upgrade prompt (`chartWindows()` in
+`src/lib/entitlement.ts`). With the seeded plans: Free 7 and 30 days, 90
+locked; Starter up to 90 days, 6 months locked; Pro up to 12 months, 24
+locked; Business everything. Staff change it by changing `history_days`.
+
+- **Weeks and months, not hundreds of bars.** Up to 90 days is a bar per day,
+  6 and 12 months a bar per week (from Monday), 24 months a bar per month.
+  The query still returns every day of the window, and `toBuckets()` in
+  `src/lib/chart-buckets.ts` adds them up, so a week's bar is exactly its
+  days. A week or month the window only partly covers (the one under way,
+  or the first) is drawn lighter and keyed "Part of a week". A long window
+  starts at the code's creation, so a code made in October does not open on
+  fifty empty weeks; daily windows keep every day, as before.
+- **Unique scans per bar on daily charts only.** The visitor hash rotates
+  daily, so adding days into a week would count one phone several times.
+  The headline "Unique scans" stays the sum of daily uniques, as it always
+  was.
+- **Long windows load when picked.** The page still computes only the daily
+  windows on the server; 6, 12 and 24 months come from
+  `/app/{id}/analytics?days=N`, a JSON route that checks the session,
+  ownership (another account's code is a 404), the plan's history (403) and
+  `insights` for the detailed figures, as the CSV route does. So the
+  30-second live refresh never repeats a two-year query. Staff see all six
+  windows on the admin code page, computed there. Share-stats pages stay at
+  90 days or less for now.
+- **CSV follows the chart.** A long window's "scans per" table exports as
+  `week_starting,scans` or `month,scans`. The export of individual scans
+  stays capped at 90 days.
+- **The price table says "12 months of scan history and charts"**, still built
+  from the row. "6 months" is a label now too.
+
+**The `analytics` flag is retired.** Migration 013 seeded `analytics: basic`
+on Starter and `trends` on Pro and Business for exactly this feature. As a
+separate flag it could only contradict `history_days` ("trends" with 30 days
+of history, or two years kept and a 90-day chart), so the length of the
+chart is `history_days` and the flag is gone from the catalogue and the
+admin. The stored values stay on the six plan rows, inert, because
+`featuresFromForm` keeps keys the catalogue does not list and deleting them
+would rewrite paid plan rows for nothing. `RETIRED_FEATURE_KEYS` in
+`src/lib/plan-features.ts` records that the key must never be reused: it
+would switch a new feature on for every plan still holding it.
+
+**Unique scans no longer double count** (migration `026`). The chart added
+up `qr_scan_daily.unique_scans` across a day's country, device, OS and city
+rows, which 012 says is not summable: a visitor seen in two groups on one
+day counted twice. The nightly rollup now also writes one distinct count
+per code and day to `qr_scan_daily_visitors`, in the same statement, and the
+chart reads that. 026 back-filled it from raw rows for every day whose raw
+rows were all still there (the same test 018 used); a day retention had
+already partly pruned has no row and falls back to the old summed figure,
+rather than undercounting from what is left. Erasing an account deletes its
+rows there too.
+
+Tested on a local Postgres 16 with 800 days of seeded scans on one code and
+20 on another: every window's bars add up to its total; a visitor scanning
+twice in two countries on one day is one unique, where the old sum said two;
+a fully pruned and a partly pruned day keep their scan totals and fall back
+for uniques; the 12-month chart of a 20-day-old code starts at its creation
+week; another account's code returns nothing. Checked at 375px and 1280px:
+six short range labels fit across a phone, and the page does not scroll
+sideways.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
@@ -1413,8 +1485,6 @@ Not built yet:
 - **Team seats and bulk creation**, listed as Business extras. Both are plan
   flags marked `built: false` in `src/lib/plan-features.ts`, so they are stored
   and assignable but never advertised.
-- **Tiered analytics.** The `analytics` flag (basic or trends) is also
-  `built: false`; every plan gets the same charts.
 - **A reputation check on destinations.** `checkReputation()` in
   `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
   destination is checked for shape only, never against a malware or phishing
@@ -1446,3 +1516,5 @@ Closed since this list was first written:
   `x-vercel-ip-country` and `x-vercel-ip-city` headers.
 - `npm run scans:rollup` failing with `42P10`: fixed. The script calls the
   shared `rollupScans()` instead of carrying its own SQL.
+- Tiered analytics: built 7 November. Chart length follows `history_days`,
+  and the `analytics` flag is retired (see that entry).

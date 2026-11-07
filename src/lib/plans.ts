@@ -28,7 +28,6 @@ export type Plan = {
 
 export type PlanFeatures = {
   csv_export?: boolean;
-  analytics?: "basic" | "trends";
   support?: string;
   months_free?: number;
   team_seats?: boolean;

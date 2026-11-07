@@ -144,7 +144,8 @@ describe("plan schemas", () => {
 describe("advertisedFeatures", () => {
   it("advertises built flags only", () => {
     // No hosted_pages flag, so the plan reads as link codes only (its `absent`
-    // line); team_seats and analytics are unbuilt and never advertised.
+    // line); team_seats is unbuilt and analytics retired, so neither is
+    // advertised.
     expect(advertisedFeatures({ csv_export: true, team_seats: true, analytics: "trends", support: "email" })).toEqual([
       "CSV export of scans",
       "Link codes only",

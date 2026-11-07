@@ -53,9 +53,19 @@ export function isTable(value: string | null): value is Table {
  */
 export function tableCsv(table: Table, data: Analytics, insights: boolean): string {
   if (table === "days") {
+    // A long window is bucketed on the page, and the file matches the page:
+    // a row per week or month, named by its first day. No unique column
+    // there, as on the chart: daily uniques do not add up into weeks.
+    if (data.bucket !== "day") {
+      const header = data.bucket === "week" ? "week_starting,scans" : "month,scans";
+      const lines = data.points.map((p) =>
+        data.bucket === "week" ? `${p.start},${p.scans}` : `${p.start.slice(0, 7)},${p.scans}`
+      );
+      return [header, ...lines].join("\r\n");
+    }
     const header = insights ? "day,scans,unique_scans" : "day,scans";
-    const lines = data.days.map((d) =>
-      insights ? `${d.day},${d.scans},${d.unique}` : `${d.day},${d.scans}`
+    const lines = data.points.map((p) =>
+      insights ? `${p.start},${p.scans},${p.unique ?? 0}` : `${p.start},${p.scans}`
     );
     return [header, ...lines].join("\r\n");
   }

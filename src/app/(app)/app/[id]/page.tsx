@@ -9,6 +9,7 @@ import {
   canShareStats,
   canUploadVideo,
   chartDaysAllowed,
+  chartWindows,
   getEntitlement,
 } from "@/lib/entitlement";
 import { getLiveShare } from "@/lib/stat-shares";
@@ -19,8 +20,8 @@ import {
   destinationHistory,
   getCode,
   parseCodeId,
-  ANALYTICS_WINDOWS,
 } from "@/lib/user-codes";
+import { LONGEST_DAILY_WINDOW } from "@/lib/chart-buckets";
 import { QrSymbol } from "@/app/_landing/QrSymbol";
 import { DashShell } from "../DashShell";
 import { secondaryButtonClass } from "@/components/controls";
@@ -79,15 +80,20 @@ export default async function CodePage({
   const entitlement = await getEntitlement(user.id);
   const insights = canSeeInsights(entitlement);
   const historyDays = chartDaysAllowed(entitlement);
+  const offered = chartWindows(entitlement);
 
   const [history, library, windows, feedback, share, plans] = await Promise.all([
     page ? Promise.resolve([]) : destinationHistory(user.id, id),
     listLogos(user.id),
+    // Daily windows are computed here. Longer ones the plan covers arrive
+    // with no data and are fetched from ./analytics when picked, so the live
+    // refresh below never re-runs a two-year query every 30 seconds.
     Promise.all(
-      ANALYTICS_WINDOWS.map(async (days) => ({
+      offered.map(async ({ days, locked }) => ({
         days,
+        locked,
         data:
-          days <= historyDays
+          !locked && days <= LONGEST_DAILY_WINDOW
             ? await codeAnalytics(user.id, id, days, { detail: insights })
             : null,
       }))
@@ -108,10 +114,9 @@ export default async function CodePage({
     share: featureOffer("share_stats", entitlement, plans),
     video: featureOffer("video_uploads", entitlement, plans),
     history: Object.fromEntries(
-      ANALYTICS_WINDOWS.filter((days) => days > historyDays).map((days) => [
-        days,
-        historyOffer(days, entitlement, plans),
-      ])
+      offered
+        .filter(({ locked }) => locked)
+        .map(({ days }) => [days, historyOffer(days, entitlement, plans)])
     ),
   };
   const url = codeUrl(code.shortCode);
@@ -271,6 +276,7 @@ export default async function CodePage({
         insights={insights}
         historyDays={historyDays}
         createdAt={code.createdAt.toISOString()}
+        fetchBase={`/app/${code.id}/analytics`}
         exportBase={exportable.ok ? `/app/${code.id}/export` : null}
         upgrade={{ insights: offers.insights, history: offers.history }}
       />

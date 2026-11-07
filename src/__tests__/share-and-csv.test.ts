@@ -4,13 +4,15 @@ import { canShareStats, type Entitlement } from "@/lib/entitlement";
 import type { Analytics } from "@/lib/user-codes";
 
 const data: Analytics = {
-  days: [
-    { day: "2026-10-27", scans: 3, unique: 2 },
-    { day: "2026-10-28", scans: 1, unique: 1 },
+  bucket: "day",
+  points: [
+    { start: "2026-10-27", end: "2026-10-27", scans: 3, unique: 2, partial: false },
+    { start: "2026-10-28", end: "2026-10-28", scans: 1, unique: 1, partial: false },
   ],
   countries: [{ label: "NG", scans: 3 }, { label: "GH", scans: 1 }],
   devices: [{ label: "mobile", scans: 4 }],
   total: 4,
+  today: 1,
   detail: {
     os: [{ label: "Android", scans: 4 }],
     cities: [{ label: '=HYPERLINK("http://evil.example","Lagos")', scans: 1 }, { label: "Accra, GH", scans: 3 }],
@@ -68,6 +70,27 @@ describe("tableCsv", () => {
       "2026-10-28,1,1",
     ]);
     expect(tableCsv("days", data, false).split("\r\n")[0]).toBe("day,scans");
+  });
+
+  it("exports a long window a row per week or month, as the chart draws it", () => {
+    const weeks: Analytics = {
+      ...data,
+      bucket: "week",
+      points: [
+        { start: "2026-10-27", end: "2026-11-01", scans: 4, unique: null, partial: true },
+        { start: "2026-11-02", end: "2026-11-07", scans: 9, unique: null, partial: true },
+      ],
+    };
+    expect(tableCsv("days", weeks, true).split("\r\n")).toEqual([
+      "week_starting,scans",
+      "2026-10-27,4",
+      "2026-11-02,9",
+    ]);
+    expect(tableCsv("days", { ...weeks, bucket: "month" }, true).split("\r\n")).toEqual([
+      "month,scans",
+      "2026-10,4",
+      "2026-11,9",
+    ]);
   });
 
   it("gives each share of all scans, not of the rows listed", () => {

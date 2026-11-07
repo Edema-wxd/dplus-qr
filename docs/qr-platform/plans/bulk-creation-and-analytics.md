@@ -1,7 +1,8 @@
 # Plan: Bulk creation and analytics levels
 
-**Status: proposed, not approved.** Drafted 6 November 2026 from a review of
-the code as it stood that day. Per CLAUDE.md, nothing here is built until
+**Status: section 2 (analytics levels) built 7 November 2026, see DECISIONS.md.
+Section 1 (bulk creation) proposed, not approved.** Drafted 6 November 2026
+from a review of the code as it stood that day. Per CLAUDE.md, nothing here is built until
 Francis has answered the decisions at the end and approved the plan.
 
 **Migration number:** this plan says `025`, which `025_feedback_context`

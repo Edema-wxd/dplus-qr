@@ -41,6 +41,20 @@ export type FeatureDef =
       help: string;
     };
 
+/**
+ * Keys that once meant something and must never be reused.
+ *
+ * `analytics` ("basic" or "trends") was seeded on six plan rows by migration
+ * 013 for a long-range chart that did not exist yet. When it was built (7 Nov
+ * 2026) the chart length came from `history_days` instead, since a separate
+ * flag could only contradict it ("trends" with 30 days of history, or two
+ * years of history and a 90-day chart). The stored values were left in place,
+ * inert: `featuresFromForm` keeps keys the catalogue does not list, and
+ * deleting them would change paid plan rows for nothing. Reusing the key
+ * would silently switch a new feature on for every plan that still holds it.
+ */
+export const RETIRED_FEATURE_KEYS = ["analytics"] as const;
+
 export const PLAN_FEATURES: readonly FeatureDef[] = [
   {
     key: "csv_export",
@@ -106,14 +120,6 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     min: 0,
     max: 11,
     help: "Annual plans only: the saving the price table mentions. It does not change the price; set that above.",
-  },
-  {
-    key: "analytics",
-    label: "Analytics",
-    kind: "choice",
-    built: false,
-    options: { basic: "Basic", trends: "Trends" },
-    help: "Not built yet: every plan gets the same charts today. Stored, never advertised.",
   },
   {
     key: "team_seats",
