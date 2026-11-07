@@ -1187,6 +1187,43 @@ exists. The proxy now answers them the same way.
 - Staff keep descriptive tab titles: nobody else ever receives them.
 - `requireStaff()` and `staffForAction()` are unchanged and remain the guard.
 
+## A paused database gets a second chance to wake, 7 November 2026
+
+Twice in a week, in the small hours, connecting to Postgres took longer than
+the pool's 5-second `connectionTimeoutMillis`: the pricing and terms pages
+fell back to their default copy (2 Nov, 02:01) and the nightly grace job
+missed its run (1 Nov, 04:31), both with "Connection terminated due to
+connection timeout". Neon pauses the database when nobody has used it for a
+while, and the first connection afterwards waits while it wakes; at night
+nothing has kept it awake. (Vercel's Hobby plan keeps runtime logs for an
+hour, so the two incidents themselves could not be read further.)
+
+- **`connect()` in `src/lib/db.ts` tries once more** when connecting fails,
+  for `query()`, `queryOne()` and `withTransaction()`. By the time the first
+  attempt gives up the database has usually woken, and the second connects at
+  once.
+- **Only connecting is retried, never a statement.** A failed connection means
+  nothing reached the database, so the retry cannot run anything twice. A
+  statement that fails is thrown as before, and its client is handed back
+  marked broken so the pool does not reuse it (what `pool.query()` did).
+- **The redirect does not retry.** Its lookup passes `{ failFast: true }`,
+  keeping the rule that a scanner gets the status page after one wait, never
+  two. Its scan recording, in `after()`, retries like everything else, since
+  nobody is waiting on it.
+- Reproduced with real `pg` against a local Postgres behind a relay that held
+  the first connection unanswered: a dashboard query answered after 6.5s on
+  the second attempt where it used to fail at 5s; with two held, it failed at
+  10s with the production error; the redirect lookup failed at 5.0s, after
+  one attempt; with the database awake, nothing changed.
+
+**What this does not cover: scans after the database has paused.** The
+redirect reads Redis first, but a destination stays there for 60 seconds, so
+the first scan of a quiet code at night still reaches Postgres and, if the
+database is asleep and slow to wake, meets the unavailable page. None has
+been logged so far. The fix for that is not in code: stop Neon pausing the
+production compute (its "scale to zero" setting), which costs compute hours
+for every hour it stays awake. That is a plan and budget decision, left open.
+
 ## Still open
 
 Business decisions, none of which block the current phase:

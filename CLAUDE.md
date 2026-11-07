@@ -59,6 +59,11 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Every change is a new numbered file in `db/migrations/`, additive only. Never
   edit a migration that has run; the runner's checksum check will stop you.
 - Every query touching client data filters by the session's user id.
+- **Connecting is retried once** (`connect()` in `src/lib/db.ts`): Neon pauses
+  the database when idle, and the first connection after that can outlast the
+  5-second limit. Never a statement, only the connection, so nothing runs
+  twice. The redirect lookup alone passes `{ failFast: true }`: a scanner gets
+  the status page after one wait, never two.
 - `qr_codes.user_id` is `on delete restrict` on purpose. Accounts are suspended
   and codes are paused; neither is deleted.
 
