@@ -46,7 +46,7 @@ describe("canShareStats", () => {
     historyDays: 365,
     codesUsed: 0,
     features: { share_stats: true },
-    active: true,
+    active: true, seats: 1, seatsUsed: 1,
   };
 
   it("allows a plan with the flag and refuses one without", () => {

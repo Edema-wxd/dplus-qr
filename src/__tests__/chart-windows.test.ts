@@ -58,7 +58,7 @@ const entitlement = (historyDays: number, features: Entitlement["features"] = {}
   historyDays,
   codesUsed: 0,
   features,
-  active: true,
+  active: true, seats: 1, seatsUsed: 1,
 });
 
 describe("analyticsWindow", () => {

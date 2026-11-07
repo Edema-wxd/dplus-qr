@@ -32,7 +32,7 @@ const free: Entitlement = {
   historyDays: 30,
   codesUsed: 0,
   features: {},
-  active: true,
+  active: true, seats: 1, seatsUsed: 1,
 };
 
 // Names no real plan has, so a sentence that still carries a written-in

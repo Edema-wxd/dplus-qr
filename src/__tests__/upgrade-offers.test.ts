@@ -36,7 +36,7 @@ const free: Entitlement = {
   historyDays: 30,
   codesUsed: 5,
   features: {},
-  active: true,
+  active: true, seats: 1, seatsUsed: 1,
 };
 
 describe("featureOffer", () => {

@@ -1622,15 +1622,54 @@ re-point is recorded under the editor; a member removed mid-session gets
 nothing on the next statement; the account choice falls back home when the
 owner is suspended, the member removed, or the team never joined.
 
+## Team seats, part 2: seat rules, 7 November 2026
+
+Step 3 of `docs/qr-platform/plans/team-seats.md`. Still nothing a customer
+sees: nothing writes members or invites until the invite step, and
+`team_seats` stays `built: false`.
+
+**A seat is a person, the owner included**, and a pending invite holds one
+until it is accepted, revoked or expires. `src/lib/seats.ts` holds the rules:
+
+- `planSeats(features)`: `team_seats` when it is a whole number of 2 or
+  more, otherwise 1 (the owner alone). The `true` migration 013 stored
+  before 028 made it a count reads as no team, never as a guess.
+- `seatsHeldSql(n)`: one SQL fragment counting the owner, live members and
+  pending unexpired invites, used by the entitlement, checkout and staff
+  assignment so all three count alike. The entitlement now carries `seats`
+  and `seatsUsed`.
+- `seatRefusal`: **a downgrade never removes anyone**, as it never removes a
+  code. Checkout (`planRefusal`) and staff assignment (`assignRefusal`)
+  refuse a plan smaller than the team and say how many people to remove
+  first. Neither is a new writer of `qr_subscriptions`.
+- `seatState`: when a plan ends up with fewer seats than members (staff
+  lower `team_seats`, or move the account to a plan without a team), the
+  owner and the earliest-joined members up to the seats keep access and the
+  rest are locked, not removed (decided 7 Nov 2026). Applied when members
+  can sign in, in the lock-out step.
+- `canInvite`: the owner only, on an active plan with a team and a seat free.
+
+**In the catalogue and prompts.** `team_seats` is a number from 2 to 50 in
+the admin plan form. When it is built the price table will say "Up to N
+people, with their own sign-in", read from the row. The upgrade prompt knows
+a `team_seats` gate and names the cheapest plan with a team.
+
+Tested on a local Postgres 16: an account with two live members, one
+removed, one pending invite, one expired and one revoked counted 4 seats
+used of 5; staff assignment to a plan without a team was refused with the
+count, then allowed once the team was cleared; checkout onto that plan was
+refused before any call to Paystack.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
 
 Not built yet:
 
-- **Team seats**, in progress: the schema and the access check are built
-  (see that entry); seat rules, invites, role-aware UI, staff admin and
-  erasure, and the launch copy remain, per `docs/qr-platform/plans/team-seats.md`.
+- **Team seats**, in progress: the schema, the access check and the seat
+  rules are built (see those entries); invites, role-aware UI and lock-out,
+  staff admin and erasure, and the launch copy remain, per
+  `docs/qr-platform/plans/team-seats.md`.
   The flag stays `built: false` until then.
 - **A reputation check on destinations.** `checkReputation()` in
   `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
