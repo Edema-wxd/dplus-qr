@@ -3,8 +3,13 @@ const getCode = jest.fn();
 const codeAnalytics = jest.fn();
 const getEntitlement = jest.fn();
 
-jest.mock("@/lib/auth/server", () => ({
-  auth: { getSession: (...a: unknown[]) => getSession(...a) },
+jest.mock("@/lib/resolve-scope", () => ({
+  resolveScope: async () => {
+    const { data } = await getSession();
+    if (!data?.user) return null;
+    const { scopeFor } = jest.requireActual("@/lib/account-scope");
+    return scopeFor(data.user.id, data.user.id, "owner");
+  },
 }));
 jest.mock("@/lib/user-codes", () => ({
   getCode: (...a: unknown[]) => getCode(...a),
@@ -221,10 +226,10 @@ describe("GET /app/[id]/analytics", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({ bucket: "week", points: [] });
-    expect(codeAnalytics).toHaveBeenCalledWith("user-1", "42", 365, { detail: true });
+    expect(codeAnalytics).toHaveBeenCalledWith(expect.objectContaining({ accountId: "user-1" }), "42", 365, { detail: true });
 
     getEntitlement.mockResolvedValue(entitlement(365));
     await call("42", "180");
-    expect(codeAnalytics).toHaveBeenLastCalledWith("user-1", "42", 180, { detail: false });
+    expect(codeAnalytics).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "user-1" }), "42", 180, { detail: false });
   });
 });

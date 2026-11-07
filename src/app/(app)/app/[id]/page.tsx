@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import {
   canExportCsv,
@@ -60,6 +61,10 @@ export default async function CodePage({
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
+  // Which account this page shows, and as whom. Its own unless the person
+  // is working in a team they belong to; every read below proves access.
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
 
   // Parsed before it reaches a query: the id column is a bigint, so a
   // non-numeric path segment is a database error rather than an empty result.
@@ -69,7 +74,7 @@ export default async function CodePage({
   // The id is still a guess until the database agrees it belongs to this
   // session: every query below filters by user_id, and a miss is a 404 rather
   // than a "not yours", which would confirm the row exists.
-  const code = await getCode(user.id, id);
+  const code = await getCode(scope, id);
   if (!code) notFound();
 
   const page = isPageKind(code.kind) ? code.kind : null;
@@ -77,14 +82,14 @@ export default async function CodePage({
   // Read first: what the plan includes decides which analytics are queried
   // at all. A window or panel the plan does not cover is never computed, so
   // the page cannot leak it.
-  const entitlement = await getEntitlement(user.id);
+  const entitlement = await getEntitlement(scope.accountId);
   const insights = canSeeInsights(entitlement);
   const historyDays = chartDaysAllowed(entitlement);
   const offered = chartWindows(entitlement);
 
   const [history, library, windows, feedback, share, plans] = await Promise.all([
-    page ? Promise.resolve([]) : destinationHistory(user.id, id),
-    listLogos(user.id),
+    page ? Promise.resolve([]) : destinationHistory(scope, id),
+    listLogos(scope),
     // Daily windows are computed here. Longer ones the plan covers arrive
     // with no data and are fetched from ./analytics when picked, so the live
     // refresh below never re-runs a two-year query every 30 seconds.
@@ -94,12 +99,12 @@ export default async function CodePage({
         locked,
         data:
           !locked && days <= LONGEST_DAILY_WINDOW
-            ? await codeAnalytics(user.id, id, days, { detail: insights })
+            ? await codeAnalytics(scope, id, days, { detail: insights })
             : null,
       }))
     ),
-    code.kind === "feedback" ? codeFeedback(user.id, id) : Promise.resolve(null),
-    getLiveShare(user.id, id),
+    code.kind === "feedback" ? codeFeedback(scope, id) : Promise.resolve(null),
+    getLiveShare(scope, id),
     listPublicPlans(),
   ]);
   const sharing = canShareStats(entitlement);

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { ensureProfile } from "@/lib/profile";
 import {
   canBulkCreate,
@@ -60,12 +61,16 @@ export default async function NewCodePage({
   if (!user) redirect("/auth/sign-in");
 
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  // Which account this page shows, and as whom. Its own unless the person
+  // is working in a team they belong to; every read below proves access.
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
 
   const [params, codes, entitlement, library, plans] = await Promise.all([
     searchParams,
-    listCodes(user.id),
-    getEntitlement(user.id),
-    listLogos(user.id),
+    listCodes(scope),
+    getEntitlement(scope.accountId),
+    listLogos(scope),
     listPublicPlans(),
   ]);
 

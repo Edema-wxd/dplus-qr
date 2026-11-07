@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { CODE_HOST } from "@/lib/brand";
 import { dynamicType, isDynamicKind } from "@/lib/qr-types";
-import { codeAnalytics } from "@/lib/user-codes";
+import { analyticsForCode } from "@/lib/user-codes";
 import { ANALYTICS_WINDOWS } from "@/lib/chart-buckets";
 import { codeReports, destinationChanges, getStaffCode, staffActions } from "@/lib/moderation";
 import { AnalyticsPanel } from "@/app/(app)/app/[id]/Analytics";
@@ -44,7 +44,7 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
       ANALYTICS_WINDOWS.map(async (days) => ({
         days,
         locked: false,
-        data: await codeAnalytics(code.owner.id, String(code.id), days, { detail: true }),
+        data: await analyticsForCode(String(code.id), days, { detail: true }),
       }))
     ),
   ]);

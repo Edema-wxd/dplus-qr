@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { ensureProfile } from "@/lib/profile";
 import { canBulkCreate, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { listPublicPlans } from "@/lib/plans";
@@ -36,12 +37,16 @@ export default async function BulkPage() {
   if (!user) redirect("/auth/sign-in");
 
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  // Which account this page shows, and as whom. Its own unless the person
+  // is working in a team they belong to; every read below proves access.
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
 
   const [entitlement, plans, library, batches] = await Promise.all([
-    getEntitlement(user.id),
+    getEntitlement(scope.accountId),
     listPublicPlans(),
-    listLogos(user.id),
-    listBatches(user.id, 5),
+    listLogos(scope),
+    listBatches(scope, 5),
   ]);
 
   const back = { href: "/app/new", label: "All code types" };

@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { canSeeInsights, chartDaysAllowed, getEntitlement } from "@/lib/entitlement";
 import { isAnalyticsWindow, LONGEST_DAILY_WINDOW } from "@/lib/chart-buckets";
 import { codeAnalytics, getCode, parseCodeId } from "@/lib/user-codes";
@@ -19,8 +19,8 @@ export async function GET(
 ) {
   const { id: raw } = await params;
 
-  const { data: session } = await auth.getSession();
-  if (!session?.user) return json({ error: "Not signed in" }, 401);
+  const scope = await resolveScope();
+  if (!scope) return json({ error: "Not signed in" }, 401);
 
   const id = parseCodeId(raw);
   if (!id) return json({ error: "Not found" }, 404);
@@ -32,8 +32,8 @@ export async function GET(
   }
 
   const [code, entitlement] = await Promise.all([
-    getCode(session.user.id, id),
-    getEntitlement(session.user.id),
+    getCode(scope, id),
+    getEntitlement(scope.accountId),
   ]);
   if (!code) return json({ error: "Not found" }, 404);
 
@@ -41,7 +41,7 @@ export async function GET(
     return json({ error: "That range is longer than your plan's scan history." }, 403);
   }
 
-  const data = await codeAnalytics(session.user.id, id, days, {
+  const data = await codeAnalytics(scope, id, days, {
     detail: canSeeInsights(entitlement),
   });
   return json(data, 200);

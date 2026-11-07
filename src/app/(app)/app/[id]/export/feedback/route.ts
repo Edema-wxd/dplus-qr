@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { canExportCsv, canSeeInsights, getEntitlement } from "@/lib/entitlement";
 import { feedbackRows, getCode, parseCodeId } from "@/lib/user-codes";
 import { csvResponse, feedbackCsv } from "@/lib/csv-export";
@@ -17,22 +17,22 @@ export async function GET(
 ) {
   const { id: raw } = await params;
 
-  const { data: session } = await auth.getSession();
-  if (!session?.user) return new Response("Not signed in", { status: 401 });
+  const scope = await resolveScope();
+  if (!scope) return new Response("Not signed in", { status: 401 });
 
   const id = parseCodeId(raw);
   if (!id) return new Response("Not found", { status: 404 });
 
   const [code, entitlement] = await Promise.all([
-    getCode(session.user.id, id),
-    getEntitlement(session.user.id),
+    getCode(scope, id),
+    getEntitlement(scope.accountId),
   ]);
   if (!code || code.kind !== "feedback") return new Response("Not found", { status: 404 });
 
   const permitted = canExportCsv(entitlement);
   if (!permitted.ok) return new Response(permitted.reason, { status: 403 });
 
-  const entries = await feedbackRows(session.user.id, id);
+  const entries = await feedbackRows(scope, id);
   return csvResponse(
     feedbackCsv(entries, canSeeInsights(entitlement)),
     `${code.shortCode}-feedback.csv`

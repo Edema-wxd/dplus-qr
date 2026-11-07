@@ -11,7 +11,7 @@ import {
   getEntitlement,
 } from "@/lib/entitlement";
 import { loadSharedCode } from "@/lib/stat-shares";
-import { codeAnalytics } from "@/lib/user-codes";
+import { analyticsForCode } from "@/lib/user-codes";
 import { ANALYTICS_WINDOWS, LONGEST_DAILY_WINDOW } from "@/lib/chart-buckets";
 import { LegalLinks } from "@/components/LegalLinks";
 import { AnalyticsPanel } from "@/app/(app)/app/[id]/Analytics";
@@ -63,7 +63,7 @@ export default async function SharedStatsPage({
       async (days) => ({
         days,
         locked: false,
-        data: await codeAnalytics(shared.userId, shared.codeId, days, { detail: insights }),
+        data: await analyticsForCode(shared.codeId, days, { detail: insights }),
       })
     )
   );

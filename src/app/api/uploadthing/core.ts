@@ -1,6 +1,7 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { UploadThingError, UTApi } from "uploadthing/server";
-import { auth } from "@/lib/auth/server";
+import { writable } from "@/lib/account-scope";
+import { resolveScope } from "@/lib/resolve-scope";
 import {
   countLogos,
   loadLogo,
@@ -17,8 +18,9 @@ import { videoRefusal } from "@/lib/user-codes";
  * show (PDFs, photos, video, audio).
  *
  * `middleware` runs on our server before UploadThing hands the browser an
- * upload URL, so it is where the session is checked: the user id attached to
- * the file comes from the session, never from the client. `onUploadComplete`
+ * upload URL, so it is where the session is checked: the account the file
+ * is recorded against comes from the session (`resolveScope`), never from
+ * the client, and only someone who may change that account can upload. `onUploadComplete`
  * runs when UploadThing calls back to confirm the file landed, and is where
  * the logo joins the account's library.
  *
@@ -44,11 +46,24 @@ function limits(endpoint: UploadEndpoint) {
 
 const image = limits("logo");
 
+/**
+ * Who an upload belongs to: the account the person is working in, and only
+ * if they may change it. Resolved here, before UploadThing hands out an
+ * upload URL, because the completion callback has no session: the account
+ * id returned here travels to it as signed metadata.
+ */
+async function uploader(signedOut: string) {
+  const scope = await resolveScope();
+  if (!scope) throw new UploadThingError(signedOut);
+  const may = writable(scope);
+  if (!may.ok) throw new UploadThingError(may.reason);
+  return scope;
+}
+
 /** The session check every page-file endpoint shares. */
 async function pageFileOwner() {
-  const { data: session } = await auth.getSession();
-  if (!session?.user) throw new UploadThingError("Sign in to upload a file.");
-  return { userId: session.user.id };
+  const scope = await uploader("Sign in to upload a file.");
+  return { accountId: scope.accountId };
 }
 
 /**
@@ -58,7 +73,7 @@ async function pageFileOwner() {
  */
 async function videoFileOwner() {
   const owner = await pageFileOwner();
-  const entitlement = await getEntitlement(owner.userId);
+  const entitlement = await getEntitlement(owner.accountId);
   if (!canUploadVideo(entitlement)) throw new UploadThingError(await videoRefusal(entitlement));
   return owner;
 }
@@ -76,12 +91,12 @@ async function recordPageFile({
   metadata,
   file,
 }: {
-  metadata: { userId: string };
+  metadata: { accountId: string };
   file: { key: string; ufsUrl: string; name: string; type: string; size: number };
 }) {
   let stored;
   try {
-    stored = await recordFile(metadata.userId, {
+    stored = await recordFile(metadata.accountId, {
       key: file.key,
       url: file.ufsUrl,
       name: file.name,
@@ -101,15 +116,14 @@ const photo = limits("pageImage");
 export const uploadRouter = {
   logo: f({ "image/png": image, "image/jpeg": image, "image/webp": image })
     .middleware(async () => {
-      const { data: session } = await auth.getSession();
-      if (!session?.user) throw new UploadThingError("Sign in to upload a logo.");
+      const scope = await uploader("Sign in to upload a logo.");
 
-      if ((await countLogos(session.user.id)) >= MAX_LOGOS) {
+      if ((await countLogos(scope)) >= MAX_LOGOS) {
         throw new UploadThingError(
           `Your library already holds ${MAX_LOGOS} logos. Remove one you no longer use, then upload again.`
         );
       }
-      return { userId: session.user.id };
+      return { accountId: scope.accountId };
     })
     .onUploadComplete(async ({ metadata, file }) => {
       // Decoded before it is recorded: UploadThing accepts a file by its
@@ -120,7 +134,7 @@ export const uploadRouter = {
       let logo;
       try {
         await loadLogo(file.ufsUrl);
-        logo = await recordLogo(metadata.userId, {
+        logo = await recordLogo(metadata.accountId, {
           key: file.key,
           url: file.ufsUrl,
           name: file.name,

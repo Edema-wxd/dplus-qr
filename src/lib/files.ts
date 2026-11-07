@@ -1,4 +1,5 @@
 import { query, queryOne } from "@/lib/db";
+import { access, accessArgs, type AccountScope } from "@/lib/account-scope";
 import { isUploadThingUrl } from "@/lib/logos";
 import { collectFileIds } from "@/lib/page-content";
 
@@ -21,20 +22,25 @@ function toFile(row: FileRow): StoredFile {
   return { id: String(row.id), url: row.url, name: row.name, mime: row.mime_type };
 }
 
-/** Idempotent on UploadThing's file key, like `recordLogo`. */
+/**
+ * Idempotent on UploadThing's file key, like `recordLogo`, and like it takes
+ * the account id the upload middleware attached, since the completion
+ * callback has no session.
+ */
 export async function recordFile(
-  userId: string,
+  accountId: string,
   file: { key: string; url: string; name: string; type: string; size: number }
 ): Promise<StoredFile> {
   if (!isUploadThingUrl(file.url)) {
     throw new Error("Upload completed with a URL that is not UploadThing's");
   }
   const row = await queryOne<FileRow>(
-    `insert into qr_files (user_id, file_key, url, name, mime_type, size_bytes)
+    `-- scope: proved by the upload middleware (see recordLogo)
+     insert into qr_files (user_id, file_key, url, name, mime_type, size_bytes)
      values ($1, $2, $3, $4, $5, $6)
      on conflict (file_key) do update set file_key = excluded.file_key
      returning id, url, name, mime_type`,
-    [userId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
+    [accountId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
   );
   return toFile(row!);
 }
@@ -49,7 +55,7 @@ export type ResolveResult = { ok: true; content: unknown } | { ok: false; reason
  * rather than whatever the client claimed, and the stored page can only ever
  * point at a URL this server recorded from an UploadThing callback.
  */
-export async function resolveFiles(userId: string, content: unknown): Promise<ResolveResult> {
+export async function resolveFiles(scope: AccountScope, content: unknown): Promise<ResolveResult> {
   const ids = [...collectFileIds(content)].filter((id) => /^[1-9]\d{0,18}$/.test(id));
   const all = collectFileIds(content);
   if (ids.length !== all.size) {
@@ -59,8 +65,8 @@ export async function resolveFiles(userId: string, content: unknown): Promise<Re
 
   const rows = await query<FileRow>(
     `select id, url, name, mime_type from qr_files
-     where user_id = $1 and id = any($2::bigint[])`,
-    [userId, ids]
+     where user_id = $1 and id = any($2::bigint[]) and ${access(3)}`,
+    [scope.accountId, ids, ...accessArgs(scope, "read")]
   );
   const owned = new Map(rows.map((row) => [String(row.id), toFile(row)]));
   if (owned.size !== ids.length) {
@@ -122,19 +128,19 @@ export function attachUses(
  * where each one is used. Archived codes are left out, as they are from the
  * dashboard, so a file only an archived code used reads as unused.
  */
-export async function listFileLibrary(userId: string): Promise<LibraryFile[]> {
+export async function listFileLibrary(scope: AccountScope): Promise<LibraryFile[]> {
   const [files, codes] = await Promise.all([
     query<FileRow & { size_bytes: string; created_at: Date }>(
       `select id, url, name, mime_type, size_bytes, created_at from qr_files
-       where user_id = $1
+       where user_id = $1 and ${access(2)}
        order by created_at desc, id desc`,
-      [userId]
+      [scope.accountId, ...accessArgs(scope, "read")]
     ),
     query<{ id: string; name: string; short_code: string; kind: string; content: unknown }>(
       `select id, name, short_code, kind, content from qr_codes
-       where user_id = $1 and archived_at is null and content is not null
+       where user_id = $1 and archived_at is null and content is not null and ${access(2)}
        order by created_at desc`,
-      [userId]
+      [scope.accountId, ...accessArgs(scope, "read")]
     ),
   ]);
 

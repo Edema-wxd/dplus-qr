@@ -1,5 +1,5 @@
 import { Zip, ZipDeflate, ZipPassThrough, strToU8 } from "fflate";
-import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
 import { getBatch, parseImportId } from "@/lib/bulk-create";
 import { zipEntryName } from "@/lib/bulk-import";
@@ -31,15 +31,15 @@ export async function GET(
 ) {
   const { id: raw } = await params;
 
-  const { data: session } = await auth.getSession();
-  if (!session?.user) return new Response("Not signed in", { status: 401 });
+  const scope = await resolveScope();
+  if (!scope) return new Response("Not signed in", { status: 401 });
 
   const id = parseImportId(raw);
   if (!id) return new Response("Not found", { status: 404 });
 
   const [batch, entitlement] = await Promise.all([
-    getBatch(session.user.id, id),
-    getEntitlement(session.user.id),
+    getBatch(scope, id),
+    getEntitlement(scope.accountId),
   ]);
   if (!batch) return new Response("Not found", { status: 404 });
   if (!canBulkCreate(entitlement)) {

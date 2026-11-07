@@ -3,7 +3,8 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth/server";
+import { writable, type AccountScope } from "@/lib/account-scope";
+import { resolveScope } from "@/lib/resolve-scope";
 import { canBulkCreate, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { featureRefusal } from "@/lib/refusals";
 import { BULK_MAX_BYTES, checkRows, fitToSlots, readRows, type CheckedRow } from "@/lib/bulk-import";
@@ -22,10 +23,10 @@ import { flash } from "@/lib/flash";
  * nothing about it: it is parsed, screened and counted again.
  */
 
-async function requireUserId(): Promise<string> {
-  const { data: session } = await auth.getSession();
-  if (!session?.user) redirect("/auth/sign-in");
-  return session.user.id;
+async function requireScope(): Promise<AccountScope> {
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
+  return scope;
 }
 
 /** One row as the preview shows it. */
@@ -73,8 +74,10 @@ async function batchText(formData: FormData): Promise<{ ok: true; text: string; 
   return { ok: false, error: "Choose a CSV file, or paste your rows into the box." };
 }
 
-async function checkBatch(userId: string, text: string) {
-  const entitlement = await getEntitlement(userId);
+async function checkBatch(scope: AccountScope, text: string) {
+  const may = writable(scope);
+  if (!may.ok) return { ok: false as const, error: may.reason };
+  const entitlement = await getEntitlement(scope.accountId);
   if (!canBulkCreate(entitlement)) {
     return { ok: false as const, error: await featureRefusal("bulk_creation", entitlement) };
   }
@@ -92,12 +95,12 @@ export async function checkBulkAction(
   _previous: BulkCheckState,
   formData: FormData
 ): Promise<BulkCheckState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
 
   const input = await batchText(formData);
   if (!input.ok) return { error: input.error };
 
-  const checked = await checkBatch(userId, input.text);
+  const checked = await checkBatch(scope, input.text);
   if (!checked.ok) return { error: checked.error };
 
   // A preview of what fits, from the count as it stands. The create step
@@ -137,7 +140,7 @@ export async function createBulkAction(
   _previous: BulkCreateState,
   formData: FormData
 ): Promise<BulkCreateState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
 
   const parsed = createSchema.safeParse({
     text: formData.get("text"),
@@ -146,16 +149,16 @@ export async function createBulkAction(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check your rows first." };
 
-  if (!(await allowBulkImport(userId))) {
+  if (!(await allowBulkImport(scope.accountId))) {
     return { error: "That is a lot of batches in one hour. Please wait a little and try again." };
   }
 
-  const checked = await checkBatch(userId, parsed.data.text);
+  const checked = await checkBatch(scope, parsed.data.text);
   if (!checked.ok) return { error: checked.error };
 
   let result;
   try {
-    result = await createBulk(userId, checked.rows, {
+    result = await createBulk(scope, checked.rows, {
       source: parsed.data.source,
       logoId: parsed.data.logoId,
     });
