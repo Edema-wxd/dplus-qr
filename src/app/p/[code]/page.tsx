@@ -8,6 +8,7 @@ import { PRODUCT_NAME } from "@/lib/brand";
 import { normaliseCode } from "@/lib/short-code";
 import { loadPublicPage, type PublicPage } from "@/lib/public-page";
 import type { PageContent } from "@/lib/page-content";
+import { appStoreFor } from "@/lib/page-helpers";
 import { LegalLinks } from "@/components/LegalLinks";
 import { pageBrand } from "@/lib/qr-style";
 import { signupLinkFor } from "@/lib/signup-ref";
@@ -49,13 +50,12 @@ export default async function HostedPage({ params }: { params: Promise<{ code: s
   if (page.state === "not_found") redirect("/not-found-code");
   if (page.state !== "page") redirect("/unavailable");
 
-  // An app code sends a phone straight to its own store. Everyone else -- a
-  // computer, an unknown agent -- sees both buttons.
+  // An app code sends a phone straight to its own store (`appStoreFor`).
+  // Everyone else -- a computer, an unknown agent -- sees every store's button.
   if (page.kind === "app") {
     const app = page.content as PageContent<"app">;
-    const agent = (await headers()).get("user-agent") ?? "";
-    if (app.ios && /iPhone|iPad|iPod/i.test(agent)) redirect(app.ios);
-    if (app.android && /Android/i.test(agent)) redirect(app.android);
+    const store = appStoreFor(app, (await headers()).get("user-agent") ?? "");
+    if (store) redirect(store);
   }
 
   // The page wears the colours and logo its owner chose for the code itself:

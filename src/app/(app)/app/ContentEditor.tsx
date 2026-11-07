@@ -296,12 +296,19 @@ export function ContentEditor({
             input: url,
             placeholder: "play.google.com/store/apps/details?id=…",
           })}
+          {text("huawei", "Huawei AppGallery link (optional)", {
+            input: url,
+            placeholder: "appgallery.huawei.com/app/C…",
+            hint: "Huawei phones sold since 2019 have no Google Play.",
+          })}
           {text("website", "Website (optional)", {
             input: url,
             hint: "Shown to anyone scanning on a computer.",
           })}
           <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
-            A phone that scans is sent straight to its own store. Anyone else sees both buttons.
+            A phone that scans is sent straight to its own store: a Huawei phone to AppGallery
+            when you add that link, otherwise to Google Play. Anyone else sees a button for
+            each store. Add at least one store link.
           </p>
         </Stack>
       );
@@ -343,59 +350,11 @@ export function ContentEditor({
           {text("name", "Restaurant name", { required: true })}
           {description}
           {text("currency", "Currency symbol", { hint: "Shown before every price.", input: { maxLength: 4 } })}
-          <Repeater
-            label="Sections"
+          <MenuSections
+            uploads={uploads}
             rows={rows("sections")}
-            max={20}
-            blank={{ name: "", items: [{ name: "", description: "", price: "" }] }}
-            addLabel="Add a section"
             onChange={(value) => set("sections", value)}
-            render={(section, change, i) => (
-              <div className="space-y-3">
-                <input
-                  aria-label={`Section ${i + 1} name`}
-                  value={String(section.name ?? "")}
-                  onChange={(e) => change({ ...section, name: e.target.value })}
-                  placeholder="Starters"
-                  className={`${inputClass} font-medium`}
-                />
-                <Repeater
-                  label="Items"
-                  rows={Array.isArray(section.items) ? (section.items as Row[]) : []}
-                  max={60}
-                  blank={{ name: "", description: "", price: "" }}
-                  addLabel="Add an item"
-                  nested
-                  onChange={(items) => change({ ...section, items })}
-                  render={(item, changeItem, j) => (
-                    <div className="grid gap-2 sm:grid-cols-[1fr_7rem]">
-                      <input
-                        aria-label={`Item ${j + 1} name`}
-                        value={String(item.name ?? "")}
-                        onChange={(e) => changeItem({ ...item, name: e.target.value })}
-                        placeholder="Jollof rice"
-                        className={inputClass}
-                      />
-                      <input
-                        aria-label={`Item ${j + 1} price`}
-                        value={String(item.price ?? "")}
-                        onChange={(e) => changeItem({ ...item, price: e.target.value })}
-                        placeholder="3,500"
-                        inputMode="decimal"
-                        className={inputClass}
-                      />
-                      <input
-                        aria-label={`Item ${j + 1} description`}
-                        value={String(item.description ?? "")}
-                        onChange={(e) => changeItem({ ...item, description: e.target.value })}
-                        placeholder="Description (optional)"
-                        className={`${inputClass} sm:col-span-2`}
-                      />
-                    </div>
-                  )}
-                />
-              </div>
-            )}
+            update={(change) => onChange((prev) => ({ ...prev, sections: change(list(prev.sections)) }))}
           />
         </Stack>
       );
@@ -491,6 +450,11 @@ export function ContentEditor({
     case "barcode":
       return (
         <Stack>
+          <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
+            This code opens a product page showing these details. It is not a retail barcode: a
+            shop till cannot read the GTIN from it, so keep your product&rsquo;s own barcode on
+            the pack.
+          </p>
           {text("gtin", "GTIN", {
             required: true,
             input: { inputMode: "numeric", className: `${inputClass} font-mono` },
@@ -752,12 +716,18 @@ function UploadButton({
   endpoint,
   multiple,
   busy,
+  disabled,
+  ariaLabel,
   onFiles,
   children,
 }: {
   endpoint: Endpoint;
   multiple?: boolean;
   busy: boolean;
+  /** Unavailable without being the one uploading, such as while a sibling is. */
+  disabled?: boolean;
+  /** For a button whose visible text repeats down a list. */
+  ariaLabel?: string;
   onFiles: (files: File[]) => void;
   children: React.ReactNode;
 }) {
@@ -780,7 +750,8 @@ function UploadButton({
       />
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || disabled}
+        aria-label={ariaLabel}
         onClick={() => ref.current?.click()}
         className={`${secondaryButtonClass} text-xs`}
       >
@@ -873,6 +844,174 @@ function FileList({
         </div>
       ) : null}
       <UploadNote uploads={uploads} endpoint={endpoint} error={error} />
+    </div>
+  );
+}
+
+/** Marks the dish a photo upload is for. Not in the menu schema, so the server's parse drops it. */
+const UPLOAD_MARK = "uploadMark";
+
+function withoutMark(item: Row): Row {
+  if (!(UPLOAD_MARK in item)) return item;
+  const rest = { ...item };
+  delete rest[UPLOAD_MARK];
+  return rest;
+}
+
+function mapDishes(sections: Row[], change: (item: Row, section: number, index: number) => Row): Row[] {
+  return sections.map((section, i) => ({
+    ...section,
+    items: list(section.items).map((item, j) => change(item, i, j)),
+  }));
+}
+
+/**
+ * A menu's sections and dishes, each dish with an optional photo.
+ *
+ * One uploader for the whole menu rather than one per dish: every uploader
+ * fetches the upload route's config when it mounts, and a menu can hold
+ * hundreds of dishes. The dish a photo is for is marked in the draft when
+ * its upload starts, and the finished file goes to whichever dish carries
+ * that mark, so moving or removing dishes meanwhile cannot put the photo on
+ * the wrong one. The other dishes' buttons wait until it lands. The file is
+ * placed through `update`, a functional change, so typing done meanwhile is
+ * kept.
+ *
+ * Without uploads (no `UPLOADTHING_TOKEN`) a dish shows the photo it already
+ * has, which can still be removed, and the note says uploads are not
+ * available, as every other optional image field does.
+ */
+function MenuSections({
+  uploads,
+  rows,
+  onChange,
+  update,
+}: {
+  uploads: boolean;
+  rows: Row[];
+  onChange: (rows: Row[]) => void;
+  update: (change: (sections: Row[]) => Row[]) => void;
+}) {
+  // A ref for the upload's callback, which runs with the closure it started
+  // with; state for rendering which dish is busy or failed.
+  const pending = useRef<string | null>(null);
+  const [mark, setMark] = useState<string | null>(null);
+  const counter = useRef(0);
+  const { upload, busy, error } = useUpload("pageImage", 1, (files) => {
+    const token = pending.current;
+    const photo = files[0];
+    if (!token || !photo) return;
+    update((sections) =>
+      mapDishes(sections, (item) => (item[UPLOAD_MARK] === token ? { ...withoutMark(item), photo } : item))
+    );
+  });
+
+  const choose = (section: number, index: number, files: File[]) => {
+    counter.current += 1;
+    const token = `dish-${counter.current}`;
+    pending.current = token;
+    setMark(token);
+    update((sections) =>
+      mapDishes(sections, (item, i, j) =>
+        i === section && j === index ? { ...item, [UPLOAD_MARK]: token } : withoutMark(item)
+      )
+    );
+    upload(files.slice(0, 1));
+  };
+
+  return (
+    <div>
+      <Repeater
+        label="Sections"
+        rows={rows}
+        max={20}
+        blank={{ name: "", items: [{ name: "", description: "", price: "" }] }}
+        addLabel="Add a section"
+        onChange={onChange}
+        render={(section, change, i) => (
+          <div className="space-y-3">
+            <input
+              aria-label={`Section ${i + 1} name`}
+              value={String(section.name ?? "")}
+              onChange={(e) => change({ ...section, name: e.target.value })}
+              placeholder="Starters"
+              className={`${inputClass} font-medium`}
+            />
+            <Repeater
+              label="Items"
+              rows={list(section.items)}
+              max={60}
+              blank={{ name: "", description: "", price: "" }}
+              addLabel="Add an item"
+              nested
+              onChange={(items) => change({ ...section, items })}
+              render={(item, changeItem, j) => {
+                const photo = (item.photo as FileRef | null | undefined) ?? null;
+                const marked = mark !== null && item[UPLOAD_MARK] === mark;
+                const dish = String(item.name ?? "").trim() || `item ${j + 1}`;
+                return (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_7rem]">
+                    <input
+                      aria-label={`Item ${j + 1} name`}
+                      value={String(item.name ?? "")}
+                      onChange={(e) => changeItem({ ...item, name: e.target.value })}
+                      placeholder="Jollof rice"
+                      className={inputClass}
+                    />
+                    <input
+                      aria-label={`Item ${j + 1} price`}
+                      value={String(item.price ?? "")}
+                      onChange={(e) => changeItem({ ...item, price: e.target.value })}
+                      placeholder="3,500"
+                      inputMode="decimal"
+                      className={inputClass}
+                    />
+                    <input
+                      aria-label={`Item ${j + 1} description`}
+                      value={String(item.description ?? "")}
+                      onChange={(e) => changeItem({ ...item, description: e.target.value })}
+                      placeholder="Description (optional)"
+                      className={`${inputClass} sm:col-span-2`}
+                    />
+                    {photo || uploads ? (
+                      <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+                        {photo ? (
+                          <FileChip file={photo} onRemove={() => changeItem({ ...item, photo: null })} />
+                        ) : null}
+                        {uploads ? (
+                          <UploadButton
+                            endpoint="pageImage"
+                            busy={busy && marked}
+                            disabled={busy}
+                            ariaLabel={
+                              busy && marked
+                                ? `Uploading a photo for ${dish}`
+                                : `${photo ? "Replace the photo" : "Add a photo"} for ${dish}`
+                            }
+                            onFiles={(files) => choose(i, j, files)}
+                          >
+                            {photo ? "Replace photo" : "Add photo (optional)"}
+                          </UploadButton>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {error && marked ? (
+                      <p role="alert" className="text-sm text-[var(--struck-ink)] sm:col-span-2">
+                        {error}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              }}
+            />
+          </div>
+        )}
+      />
+      <p className="mt-2 text-xs text-[var(--paper-soft)]">
+        {uploads
+          ? `Each dish can have a photo. ${LIMITS.pageImage}`
+          : "Dish photos need file uploads, which are not available yet."}
+      </p>
     </div>
   );
 }
