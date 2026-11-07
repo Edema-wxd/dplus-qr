@@ -7,6 +7,7 @@ import { FeedbackForm } from "./FeedbackForm";
 import { CopyText } from "./CopyText";
 import { PdfViewer } from "./PdfViewer";
 import { ImageGallery } from "./ImageGallery";
+import { SocialIcon } from "./SocialIcon";
 
 /**
  * One view per hosted page type. Server components throughout; the client
@@ -184,13 +185,19 @@ function Contact({
   );
 }
 
-function LinkList({ links }: { links: { label: string; url: string }[] }) {
+/** A column of link buttons. An `icon` sits before the label, never instead of it. */
+function LinkList({
+  links,
+}: {
+  links: { label: string; url: string; icon?: React.ReactNode }[];
+}) {
   if (links.length === 0) return null;
   return (
     <ul className="space-y-2">
       {links.map((link, i) => (
         <li key={`${link.url}-${i}`}>
-          <a href={link.url} rel="noopener nofollow" className={quiet}>
+          <a href={link.url} rel="noopener nofollow" className={link.icon ? `${quiet} gap-2.5` : quiet}>
+            {link.icon}
             {link.label}
           </a>
         </li>
@@ -370,7 +377,11 @@ export function PageView({
             <Prose text={c.description} />
           </div>
           <LinkList
-            links={c.profiles.map((p) => ({ label: SOCIAL_NETWORKS[p.network], url: p.url }))}
+            links={c.profiles.map((p) => ({
+              label: SOCIAL_NETWORKS[p.network],
+              url: p.url,
+              icon: <SocialIcon network={p.network} className="shrink-0" />,
+            }))}
           />
         </Stack>
       );
@@ -402,6 +413,11 @@ export function PageView({
             {c.android ? (
               <a href={c.android} rel="noopener nofollow" className={button}>
                 Get it on Google Play
+              </a>
+            ) : null}
+            {c.huawei ? (
+              <a href={c.huawei} rel="noopener nofollow" className={button}>
+                Explore it on AppGallery
               </a>
             ) : null}
             {c.website ? (
@@ -455,19 +471,37 @@ export function PageView({
               <h2 className="border-b border-border pb-2 font-sarlotte text-xl">{section.name}</h2>
               <ul>
                 {section.items.map((item, j) => (
-                  <li key={`${item.name}-${j}`} className="border-b border-border py-3 last:border-b-0">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <span className="font-medium">{item.name}</span>
-                      {item.price ? (
-                        <span className="shrink-0 tabular-nums">
-                          {c.currency}
-                          {item.price}
-                        </span>
+                  <li
+                    key={`${item.name}-${j}`}
+                    className="flex gap-3 border-b border-border py-3 last:border-b-0"
+                  >
+                    {/*
+                      A thumbnail, not a cover: a menu can run to hundreds of
+                      dishes, so each photo is fetched at 64px as it nears the
+                      screen, never all at once on mobile data.
+                    */}
+                    {item.photo ? (
+                      <PageImage
+                        url={item.photo.url}
+                        alt={item.name}
+                        frame="h-16 w-16 shrink-0 rounded-lg border border-border"
+                        sizes="64px"
+                      />
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <span className="font-medium">{item.name}</span>
+                        {item.price ? (
+                          <span className="shrink-0 tabular-nums">
+                            {c.currency}
+                            {item.price}
+                          </span>
+                        ) : null}
+                      </div>
+                      {item.description ? (
+                        <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>
                       ) : null}
                     </div>
-                    {item.description ? (
-                      <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>
-                    ) : null}
                   </li>
                 ))}
               </ul>

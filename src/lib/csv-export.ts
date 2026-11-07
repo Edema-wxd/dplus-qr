@@ -1,9 +1,20 @@
-import type { Analytics, Slice } from "@/lib/user-codes";
+import type { Analytics, FeedbackExportRow, Slice } from "@/lib/user-codes";
 
 /**
- * CSV for a code's scans: the cell encoder every export uses, and the
- * per-table exports that mirror what the code page shows.
+ * CSV for a code's scans and feedback: the cell encoder every export uses,
+ * the per-table exports that mirror what the code page shows, and the
+ * response every export route sends.
  */
+
+export function csvResponse(body: string, filename: string): Response {
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
 
 /**
  * One CSV field.
@@ -64,4 +75,36 @@ export function tableCsv(table: Table, data: Analytics, insights: boolean): stri
       `${csvCell(item.label)},${item.scans},${((item.scans / denominator) * 100).toFixed(1)}`
   );
   return [`${column},scans,percent_of_all_scans`, ...lines].join("\r\n");
+}
+
+/**
+ * A feedback code's answers, with where each came from.
+ *
+ * City and operating system follow the code page's own rule: they are the
+ * detailed analytics, so a plan without `insights` gets the file without
+ * those two columns, as the days table drops `unique_scans`.
+ *
+ * Every text field goes through `csvCell`. The comment is typed by whoever
+ * scanned the code, with no account and no screening, so it is the least
+ * trusted text in any export; city and OS come from request headers, as
+ * untrusted as a User-Agent. That is what stops a cell beginning `=`
+ * arriving in the owner's spreadsheet as a formula. The comment is last
+ * because it is the long one.
+ */
+export function feedbackCsv(entries: FeedbackExportRow[], insights: boolean): string {
+  const header = insights
+    ? "answered_at,rating,country,city,device,os,comment"
+    : "answered_at,rating,country,device,comment";
+  const lines = entries.map((entry) =>
+    [
+      entry.createdAt.toISOString(),
+      String(entry.rating),
+      csvCell(entry.country),
+      ...(insights ? [csvCell(entry.city)] : []),
+      csvCell(entry.device),
+      ...(insights ? [csvCell(entry.os)] : []),
+      csvCell(entry.comment),
+    ].join(",")
+  );
+  return [header, ...lines].join("\r\n");
 }

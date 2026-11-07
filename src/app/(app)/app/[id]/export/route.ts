@@ -12,7 +12,7 @@ import {
   parseCodeId,
   scanRows,
 } from "@/lib/user-codes";
-import { csvCell, DETAIL_TABLES, isTable, tableCsv } from "@/lib/csv-export";
+import { csvCell, csvResponse, DETAIL_TABLES, isTable, tableCsv } from "@/lib/csv-export";
 
 
 
@@ -84,14 +84,4 @@ export async function GET(
   );
 
   return csvResponse([header, ...lines].join("\r\n"), `${code.shortCode}-scans.csv`);
-}
-
-function csvResponse(body: string, filename: string): Response {
-  return new Response(body, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control": "private, no-store",
-    },
-  });
 }

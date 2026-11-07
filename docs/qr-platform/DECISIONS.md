@@ -1187,6 +1187,104 @@ exists. The proxy now answers them the same way.
 - Staff keep descriptive tab titles: nobody else ever receives them.
 - `requireStaff()` and `staffForAction()` are unchanged and remain the guard.
 
+## Feedback answers export as CSV, 6 November 2026
+
+A feedback code's page now has "Export answers as CSV"
+(`/app/{id}/export/feedback`): every answer, newest first, as
+`answered_at,rating,country,city,device,os,comment`, capped at 10,000 like
+the scan export. The panel itself still shows the latest 100 and says so
+when there are more.
+
+- **Answers now record where they came from** (Francis, 6 Nov 2026: "also
+  include country, OS, device, and city"). Migration `025` adds nullable
+  `country`, `city`, `device_type` and `os` to `qr_feedback`, filled by
+  `feedbackOrigin()` from the same headers and User-Agent parse a scan uses.
+  This replaces the 26 October rule that an answer kept only rating, comment
+  and time. Still no IP and no hashed visitor value. Answers from before 025
+  have blank cells. The privacy policy's scan-data section now says what an
+  answer keeps.
+- **City and OS need `insights` as well as `csv_export`**, the code page's
+  own rule for detailed analytics. Without it the file drops those two
+  columns, as the days table drops `unique_scans`. Country and device stay.
+- **Behind the existing `csv_export` flag**, not a new one. It is the same
+  capability, a download of a code's data, so staff move it between plans in
+  one place. Without it the button stays clickable and opens the upgrade
+  prompt; the route refuses with 403 either way.
+- **Any other kind of code is a 404**, the same answer as a code belonging
+  to another account, so the route confirms nothing.
+- **Comments go through `csvCell`.** They are typed by anonymous scanners
+  and are the least trusted text in any export, so a comment beginning `=`
+  is defused rather than arriving in the owner's spreadsheet as a formula.
+- `csvResponse` moved into `csv-export.ts` so both export routes send the
+  same headers (`private, no-store`, attachment).
+
+## Scans record their city again, 6 November 2026
+
+Scans had never recorded a city. `scanContext` kept only the country header,
+and `recordScan` rebuilt a `Headers` holding just that, so `readCity` never
+saw `x-vercel-ip-city`. On 6 November, 13 of the previous fortnight's 27
+scans had a country and none had a city, so every Cities panel and table was
+empty. `scanContext` now keeps the raw city header too, decoded in `after()`
+by `scanLocation()` (tested), so the redirect still does no extra work
+inline. Scans already recorded stay without a city; there is nothing to
+backfill it from.
+
+## Page type gaps: social icons, dish photos, AppGallery, Product Info, 6 November 2026
+
+Four gaps in the hosted page types, closed together. No migration: every
+change is inside `content` jsonb, and every new field is optional with a
+default, so pages saved before today parse and render unchanged.
+
+- **Social pages show each network's icon beside its name**
+  (`src/app/p/[code]/SocialIcon.tsx`). Inline line drawings in the manner of
+  `TypeIcon`, in `currentColor`, so they follow the page's brand theming. No
+  icon package: `lucide-react` is installed but dropped its brand marks. The
+  name stays on the button; the icon only helps the eye find the row.
+- **A menu dish can have a photo** (`photo`, an optional image, default
+  null). The page shows it as a 64px thumbnail beside the dish, loaded lazily,
+  since a menu can run to hundreds of dishes on mobile data. The file is a
+  `fileId` like every other page file, so `resolveFiles` checks it against
+  the account's own uploads on save and the Files page counts it as a use
+  (both tested on a nested dish). The editor has **one uploader for the whole
+  menu**, not one per dish, because each uploader fetches the upload route's
+  config when it mounts. The dish an upload is for is marked in the draft
+  (`uploadMark`, which the schema drops), so moving or removing dishes while
+  it runs cannot put the photo on the wrong one. Without `UPLOADTHING_TOKEN`
+  a dish keeps and can remove a photo it has, and the note says uploads are
+  not available, as every other optional image field does.
+- **App codes take a Huawei AppGallery link** (`huawei`, on
+  `appgallery.huawei.com` only). At least one of App Store, Google Play or
+  AppGallery is now required. Huawei phones sold since 2019 have no Google
+  Play, so the Play button was a dead end for them. The store choice moved
+  out of the page into `appStoreFor` in `src/lib/page-helpers.ts`, pure and
+  tested: iPhone first, then a Huawei phone **only when an AppGallery link is
+  set**, then Android. Without the link a Huawei phone goes to Google Play,
+  as before.
+  - **The Huawei rule is conservative and case-sensitive**: `HUAWEI` (the
+    model prefix, `HUAWEI VOG-L29`), `HMSCore` (Huawei Mobile Services,
+    which Huawei Browser announces), `HarmonyOS`, and `OpenHarmony`.
+    `OpenHarmony` was added beyond the original three because HarmonyOS
+    NEXT writes only that, and it cannot install Android apps at all. A
+    wrong match costs a Play Store user a detour to AppGallery, so a token
+    that merely mentions the brand ("HuaweiFanApp") does not count. Newer
+    Huawei phones in Chrome report only a model code (`ELS-NX9`); they are
+    not detected and fall through to Google Play or the buttons, which is
+    the price of not guessing from model codes.
+- **"2D Barcode" is now "Product Info"**, "Product details: GTIN, batch,
+  expiry". The old label overpromised: the printed code is our short link to
+  a product page, not a GS1 barcode or a GS1 Digital Link, so a shop till
+  will not read a GTIN from it (the 26 October entry's caveat, now said in
+  the picker). The kind stays `barcode`, which migration `015`'s check
+  constraint names. The editor says so above the GTIN field: it opens a
+  product page and is not a retail barcode, so the pack keeps its own. The
+  page itself is unchanged and still prints the GS1 element string for a
+  person to read. No other copy said "2D Barcode" or "GS1" (landing,
+  pricing and site content checked); a test holds the label to that.
+
+Tested with unit tests (schemas, old content, the nested dish photo through
+`resolveFiles` with the database mocked, the store choice for each agent).
+Not tried on a real Huawei handset or against UploadThing.
+
 ## Static codes get colours and logos, and Bitcoin checksums, 6 November 2026
 
 **Static codes take colours and a logo, the way dynamic codes do.** Both are
