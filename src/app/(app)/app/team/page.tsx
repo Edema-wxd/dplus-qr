@@ -69,6 +69,7 @@ export default async function TeamPage() {
   const owner = scope.role === "owner";
   const hasTeam = team.seats > 1;
   const free = Math.max(0, team.seats - team.seatsUsed);
+  const overSeats = team.members.filter((m) => m.locked).length;
 
   if (owner && !hasTeam) {
     const offer = featureOffer("team_seats", entitlement, await listPublicPlans());
@@ -107,6 +108,15 @@ export default async function TeamPage() {
       }
     >
       <div className="max-w-3xl space-y-12">
+        {owner && overSeats > 0 ? (
+          <p role="status" className="rounded-lg border border-[var(--struck-ink)]/40 bg-white px-4 py-3 text-sm leading-relaxed">
+            <strong className="font-medium">
+              {overSeats === 1 ? "1 person is" : `${overSeats} people are`} over your plan&apos;s {team.seats} seats.
+            </strong>{" "}
+            Seats go to those who joined first, so they cannot use your account
+            until you remove someone or move to a plan with more seats. Nobody has been removed.
+          </p>
+        ) : null}
         {owner ? (
           <section aria-labelledby="invite-heading">
             <h2 id="invite-heading" className="font-sarlotte text-2xl leading-none">
@@ -150,6 +160,7 @@ export default async function TeamPage() {
                   {member.email ? (
                     <span className="block truncate text-xs text-[var(--paper-soft)]">
                       {member.email} · joined {day(member.joinedAt)}
+                      {member.locked ? <span className="text-[var(--struck-ink)]"> · no seat, locked out</span> : null}
                     </span>
                   ) : null}
                 </span>

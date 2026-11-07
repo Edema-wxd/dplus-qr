@@ -1,8 +1,9 @@
+import { cache } from "react";
 import { query, queryOne, withTransaction } from "@/lib/db";
 import { env } from "@/lib/env";
 import { sendEmail } from "@/lib/email";
 import type { AccountScope } from "@/lib/account-scope";
-import { canInvite, planSeats, seatsHeldSql } from "@/lib/seats";
+import { canInvite, MEMBER_USABLE_SQL, planSeats, seatState, seatsHeldSql } from "@/lib/seats";
 import {
   hashInviteToken,
   INVITE_DAYS,
@@ -217,9 +218,10 @@ export type InviteView = {
 /**
  * What the invite page shows for a token, or null for a token that matches
  * nothing (answered as the ordinary not-found page). Looked up by hash; a
- * malformed token never reaches the database.
+ * malformed token never reaches the database. Read once per request: the
+ * page and its title both ask.
  */
-export async function inviteByToken(token: string): Promise<InviteView | null> {
+export const inviteByToken = cache(async (token: string): Promise<InviteView | null> => {
   if (!teamSeatsLive() || !isInviteToken(token)) return null;
   const row = await queryOne<{
     account_id: string;
@@ -257,7 +259,7 @@ export async function inviteByToken(token: string): Promise<InviteView | null> {
             ? "unavailable"
             : "live",
   };
-}
+});
 
 /**
  * Join a team. The signed-in person must have verified their address, and
@@ -414,8 +416,8 @@ export type AccountChoice = { accountId: string; name: string; role: "owner" | "
 
 /**
  * The accounts someone can work in: their own first, then each team they
- * are a live member of whose owner is in good standing, the same test
- * `resolveScope` applies.
+ * can use right now (`MEMBER_USABLE_SQL`, the same test `resolveScope`
+ * applies), so the switcher never offers a team that would send them home.
  */
 export async function accountChoices(userId: string): Promise<AccountChoice[]> {
   const rows = await query<{ account_id: string; name: string; role: AccountChoice["role"] }>(
@@ -423,8 +425,7 @@ export async function accountChoices(userId: string): Promise<AccountChoice[]> {
      union all
      select m.account_id, o.name, m.role, 1 as ord
      from qr_account_members m join qr_users o on o.id = m.account_id
-     where m.user_id = $1 and m.removed_at is null
-       and o.suspended_at is null and o.archived_at is null and o.erased_at is null
+     where m.user_id = $1 and m.removed_at is null and ${MEMBER_USABLE_SQL}
      order by ord, name`,
     [userId]
   );
@@ -447,7 +448,7 @@ export async function switchAccount(userId: string, accountId: string): Promise<
      where exists (
        select 1 from qr_account_members m join qr_users o on o.id = m.account_id
        where m.account_id = $2 and m.user_id = $1 and m.removed_at is null
-         and o.suspended_at is null and o.archived_at is null and o.erased_at is null)
+         and ${MEMBER_USABLE_SQL})
      on conflict (user_id) do update set account_id = excluded.account_id, updated_at = now()
      returning user_id`,
     [userId, accountId]
@@ -459,7 +460,8 @@ export type TeamView = {
   ownerName: string;
   seats: number;
   seatsUsed: number;
-  members: { userId: string; name: string; email: string | null; role: string; joinedAt: Date }[];
+  /** `locked`: in the team, but past the plan's seats by join order (`seatState`). */
+  members: { userId: string; name: string; email: string | null; role: string; joinedAt: Date; locked: boolean }[];
   invites: { id: string; email: string; role: string; expiresAt: Date }[];
   events: { action: string; actor: string | null; subject: string | null; detail: Record<string, unknown>; at: Date }[];
 };
@@ -513,9 +515,15 @@ export async function teamView(scope: AccountScope): Promise<TeamView | null> {
       : Promise.resolve([]),
   ]);
 
+  const seats = planSeats(head.features);
+  const { locked } = seatState(
+    members.map((m) => ({ userId: m.user_id, joinedAt: m.joined_at })),
+    seats
+  );
+  const lockedSet = new Set(locked);
   return {
     ownerName: head.name,
-    seats: planSeats(head.features),
+    seats,
     seatsUsed: Number(head.seats_used),
     members: members.map((m) => ({
       userId: m.user_id,
@@ -523,6 +531,7 @@ export async function teamView(scope: AccountScope): Promise<TeamView | null> {
       email: owner ? m.email : null,
       role: m.role,
       joinedAt: m.joined_at,
+      locked: lockedSet.has(m.user_id),
     })),
     invites: invites.map((i) => ({ id: String(i.id), email: i.email, role: i.role, expiresAt: i.expires_at })),
     events: events.map((e) => ({ action: e.action, actor: e.actor, subject: e.subject, detail: e.detail, at: e.created_at })),

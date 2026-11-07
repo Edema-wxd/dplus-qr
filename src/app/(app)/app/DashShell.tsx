@@ -5,6 +5,7 @@ import { DashNav } from "./DashNav";
 import { PlanUsage } from "./PlanUsage";
 import { StaffLink } from "./StaffLink";
 import { TeamSlot } from "./TeamSlot";
+import { TeamLockNotice, WithBillingOwner } from "./TeamNotices";
 import { UpgradeButton } from "./UpgradeButton";
 
 /**
@@ -90,7 +91,12 @@ export function DashShell({
           </div>
         </div>
 
-        <div className="mt-8">{children}</div>
+        <div className="mt-8">
+          <Suspense fallback={null}>
+            <TeamLockNotice />
+          </Suspense>
+          <WithBillingOwner>{children}</WithBillingOwner>
+        </div>
 
         <footer className="mt-16 border-t border-[var(--paper-rule)] pt-5">
           <LegalLinks tone="paper" />

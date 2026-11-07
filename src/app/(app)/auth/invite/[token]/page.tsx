@@ -8,10 +8,19 @@ import { inviteByToken } from "@/lib/team";
 import { AuthShell } from "../../../AuthShell";
 import { AcceptForm } from "./AcceptForm";
 
-export const metadata: Metadata = {
-  title: "Join a team",
-  robots: { index: false, follow: false },
-};
+/**
+ * Titled only when the token is a real invitation; anything else gets the
+ * site's default title, as a page that does not exist does, so a guessed
+ * link says nothing about the route.
+ */
+export async function generateMetadata({ params }: { params: Promise<{ token: string }> }): Promise<Metadata> {
+  const { token } = await params;
+  const invite = isInviteToken(token) ? await inviteByToken(token) : null;
+  // No title at all otherwise: the site default, as on a page that does not exist.
+  return invite
+    ? { title: "Join a team", robots: { index: false, follow: false } }
+    : { robots: { index: false, follow: false } };
+}
 
 // Everything here depends on the token and on who is signed in.
 export const instant = false;

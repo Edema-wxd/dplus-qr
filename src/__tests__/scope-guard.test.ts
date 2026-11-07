@@ -88,6 +88,14 @@ describe("scopes come only from a session", () => {
     expect(makers).toEqual(["src/lib/account-scope.ts", "src/lib/resolve-scope.ts"]);
   });
 
+  it("resolves a scope from a bare user id only in the tests", () => {
+    const callers = files(path.join(root, "src"))
+      .filter((f) => !f.includes(`${path.sep}__tests__${path.sep}`))
+      .filter((f) => /\baccessFor\(/.test(readFileSync(f, "utf8")))
+      .map((f) => path.relative(root, f));
+    expect(callers).toEqual(["src/lib/resolve-scope.ts"]);
+  });
+
   it("takes a scope, never a bare user id, in every dashboard function that queries", () => {
     for (const file of MODULES) {
       const source = readFileSync(path.join(root, file), "utf8");

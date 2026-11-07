@@ -109,3 +109,37 @@ export function canInvite(
   }
   return { ok: true };
 }
+
+/**
+ * People a plan allows, in SQL, for a `qr_plans` row aliased `p`: the same
+ * rule as `planSeats`. A whole number of 2 or more, capped in length so a
+ * stray value cannot overflow the cast; anything else is 1, no team.
+ */
+export const PLAN_SEATS_SQL = `(case
+    when (p.features->>'team_seats') ~ '^[0-9]{1,6}$' and (p.features->>'team_seats')::int >= 2
+    then (p.features->>'team_seats')::int
+    else 1 end)`;
+
+/**
+ * Whether a live member can use the team right now, for a member row
+ * aliased `m` and its owner's `qr_users` row aliased `o`. All of:
+ *
+ * - the owner is not suspended, archived or erased;
+ * - the account has an active plan (or one in its grace period) that
+ *   includes a team;
+ * - the member is within the plan's seats, counting the owner first and then
+ *   members in the order they joined (`seatState`, decided 7 Nov 2026).
+ *
+ * One fragment, so `resolveScope` and the switcher agree on who is in. A
+ * member who fails it keeps their membership; they are locked, not removed,
+ * and back in the moment the owner pays, is restored, or frees a seat.
+ */
+export const MEMBER_USABLE_SQL = `(o.suspended_at is null and o.archived_at is null and o.erased_at is null
+    and exists (
+      select 1 from qr_subscriptions s join qr_plans p on p.id = s.plan_id
+      where s.user_id = m.account_id
+        and (s.status = 'active' or (s.status = 'past_due' and s.grace_until > now()))
+        and (select count(*) from qr_account_members e
+             where e.account_id = m.account_id and e.removed_at is null
+               and (e.joined_at, e.user_id) < (m.joined_at, m.user_id))
+            < ${PLAN_SEATS_SQL} - 1))`;
