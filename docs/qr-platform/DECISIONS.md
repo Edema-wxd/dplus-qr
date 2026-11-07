@@ -1551,15 +1551,87 @@ link left no codes and no batch behind; erase removed the batches. The
 collision retry is unit-tested against a fake transaction, and the form was
 checked at 375px.
 
+## Team seats, part 1: the schema and the access check, 7 November 2026
+
+Team seats are built in stages from `docs/qr-platform/plans/team-seats.md`.
+Francis's answers (7 Nov 2026): Business only, **5 people including the
+owner**; roles **owner, editor and viewer** (admin allowed in the schema,
+not offered); when a plan lapses or seats fall below members, **members are
+locked out with their memberships kept**; the plan's other recommendations
+stand. This entry covers the first two stages, which change nothing a
+customer can see: nothing writes the new tables yet.
+
+**An account is still the owner's user id.** Codes, logos, files, share
+links and subscriptions stay keyed on `user_id`, which now means "the
+account". So the redirect is untouched: `src/__tests__/redirect-lookup.test.ts`
+pins that its one query reads only `qr_codes`, `qr_users` and
+`qr_subscriptions`, and never a team table, which is also why membership can
+change without a cache purge.
+
+**Migration `028`** adds `qr_account_members` (role, joined, removed),
+`qr_account_invites` (only a hash of the token is stored),
+`qr_account_events` (the team log, ids and roles only) and
+`qr_active_accounts` (which account someone is working in, kept in the
+database because the privacy policy promises one cookie). It alters nothing
+that exists, and sets `team_seats` to 5 on the two Business rows, where 013
+had stored `true`. `team_seats` is now a number in the plan catalogue, still
+`built: false`, so the admin plan form keeps the count rather than dropping
+an unrecognised boolean.
+
+**"Filter by the session's user id" becomes a proof of access.** Every
+dashboard function in `user-codes.ts`, `logos.ts`, `files.ts`,
+`stat-shares.ts` and `bulk-create.ts` takes an `AccountScope` instead of a
+user id, and every statement carries `access(n)` from
+`src/lib/account-scope.ts`: the row belongs to the account, and the same
+statement checks that the signed-in person is its owner or a live member
+whose role allows the action (viewers read, editors and the owner write).
+There is still no fetch-then-check: a member removed mid-request gets
+nothing from the next statement. For an owner the check is `$1 = $n` and
+never reads the members table, so a solo account costs nothing.
+
+- `resolveScope()` (`src/lib/resolve-scope.ts`) is the only way to get a
+  scope: the session's own account, unless `qr_active_accounts` names a team
+  they are a live member of whose owner is not suspended, archived or
+  erased. Anything else falls back home. `scopeFor` builds one, and the
+  guard test fails if anything but these two modules and the tests call it.
+- Pages, the six routes, the dashboard and bulk actions, the plan meter and
+  the upload middleware all resolve a scope. Write actions refuse a viewer
+  up front with "Ask the account owner" (the statements refuse anyway).
+- **Who changed a destination is now the person**, not the account:
+  `changed_by` takes the actor, so a team's history will say which member.
+- Unscoped readers are named: `analyticsForCode` (the staff code page and
+  public share links, which authorise first) and `loadSharedCode` (the token
+  is the credential). Upload callbacks record against the account the
+  middleware proved, since UploadThing's callback carries no session.
+- `src/__tests__/scope-guard.test.ts` reads those modules function by
+  function and fails on any SQL touching a customer table without
+  `${access(` or a `-- scope:` note saying why.
+- `/billing` still uses the session's own id: only an owner pays for their
+  own account.
+
+**Deferred from this stage:** the plan's hidden `accountId` on every form
+(refusing a form drawn for one account after a switch in another tab) moves
+to the stage that adds the account switcher, since until then nobody can
+switch.
+
+Tested on a local Postgres 16 with all migrations and member rows: owner,
+editor and viewer see the account's codes; an outsider holding a forged
+scope for the account sees nothing, changes nothing and creates nothing;
+a viewer reads but cannot rename, create or bulk-create; an editor's
+re-point is recorded under the editor; a member removed mid-session gets
+nothing on the next statement; the account choice falls back home when the
+owner is suspended, the member removed, or the team never joined.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
 
 Not built yet:
 
-- **Team seats**, listed as a Business extra. A plan flag marked
-  `built: false` in `src/lib/plan-features.ts`, so it is stored and assignable
-  but never advertised. Proposed plan: `docs/qr-platform/plans/team-seats.md`.
+- **Team seats**, in progress: the schema and the access check are built
+  (see that entry); seat rules, invites, role-aware UI, staff admin and
+  erasure, and the launch copy remain, per `docs/qr-platform/plans/team-seats.md`.
+  The flag stays `built: false` until then.
 - **A reputation check on destinations.** `checkReputation()` in
   `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
   destination is checked for shape only, never against a malware or phishing

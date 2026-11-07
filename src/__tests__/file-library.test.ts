@@ -6,6 +6,9 @@ jest.mock("@/lib/db", () => ({
 
 import { attachUses, fileKind, formatBytes, resolveFiles } from "@/lib/files";
 import { parsePageContent } from "@/lib/page-content";
+import { scopeFor } from "@/lib/account-scope";
+
+const owner = scopeFor("user-1", "user-1", "owner");
 
 /**
  * The Files page pairs each upload with the codes that show it, by the same
@@ -76,11 +79,16 @@ describe("a menu dish's photo", () => {
   it("is checked against the account's own uploads and rewritten from them", async () => {
     query.mockResolvedValueOnce([{ id: "42", url: STORED, name: "suya.jpg", mime_type: "image/jpeg" }]);
     const result = await resolveFiles(
-      "user-1",
+      owner,
       menu({ fileId: "42", url: "https://evil.example/x.jpg", name: "x", mime: "image/jpeg" })
     );
 
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("user_id = $1"), ["user-1", ["42"]]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("user_id = $1"), [
+      "user-1",
+      ["42"],
+      "user-1",
+      ["admin", "editor", "viewer"],
+    ]);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const parsed = parsePageContent("menu", result.content);
@@ -90,14 +98,14 @@ describe("a menu dish's photo", () => {
   it("refuses a photo the account did not upload", async () => {
     query.mockResolvedValueOnce([]);
     const result = await resolveFiles(
-      "user-1",
+      owner,
       menu({ fileId: "43", url: STORED, name: "x", mime: "image/jpeg" })
     );
     expect(result).toEqual({ ok: false, reason: "That file could not be found. Upload it again." });
   });
 
   it("refuses a malformed file id without asking the database", async () => {
-    const result = await resolveFiles("user-1", menu({ fileId: "1 or 1=1", url: STORED, name: "x", mime: "" }));
+    const result = await resolveFiles(owner, menu({ fileId: "1 or 1=1", url: STORED, name: "x", mime: "" }));
     expect(result.ok).toBe(false);
     expect(query).not.toHaveBeenCalled();
   });

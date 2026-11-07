@@ -5,7 +5,8 @@ import { canBulkCreate, canCreateCode, getEntitlement } from "@/lib/entitlement"
 import { ownsLiveLogo } from "@/lib/logos";
 import { featureRefusal } from "@/lib/refusals";
 import { fitToSlots, type CheckedRow, type GoodRow } from "@/lib/bulk-import";
-import { withCodeSlots, type TxRun } from "@/lib/user-codes";
+import { AccessLost, withCodeSlots, type TxRun } from "@/lib/user-codes";
+import { access, accessArgs, writable, type AccountScope } from "@/lib/account-scope";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 
 /**
@@ -36,43 +37,47 @@ class BatchRefused extends Error {}
 const ATTEMPTS = 5;
 
 export async function createBulk(
-  userId: string,
+  scope: AccountScope,
   rows: CheckedRow[],
   options: { source: "csv" | "paste"; logoId: string | null }
 ): Promise<BulkResult> {
-  const entitlement = await getEntitlement(userId);
+  const may = writable(scope);
+  if (!may.ok) return may;
+  const entitlement = await getEntitlement(scope.accountId);
   if (!canBulkCreate(entitlement)) {
     return { ok: false, reason: await featureRefusal("bulk_creation", entitlement) };
   }
   const allowed = canCreateCode(entitlement);
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
 
-  if (options.logoId && !(await ownsLiveLogo(userId, options.logoId))) {
+  if (options.logoId && !(await ownsLiveLogo(scope, options.logoId))) {
     return { ok: false, reason: "That logo is no longer in your library. Pick another, or upload it again." };
   }
 
   const invalid = rows.filter((r) => !r.ok).length;
 
   try {
-    return await withCodeSlots(userId, entitlement!.maxCodes, async (run, free) => {
+    return await withCodeSlots(scope, entitlement!.maxCodes, async (run, free) => {
       const { create, overLimit } = fitToSlots(rows, free);
       if (create.length === 0) {
         const full = canCreateCode({ ...entitlement!, codesUsed: entitlement!.maxCodes });
         throw new BatchRefused(full.ok ? "There are no codes left on your plan." : full.reason);
       }
 
-      const made = await insertCodes(run, userId, create, options.logoId);
+      const made = await insertCodes(run, scope.accountId, create, options.logoId);
 
       const batch = await run<{ id: string }>(
-        `insert into qr_bulk_imports
+        `-- scope: proved by withCodeSlots, in this transaction
+         insert into qr_bulk_imports
            (user_id, source, rows_total, rows_invalid, rows_over_limit, rows_created)
          values ($1, $2, $3, $4, $5, $6)
          returning id`,
-        [userId, options.source, rows.length, invalid, overLimit.length, made.length]
+        [scope.accountId, options.source, rows.length, invalid, overLimit.length, made.length]
       );
       const importId = batch[0].id;
       await run(
-        `insert into qr_bulk_import_codes (import_id, qr_id, row_number)
+        `-- scope: proved by withCodeSlots, in this transaction
+         insert into qr_bulk_import_codes (import_id, qr_id, row_number)
          select $1, t.qr_id, t.row_number
          from unnest($2::bigint[], $3::int[]) as t(qr_id, row_number)`,
         [importId, made.map((m) => m.id), made.map((m) => m.row)]
@@ -81,7 +86,9 @@ export async function createBulk(
       return { ok: true as const, importId: String(importId), created: made.length };
     });
   } catch (error) {
-    if (error instanceof BatchRefused) return { ok: false, reason: error.message };
+    if (error instanceof BatchRefused || error instanceof AccessLost) {
+      return { ok: false, reason: error.message };
+    }
     throw error;
   }
 }
@@ -89,7 +96,7 @@ export async function createBulk(
 /** Insert every row, retrying generated codes that collide. */
 async function insertCodes(
   run: TxRun,
-  userId: string,
+  accountId: string,
   rows: GoodRow[],
   logoId: string | null
 ): Promise<{ id: string; row: number }[]> {
@@ -112,14 +119,15 @@ async function insertCodes(
 
   for (let attempt = 0; attempt < ATTEMPTS && pending.length > 0; attempt += 1) {
     const inserted = await run<{ id: string; short_code: string }>(
-      `insert into qr_codes (user_id, short_code, name, kind, destination_url, logo_id)
+      `-- scope: proved by withCodeSlots, in this transaction
+       insert into qr_codes (user_id, short_code, name, kind, destination_url, logo_id)
        select $1, t.short_code, t.name, t.kind, t.destination, $6::bigint
        from unnest($2::text[], $3::text[], $4::text[], $5::text[])
          as t(short_code, name, kind, destination)
        on conflict (short_code) do nothing
        returning id, short_code`,
       [
-        userId,
+        accountId,
         pending.map((p) => p.shortCode),
         pending.map((p) => p.row.name),
         pending.map((p) => p.row.kind),
@@ -187,7 +195,7 @@ export function parseImportId(raw: string): string | null {
  * code that has since left the account (it cannot, but the rule is the rule)
  * is not listed. Codes staff archived are left out, as on the codes list.
  */
-export async function getBatch(userId: string, importId: string): Promise<Batch | null> {
+export async function getBatch(scope: AccountScope, importId: string): Promise<Batch | null> {
   const head = await queryOne<{
     id: string;
     source: "csv" | "paste";
@@ -198,8 +206,8 @@ export async function getBatch(userId: string, importId: string): Promise<Batch 
     created_at: Date;
   }>(
     `select id, source, rows_total, rows_invalid, rows_over_limit, rows_created, created_at
-     from qr_bulk_imports where user_id = $1 and id = $2`,
-    [userId, importId]
+     from qr_bulk_imports where user_id = $1 and id = $2 and ${access(3)}`,
+    [scope.accountId, importId, ...accessArgs(scope, "read")]
   );
   if (!head) return null;
 
@@ -222,9 +230,9 @@ export async function getBatch(userId: string, importId: string): Promise<Batch 
      from qr_bulk_import_codes b
      join qr_codes c on c.id = b.qr_id
      left join qr_logos l on l.id = c.logo_id and l.user_id = c.user_id
-     where b.import_id = $2 and c.user_id = $1 and c.archived_at is null
+     where b.import_id = $2 and c.user_id = $1 and c.archived_at is null and ${access(3)}
      order by b.row_number`,
-    [userId, importId]
+    [scope.accountId, importId, ...accessArgs(scope, "read")]
   );
 
   return {
@@ -251,21 +259,35 @@ export async function getBatch(userId: string, importId: string): Promise<Batch 
   };
 }
 
-/** This account's recent batches, newest first, for the bulk page and staff. */
+/** This account's recent batches, newest first, for the bulk page. */
 export async function listBatches(
-  userId: string,
+  scope: AccountScope,
   limit = 10
-): Promise<{ id: string; rowsCreated: number; rowsTotal: number; createdAt: Date }[]> {
-  const rows = await query<{ id: string; rows_created: number; rows_total: number; created_at: Date }>(
+): Promise<BatchSummary[]> {
+  const rows = await query<BatchRow>(
     `select id, rows_created, rows_total, created_at
+     from qr_bulk_imports where user_id = $1 and ${access(3)}
+     order by created_at desc limit $2`,
+    [scope.accountId, limit, ...accessArgs(scope, "read")]
+  );
+  return rows.map(toSummary);
+}
+
+/** The same list for the staff customer page, which `requireStaff` guards. */
+export async function batchesForStaff(accountId: string, limit = 10): Promise<BatchSummary[]> {
+  const rows = await query<BatchRow>(
+    `-- scope: staff only (requireStaff on the customer page)
+     select id, rows_created, rows_total, created_at
      from qr_bulk_imports where user_id = $1
      order by created_at desc limit $2`,
-    [userId, limit]
+    [accountId, limit]
   );
-  return rows.map((r) => ({
-    id: String(r.id),
-    rowsCreated: r.rows_created,
-    rowsTotal: r.rows_total,
-    createdAt: r.created_at,
-  }));
+  return rows.map(toSummary);
+}
+
+type BatchSummary = { id: string; rowsCreated: number; rowsTotal: number; createdAt: Date };
+type BatchRow = { id: string; rows_created: number; rows_total: number; created_at: Date };
+
+function toSummary(r: BatchRow): BatchSummary {
+  return { id: String(r.id), rowsCreated: r.rows_created, rowsTotal: r.rows_total, createdAt: r.created_at };
 }

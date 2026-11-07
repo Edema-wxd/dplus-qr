@@ -3,8 +3,13 @@ const getBatch = jest.fn();
 const getEntitlement = jest.fn();
 const loadLogo = jest.fn();
 
-jest.mock("@/lib/auth/server", () => ({
-  auth: { getSession: (...a: unknown[]) => getSession(...a) },
+jest.mock("@/lib/resolve-scope", () => ({
+  resolveScope: async () => {
+    const { data } = await getSession();
+    if (!data?.user) return null;
+    const { scopeFor } = jest.requireActual("@/lib/account-scope");
+    return scopeFor(data.user.id, data.user.id, "owner");
+  },
 }));
 jest.mock("@/lib/bulk-create", () => ({
   getBatch: (...a: unknown[]) => getBatch(...a),
@@ -257,7 +262,7 @@ describe("GET /app/imports/[id]/zip", () => {
       expect(list[0]).toBe("name,link,destination,created_at");
       expect(list[2].startsWith("'=Flyer,")).toBe(true);
     }
-    expect(getBatch).toHaveBeenCalledWith("user-1", "7");
+    expect(getBatch).toHaveBeenCalledWith(expect.objectContaining({ accountId: "user-1", actorId: "user-1" }), "7");
     // PNG encoding is slow under ts-jest (seconds, against ~60ms in Node).
   }, 60_000);
 

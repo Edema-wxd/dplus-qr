@@ -58,7 +58,12 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Both are Neon-managed: `neon env pull` writes them. Never hand-edit.
 - Every change is a new numbered file in `db/migrations/`, additive only. Never
   edit a migration that has run; the runner's checksum check will stop you.
-- Every query touching client data filters by the session's user id.
+- Every query touching client data filters by the account and proves, in the
+  same statement, that the session's user may use it. Dashboard functions
+  take an `AccountScope` from `resolveScope()` (`src/lib/resolve-scope.ts`),
+  never a bare user id, and each statement carries `${access(n)}` from
+  `src/lib/account-scope.ts`. With no team the account is the session user.
+  `src/__tests__/scope-guard.test.ts` fails on a query without it.
 - **Connecting is retried once** (`connect()` in `src/lib/db.ts`): Neon pauses
   the database when idle, and the first connection after that can outlast the
   5-second limit. Never a statement, only the connection, so nothing runs

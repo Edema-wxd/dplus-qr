@@ -1,4 +1,5 @@
 import { query, queryOne, withTransaction } from "@/lib/db";
+import { access, accessArgs, writable, type AccountScope } from "@/lib/account-scope";
 import { purgeDestination } from "@/lib/codes";
 import { checkCustomCode, generateCode } from "@/lib/short-code";
 import { CODE_HOST } from "@/lib/brand";
@@ -41,9 +42,13 @@ import {
  * Nothing here is ever imported by `app/[code]/route.ts`, and
  * `src/__tests__/redirect-isolation.test.ts` is what keeps that true.
  *
- * **Every query filters by `user_id`.** Not as a convention but as the rule:
- * an id in a URL is a guess until the database has agreed it belongs to the
- * session. There is no "fetch then check" anywhere in this file.
+ * **Every query filters by the account and proves the session may use it.**
+ * Each function takes an `AccountScope` (`src/lib/account-scope.ts`), never a
+ * bare user id, and each statement carries `access(n)`: `user_id` is the
+ * account, and the same statement checks that the signed-in person is its
+ * owner or a live member with a role that allows the action. An id in a URL
+ * is a guess until the database has agreed it belongs to the account. There
+ * is no "fetch then check" anywhere in this file.
  */
 
 /**
@@ -164,7 +169,7 @@ const COUNTS = `
  */
 const LOGO_JOIN = `left join qr_logos l on l.id = c.logo_id and l.user_id = c.user_id`;
 
-export async function listCodes(userId: string): Promise<OwnedCode[]> {
+export async function listCodes(scope: AccountScope): Promise<OwnedCode[]> {
   const rows = await query<CodeRow>(
     `select
        c.id, c.short_code, c.name, c.kind, c.destination_url, c.content, c.status,
@@ -174,16 +179,16 @@ export async function listCodes(userId: string): Promise<OwnedCode[]> {
      from qr_codes c
      ${LOGO_JOIN}
      left join qr_scans s on s.qr_id = c.id
-     where c.user_id = $1 and c.archived_at is null
+     where c.user_id = $1 and c.archived_at is null and ${access(2)}
      group by c.id, l.id
      order by c.created_at desc`,
-    [userId]
+    [scope.accountId, ...accessArgs(scope, "read")]
   );
   return rows.map(toOwnedCode);
 }
 
 export async function getCode(
-  userId: string,
+  scope: AccountScope,
   id: string
 ): Promise<OwnedCode | null> {
   const row = await queryOne<CodeRow>(
@@ -195,9 +200,9 @@ export async function getCode(
      from qr_codes c
      ${LOGO_JOIN}
      left join qr_scans s on s.qr_id = c.id
-     where c.user_id = $1 and c.id = $2 and c.archived_at is null
+     where c.user_id = $1 and c.id = $2 and c.archived_at is null and ${access(3)}
      group by c.id, l.id`,
-    [userId, id]
+    [scope.accountId, id, ...accessArgs(scope, "read")]
   );
   return row ? toOwnedCode(row) : null;
 }
@@ -239,11 +244,11 @@ export type CreateInput =
  * own uploads first, then the kind's schema.
  */
 async function checkContent(
-  userId: string,
+  scope: AccountScope,
   kind: PageKind,
   raw: unknown
 ): Promise<{ ok: true; content: PageContent } | { ok: false; reason: string }> {
-  const resolved = await resolveFiles(userId, raw);
+  const resolved = await resolveFiles(scope, raw);
   if (!resolved.ok) return resolved;
   return parsePageContent(kind, resolved.content);
 }
@@ -265,9 +270,12 @@ function videoFileId(content: unknown): string | null {
 }
 
 export async function createCode(
-  userId: string,
+  scope: AccountScope,
   input: CreateInput
 ): Promise<CreateResult> {
+  const may = writable(scope);
+  if (!may.ok) return may;
+
   // A link type's destination is screened. A page type's destination is our
   // own page, built from the short code below; its content is checked here.
   let destination: string | null = null;
@@ -281,7 +289,7 @@ export async function createCode(
     destination = screened.normalised;
   } else {
     const checked = await checkContent(
-      userId,
+      scope,
       input.kind,
       (input as { content: unknown }).content
     );
@@ -289,7 +297,7 @@ export async function createCode(
     content = checked.content;
   }
 
-  const entitlement = await getEntitlement(userId);
+  const entitlement = await getEntitlement(scope.accountId);
   const allowed = canCreateCode(entitlement);
   if (!allowed.ok) return { ok: false, reason: allowed.reason };
 
@@ -313,7 +321,7 @@ export async function createCode(
   }
 
   const logoId = input.logoId ?? null;
-  if (logoId && !(await ownsLiveLogo(userId, logoId))) {
+  if (logoId && !(await ownsLiveLogo(scope, logoId))) {
     return {
       ok: false,
       reason: "That logo is no longer in your library. Pick another, or upload it again.",
@@ -323,52 +331,58 @@ export async function createCode(
   const name = input.name.trim();
   const maxCodes = entitlement!.maxCodes;
 
-  return withCodeSlots(userId, maxCodes, async (run, free) => {
-    // Counted again under the account's lock: the check above read the count
-    // before anything was locked, and two creates at once could both pass it.
-    if (free < 1) {
-      const refused = canCreateCode({ ...entitlement!, codesUsed: maxCodes });
-      return { ok: false as const, reason: refused.ok ? "No codes left on your plan." : refused.reason };
-    }
-
-    // A chosen code gets one attempt: if the unique index says it is taken,
-    // that is the answer, and generating something else would hand the owner
-    // a link they did not ask for. A generated code retries, as it always has.
-    // `on conflict do nothing` rather than catching the violation, because a
-    // failed statement would abort the transaction holding the lock.
-    const attempts = customCode ? 1 : 5;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const shortCode = customCode ?? generateCode();
-      const rows = await run<{ id: string }>(
-        `insert into qr_codes
-           (user_id, short_code, name, kind, destination_url, content, logo_id)
-         values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint)
-         on conflict (short_code) do nothing
-         returning id`,
-        [
-          userId,
-          shortCode,
-          name,
-          input.kind,
-          destination ?? pagePath(shortCode),
-          content === null ? null : JSON.stringify(content),
-          logoId,
-        ]
-      );
-      // A fresh code has no history row: there is no previous destination to
-      // record, and inventing one would make the log lie about a change that
-      // never happened.
-      if (rows[0]) return { ok: true as const, id: String(rows[0].id), shortCode };
-      if (customCode) {
-        return { ok: false as const, reason: `${CODE_HOST}/${customCode} is already taken. Try another.` };
+  try {
+    return await withCodeSlots(scope, maxCodes, async (run, free): Promise<CreateResult> => {
+      // Counted again under the account's lock: the check above read the count
+      // before anything was locked, and two creates at once could both pass it.
+      if (free < 1) {
+        const refused = canCreateCode({ ...entitlement!, codesUsed: maxCodes });
+        return { ok: false as const, reason: refused.ok ? "No codes left on your plan." : refused.reason };
       }
-    }
 
-    return {
-      ok: false as const,
-      reason: "Could not allocate a short code. Please try again.",
-    };
-  });
+      // A chosen code gets one attempt: if the unique index says it is taken,
+      // that is the answer, and generating something else would hand the owner
+      // a link they did not ask for. A generated code retries, as it always has.
+      // `on conflict do nothing` rather than catching the violation, because a
+      // failed statement would abort the transaction holding the lock.
+      const attempts = customCode ? 1 : 5;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const shortCode = customCode ?? generateCode();
+        const rows = await run<{ id: string }>(
+          `-- scope: proved by withCodeSlots, in this transaction
+           insert into qr_codes
+             (user_id, short_code, name, kind, destination_url, content, logo_id)
+           values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint)
+           on conflict (short_code) do nothing
+           returning id`,
+          [
+            scope.accountId,
+            shortCode,
+            name,
+            input.kind,
+            destination ?? pagePath(shortCode),
+            content === null ? null : JSON.stringify(content),
+            logoId,
+          ]
+        );
+        // A fresh code has no history row: there is no previous destination to
+        // record, and inventing one would make the log lie about a change that
+        // never happened.
+        if (rows[0]) return { ok: true as const, id: String(rows[0].id), shortCode };
+        if (customCode) {
+          return { ok: false as const, reason: `${CODE_HOST}/${customCode} is already taken. Try another.` };
+        }
+      }
+
+      return {
+        ok: false as const,
+        reason: "Could not allocate a short code. Please try again.",
+      };
+    });
+  } catch (error) {
+    if (error instanceof AccessLost) return { ok: false, reason: error.message };
+    throw error;
+  }
 }
 
 /** Runs a statement inside the caller's transaction. */
@@ -390,30 +404,50 @@ export type TxRun = <R extends Record<string, unknown>>(
  * counts them, archived ones aside.
  */
 export async function withCodeSlots<T>(
-  userId: string,
+  scope: AccountScope,
   maxCodes: number,
   work: (run: TxRun, free: number) => Promise<T>
 ): Promise<T> {
   return withTransaction(async (run) => {
-    await run(`select pg_advisory_xact_lock(hashtextextended('qr_codes:' || $1::text, 0))`, [userId]);
-    const used = await run<{ used: string }>(
-      `select count(*) as used from qr_codes where user_id = $1 and archived_at is null`,
-      [userId]
+    await run(
+      `-- scope: a lock on the account's slots; reads no rows
+       select pg_advisory_xact_lock(hashtextextended('qr_codes:' || $1::text, 0))`,
+      [scope.accountId]
     );
-    return work(run, Math.max(0, maxCodes - Number(used[0]?.used ?? 0)));
+    // Counted, and the right to write proved, in one statement under the
+    // lock: a member removed since the page loaded gets no slots at all.
+    const used = await run<{ used: string }>(
+      `select count(*) as used from qr_codes
+       where user_id = $1 and archived_at is null
+       having ${access(2)}`,
+      [scope.accountId, ...accessArgs(scope, "write")]
+    );
+    if (!used[0]) throw new AccessLost();
+    return work(run, Math.max(0, maxCodes - Number(used[0].used)));
   });
 }
 
+/**
+ * The signed-in person can no longer write to the account they were working
+ * in (removed from the team, or made a viewer, since the page loaded).
+ * Thrown inside `withCodeSlots` so the transaction rolls back.
+ */
+export class AccessLost extends Error {
+  constructor() {
+    super("You can no longer make codes in this account. Reload the page.");
+  }
+}
+
 export async function renameCode(
-  userId: string,
+  scope: AccountScope,
   id: string,
   name: string
 ): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_codes set name = $3, updated_at = now()
-     where user_id = $1 and id = $2
+     where user_id = $1 and id = $2 and ${access(4)}
      returning id`,
-    [userId, id, name.trim()]
+    [scope.accountId, id, name.trim(), ...accessArgs(scope, "write")]
   );
   // The name is never on the redirect path, so no cache purge is needed.
   return row !== null;
@@ -430,7 +464,7 @@ export async function renameCode(
  * changes the image, not where a scan goes.
  */
 export async function setCodeStyle(
-  userId: string,
+  scope: AccountScope,
   id: string,
   style: QrStyle
 ): Promise<boolean> {
@@ -438,9 +472,9 @@ export async function setCodeStyle(
     `update qr_codes
        set style = style || jsonb_build_object('dark', $3::text, 'light', $4::text),
            updated_at = now()
-     where user_id = $1 and id = $2
+     where user_id = $1 and id = $2 and ${access(5)}
      returning id`,
-    [userId, id, style.dark, style.light]
+    [scope.accountId, id, style.dark, style.light, ...accessArgs(scope, "write")]
   );
   return row !== null;
 }
@@ -455,7 +489,7 @@ export type ChangeResult = { ok: true } | { ok: false; reason: string };
  * than one that failed. The CTE reads the old value before the update sees it.
  */
 export async function changeDestination(
-  userId: string,
+  scope: AccountScope,
   id: string,
   destinationUrl: string
 ): Promise<ChangeResult> {
@@ -464,8 +498,8 @@ export async function changeDestination(
   // its content is edited instead -- so it is refused rather than re-pointed
   // away from its own page.
   const current = await queryOne<{ kind: string }>(
-    `select kind from qr_codes where user_id = $1 and id = $2`,
-    [userId, id]
+    `select kind from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
+    [scope.accountId, id, ...accessArgs(scope, "write")]
   );
   if (!current) return { ok: false, reason: "That code could not be found." };
   if (!isLinkKind(current.kind)) {
@@ -478,7 +512,7 @@ export async function changeDestination(
     `with prev as (
        select id, short_code, destination_url
        from qr_codes
-       where user_id = $1 and id = $2 and kind = $4
+       where user_id = $1 and id = $2 and kind = $4 and ${access(5)}
      ), updated as (
        update qr_codes c
          set destination_url = $3, updated_at = now()
@@ -487,10 +521,12 @@ export async function changeDestination(
        returning c.short_code
      ), logged as (
        insert into qr_destination_history (qr_id, old_url, new_url, changed_by)
-       select prev.id, prev.destination_url, $3, $1 from prev
+       select prev.id, prev.destination_url, $3, $5 from prev
      )
      select short_code from updated`,
-    [userId, id, screened.normalised, current.kind]
+    // changed_by is the person who made the change ($5, the actor), not the
+    // account: on a team that is how the history says which member did it.
+    [scope.accountId, id, screened.normalised, current.kind, ...accessArgs(scope, "write")]
   );
 
   if (!row) return { ok: false, reason: "That code could not be found." };
@@ -510,20 +546,20 @@ export async function changeDestination(
  * unchanged, and the hosted page reads content fresh on every view.
  */
 export async function updateCodeContent(
-  userId: string,
+  scope: AccountScope,
   id: string,
   raw: unknown
 ): Promise<ChangeResult> {
   const current = await queryOne<{ kind: string; content: unknown }>(
-    `select kind, content from qr_codes where user_id = $1 and id = $2`,
-    [userId, id]
+    `select kind, content from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
+    [scope.accountId, id, ...accessArgs(scope, "write")]
   );
   if (!current) return { ok: false, reason: "That code could not be found." };
   if (!isPageKind(current.kind)) {
     return { ok: false, reason: "This code is a link. Change where it points instead." };
   }
 
-  const checked = await checkContent(userId, current.kind, raw);
+  const checked = await checkContent(scope, current.kind, raw);
   if (!checked.ok) return checked;
 
   // Keeping a video already on the page is always allowed (it may be
@@ -531,16 +567,16 @@ export async function updateCodeContent(
   if (current.kind === "video") {
     const next = videoFileId(checked.content);
     if (next && next !== videoFileId(current.content)) {
-      const entitlement = await getEntitlement(userId);
+      const entitlement = await getEntitlement(scope.accountId);
       if (!canUploadVideo(entitlement)) return { ok: false, reason: await videoRefusal(entitlement) };
     }
   }
 
   const row = await queryOne<{ id: string }>(
     `update qr_codes set content = $4::jsonb, updated_at = now()
-     where user_id = $1 and id = $2 and kind = $3
+     where user_id = $1 and id = $2 and kind = $3 and ${access(5)}
      returning id`,
-    [userId, id, current.kind, JSON.stringify(checked.content)]
+    [scope.accountId, id, current.kind, JSON.stringify(checked.content), ...accessArgs(scope, "write")]
   );
   return row ? { ok: true } : { ok: false, reason: "That code could not be found." };
 }
@@ -549,7 +585,7 @@ export type FeedbackEntry = { rating: number; comment: string | null; createdAt:
 
 /** Answers left on a feedback code, newest first, with the average. */
 export async function codeFeedback(
-  userId: string,
+  scope: AccountScope,
   id: string
 ): Promise<{ entries: FeedbackEntry[]; count: number; average: number | null }> {
   const [rows, summary] = await Promise.all([
@@ -557,17 +593,17 @@ export async function codeFeedback(
       `select f.rating, f.comment, f.created_at
        from qr_feedback f
        join qr_codes c on c.id = f.qr_id
-       where c.user_id = $1 and c.id = $2
+       where c.user_id = $1 and c.id = $2 and ${access(3)}
        order by f.created_at desc
        limit 100`,
-      [userId, id]
+      [scope.accountId, id, ...accessArgs(scope, "read")]
     ),
     queryOne<{ count: string; average: string | null }>(
       `select count(*) as count, avg(f.rating) as average
        from qr_feedback f
        join qr_codes c on c.id = f.qr_id
-       where c.user_id = $1 and c.id = $2`,
-      [userId, id]
+       where c.user_id = $1 and c.id = $2 and ${access(3)}`,
+      [scope.accountId, id, ...accessArgs(scope, "read")]
     ),
   ]);
   return {
@@ -590,7 +626,7 @@ export type FeedbackExportRow = FeedbackEntry & {
  * panel shows the latest 100; this is the rest. Capped like the scan export.
  * Answers left before migration 025 have no origin, so those fields are null.
  */
-export async function feedbackRows(userId: string, id: string): Promise<FeedbackExportRow[]> {
+export async function feedbackRows(scope: AccountScope, id: string): Promise<FeedbackExportRow[]> {
   const rows = await query<{
     rating: number;
     comment: string | null;
@@ -603,10 +639,10 @@ export async function feedbackRows(userId: string, id: string): Promise<Feedback
     `select f.rating, f.comment, f.created_at, f.country, f.city, f.device_type, f.os
      from qr_feedback f
      join qr_codes c on c.id = f.qr_id
-     where c.user_id = $1 and c.id = $2
+     where c.user_id = $1 and c.id = $2 and ${access(3)}
      order by f.created_at desc
      limit 10000`,
-    [userId, id]
+    [scope.accountId, id, ...accessArgs(scope, "read")]
   );
   return rows.map((r) => ({
     rating: r.rating,
@@ -628,15 +664,16 @@ export async function feedbackRows(userId: string, id: string): Promise<Feedback
  * one, for the same reason.
  */
 export async function setStatus(
-  userId: string,
+  scope: AccountScope,
   id: string,
   status: OwnerStatus
 ): Promise<boolean> {
   const row = await queryOne<{ short_code: string }>(
     `update qr_codes set status = $3, updated_at = now()
      where user_id = $1 and id = $2 and status <> 'blocked' and archived_at is null
+       and ${access(4)}
      returning short_code`,
-    [userId, id, status]
+    [scope.accountId, id, status, ...accessArgs(scope, "write")]
   );
   if (!row) return false;
 
@@ -651,7 +688,7 @@ export type HistoryEntry = {
 };
 
 export async function destinationHistory(
-  userId: string,
+  scope: AccountScope,
   id: string
 ): Promise<HistoryEntry[]> {
   const rows = await query<{
@@ -662,10 +699,10 @@ export async function destinationHistory(
     `select h.old_url, h.new_url, h.changed_at
      from qr_destination_history h
      join qr_codes c on c.id = h.qr_id
-     where c.user_id = $1 and h.qr_id = $2
+     where c.user_id = $1 and h.qr_id = $2 and ${access(3)}
      order by h.changed_at desc
      limit 50`,
-    [userId, id]
+    [scope.accountId, id, ...accessArgs(scope, "read")]
   );
   return rows.map((r) => ({
     oldUrl: r.old_url,
@@ -732,15 +769,22 @@ export type Analytics = {
  * the chart and another by the totals.
  */
 export async function codeAnalytics(
-  userId: string,
+  scope: AccountScope,
   id: string,
   days: number,
   options: { detail?: boolean } = {}
 ): Promise<Analytics> {
-  const window = analyticsWindow(days);
-  const bucket = bucketFor(window);
-  const empty: Analytics = {
-    bucket,
+  const owns = await queryOne<{ id: string }>(
+    `select id from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
+    [scope.accountId, id, ...accessArgs(scope, "read")]
+  );
+  if (!owns) return emptyAnalytics(days);
+  return analyticsForCode(id, days, options);
+}
+
+function emptyAnalytics(days: number): Analytics {
+  return {
+    bucket: bucketFor(analyticsWindow(days)),
     points: [],
     countries: [],
     devices: [],
@@ -748,13 +792,29 @@ export async function codeAnalytics(
     today: 0,
     detail: null,
   };
+}
+
+/**
+ * A code's analytics with no account check, for the two callers that
+ * authorise another way: the staff admin (`requireStaff`) and a public
+ * share link (`loadSharedCode`, which checks the link, the code and the
+ * owner). Everything on the dashboard goes through `codeAnalytics`.
+ */
+export async function analyticsForCode(
+  id: string,
+  days: number,
+  options: { detail?: boolean } = {}
+): Promise<Analytics> {
+  const window = analyticsWindow(days);
+  const bucket = bucketFor(window);
 
   const owns = await queryOne<{ id: string; created_day: string }>(
-    `select id, to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as created_day
-     from qr_codes where user_id = $1 and id = $2`,
-    [userId, id]
+    `-- scope: callers authorise (see above); keyed on the code alone
+     select id, to_char((created_at at time zone 'UTC')::date, 'YYYY-MM-DD') as created_day
+     from qr_codes where id = $1`,
+    [id]
   );
-  if (!owns) return empty;
+  if (!owns) return emptyAnalytics(days);
 
   // The rollup plus today, as one set of rows every breakdown groups from.
   const COMBINED = `
@@ -902,7 +962,7 @@ export async function codeAnalytics(
  * charts show and a CSV of individual scans cannot.
  */
 export async function scanRows(
-  userId: string,
+  scope: AccountScope,
   id: string,
   days: number
 ): Promise<
@@ -924,9 +984,10 @@ export async function scanRows(
      join qr_codes c on c.id = s.qr_id
      where c.user_id = $1 and s.qr_id = $2 and not s.is_bot
        and s.scanned_at >= now() - interval '${window} days'
+       and ${access(3)}
      order by s.scanned_at desc
      limit 10000`,
-    [userId, id]
+    [scope.accountId, id, ...accessArgs(scope, "read")]
   );
 
   return rows.map((r) => ({
@@ -947,7 +1008,8 @@ export async function scanRows(
  */
 export async function customCodeAvailable(code: string): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
-    `select id from qr_codes where short_code = $1`,
+    `-- scope: none; whether a short code is taken anywhere
+     select id from qr_codes where short_code = $1`,
     [code]
   );
   return row === null;

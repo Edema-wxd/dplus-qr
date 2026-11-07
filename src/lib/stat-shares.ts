@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { query, queryOne } from "@/lib/db";
+import { access, accessArgs, type AccountScope } from "@/lib/account-scope";
 
 /**
  * Public, read-only stats links for a code (`/s/{token}`).
@@ -9,7 +10,8 @@ import { query, queryOne } from "@/lib/db";
  * name, short link and scan statistics, and never its destination, which the
  * owner may not want public.
  *
- * Owner-side calls filter by `user_id` like everything in `user-codes.ts`.
+ * Owner-side calls take an `AccountScope` and prove access in each
+ * statement, like everything in `user-codes.ts`.
  * The public read (`loadSharedCode`) takes only the token and refuses, in the
  * same query, anything moderation has taken down: a blocked or archived code,
  * or a suspended, archived or erased owner.
@@ -27,20 +29,20 @@ export function newShareToken(): string {
 
 export type LiveShare = { token: string; createdAt: Date };
 
-export async function getLiveShare(userId: string, codeId: string): Promise<LiveShare | null> {
+export async function getLiveShare(scope: AccountScope, codeId: string): Promise<LiveShare | null> {
   const row = await queryOne<{ token: string; created_at: Date }>(
     `select token, created_at from qr_stat_shares
-     where user_id = $1 and qr_id = $2 and revoked_at is null`,
-    [userId, codeId]
+     where user_id = $1 and qr_id = $2 and revoked_at is null and ${access(3)}`,
+    [scope.accountId, codeId, ...accessArgs(scope, "read")]
   );
   return row ? { token: row.token, createdAt: row.created_at } : null;
 }
 
-export async function revokeShare(userId: string, codeId: string): Promise<void> {
+export async function revokeShare(scope: AccountScope, codeId: string): Promise<void> {
   await query(
     `update qr_stat_shares set revoked_at = now()
-     where user_id = $1 and qr_id = $2 and revoked_at is null`,
-    [userId, codeId]
+     where user_id = $1 and qr_id = $2 and revoked_at is null and ${access(3)}`,
+    [scope.accountId, codeId, ...accessArgs(scope, "write")]
   );
 }
 
@@ -52,20 +54,20 @@ export async function revokeShare(userId: string, codeId: string): Promise<void>
  * which is answered with whichever link won. Null when the code is not this
  * account's.
  */
-export async function createShare(userId: string, codeId: string): Promise<LiveShare | null> {
-  await revokeShare(userId, codeId);
+export async function createShare(scope: AccountScope, codeId: string): Promise<LiveShare | null> {
+  await revokeShare(scope, codeId);
   try {
     const row = await queryOne<{ token: string; created_at: Date }>(
       `insert into qr_stat_shares (qr_id, user_id, token)
        select c.id, c.user_id, $3 from qr_codes c
-       where c.user_id = $1 and c.id = $2
+       where c.user_id = $1 and c.id = $2 and ${access(4)}
        returning token, created_at`,
-      [userId, codeId, newShareToken()]
+      [scope.accountId, codeId, newShareToken(), ...accessArgs(scope, "write")]
     );
     return row ? { token: row.token, createdAt: row.created_at } : null;
   } catch (error) {
     if (error instanceof Error && error.message.includes("qr_stat_shares_live_idx")) {
-      return getLiveShare(userId, codeId);
+      return getLiveShare(scope, codeId);
     }
     throw error;
   }

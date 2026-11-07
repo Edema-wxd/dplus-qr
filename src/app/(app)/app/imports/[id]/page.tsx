@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { CODE_HOST } from "@/lib/brand";
 import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
 import { getBatch, parseImportId } from "@/lib/bulk-create";
@@ -30,11 +31,15 @@ export default async function BatchPage({ params }: { params: Promise<{ id: stri
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
+  // Which account this page shows, and as whom. Its own unless the person
+  // is working in a team they belong to; every read below proves access.
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
 
   const id = parseImportId(raw);
   if (!id) notFound();
 
-  const [batch, entitlement] = await Promise.all([getBatch(user.id, id), getEntitlement(user.id)]);
+  const [batch, entitlement] = await Promise.all([getBatch(scope, id), getEntitlement(scope.accountId)]);
   if (!batch) notFound();
 
   const zips = canBulkCreate(entitlement);

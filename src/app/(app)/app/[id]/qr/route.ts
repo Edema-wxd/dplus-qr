@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { getCode, parseCodeId } from "@/lib/user-codes";
 import { LogoUnavailable, renderArtwork } from "@/lib/qr-artwork";
 
@@ -16,15 +16,15 @@ export async function GET(
 ) {
   const { id: raw } = await params;
 
-  const { data: session } = await auth.getSession();
-  if (!session?.user) {
+  const scope = await resolveScope();
+  if (!scope) {
     return new Response("Not signed in", { status: 401 });
   }
 
   const id = parseCodeId(raw);
   if (!id) return new Response("Not found", { status: 404 });
 
-  const code = await getCode(session.user.id, id);
+  const code = await getCode(scope, id);
   if (!code) return new Response("Not found", { status: 404 });
 
   const url = new URL(request.url);

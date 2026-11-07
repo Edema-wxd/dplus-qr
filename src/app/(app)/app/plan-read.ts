@@ -1,9 +1,10 @@
 import { cache } from "react";
-import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { getEntitlement, type Entitlement } from "@/lib/entitlement";
 
 /**
- * The signed-in account's entitlement for the dashboard shell, read once per
+ * The entitlement of the account the dashboard is showing (the person's own,
+ * or a team they are working in) for the shell, read once per
  * request however many shell pieces ask (the plan meter and the header's
  * upgrade button both do).
  *
@@ -13,9 +14,9 @@ import { getEntitlement, type Entitlement } from "@/lib/entitlement";
  */
 export const readEntitlement = cache(async (): Promise<Entitlement | null | undefined> => {
   try {
-    const { data: session } = await auth.getSession();
-    if (!session?.user) return undefined;
-    return await getEntitlement(session.user.id);
+    const scope = await resolveScope();
+    if (!scope) return undefined;
+    return await getEntitlement(scope.accountId);
   } catch (error) {
     console.error("[dash] could not read plan usage", error);
     return undefined;

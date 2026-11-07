@@ -6,7 +6,7 @@ import { getCustomer } from "@/lib/admin-billing";
 import { isAdmin } from "@/lib/admin";
 import { hasSignInAccount, staffActions } from "@/lib/moderation";
 import { getEntitlement } from "@/lib/entitlement";
-import { listBatches } from "@/lib/bulk-create";
+import { batchesForStaff } from "@/lib/bulk-create";
 import { listAllPlans } from "@/lib/plans";
 import { naira } from "@/lib/plan-tiers";
 import { CODE_HOST } from "@/lib/brand";
@@ -48,7 +48,7 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
     staffActions("customer", parsed.data),
     hasSignInAccount(parsed.data),
     isAdmin(parsed.data),
-    listBatches(parsed.data, 10),
+    batchesForStaff(parsed.data, 10),
   ]);
   if (!customer) notFound();
   const erased = customer.erasedAt !== null;

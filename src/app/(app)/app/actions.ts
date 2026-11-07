@@ -3,7 +3,8 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { auth } from "@/lib/auth/server";
+import { writable, type AccountScope } from "@/lib/account-scope";
+import { resolveScope } from "@/lib/resolve-scope";
 import {
   changeDestination,
   createCode,
@@ -29,13 +30,14 @@ import { flash } from "@/lib/flash";
  *
  * Every one re-reads the session rather than trusting the page that rendered
  * the form: `proxy.ts` guards pages, not data, and a Server Action is an
- * endpoint anyone can post to. The user id comes from the session only — never
- * from the form — and every query underneath filters by it.
+ * endpoint anyone can post to. The account and the person come from the
+ * session only (`resolveScope`), never from the form, and every statement
+ * underneath proves the person may act on the account.
  */
-async function requireUserId(): Promise<string> {
-  const { data: session } = await auth.getSession();
-  if (!session?.user) redirect("/auth/sign-in");
-  return session.user.id;
+async function requireScope(): Promise<AccountScope> {
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
+  return scope;
 }
 
 const nameSchema = z
@@ -88,7 +90,9 @@ export async function createCodeAction(
   _previous: CreateCodeState,
   formData: FormData
 ): Promise<CreateCodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const common = z
     .object({
@@ -129,7 +133,7 @@ export async function createCodeAction(
 
   let created;
   try {
-    created = await createCode(userId, input);
+    created = await createCode(scope, input);
   } catch (error) {
     console.error("[dashboard] create failed", error);
     return { error: "We could not create that code. Please try again." };
@@ -149,7 +153,9 @@ export async function renameCodeAction(
   _previous: CodeState,
   formData: FormData
 ): Promise<CodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const parsed = z
     .object({ id: idSchema, name: nameSchema })
@@ -160,7 +166,7 @@ export async function renameCodeAction(
   }
 
   try {
-    const ok = await renameCode(userId, parsed.data.id, parsed.data.name);
+    const ok = await renameCode(scope, parsed.data.id, parsed.data.name);
     if (!ok) return { error: "That code could not be found." };
   } catch (error) {
     console.error("[dashboard] rename failed", error);
@@ -176,7 +182,9 @@ export async function changeDestinationAction(
   _previous: CodeState,
   formData: FormData
 ): Promise<CodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const parsed = z
     .object({ id: idSchema, destinationUrl: destinationSchema })
@@ -191,7 +199,7 @@ export async function changeDestinationAction(
 
   try {
     const result = await changeDestination(
-      userId,
+      scope,
       parsed.data.id,
       parsed.data.destinationUrl
     );
@@ -212,7 +220,9 @@ export async function updateContentAction(
   _previous: CodeState,
   formData: FormData
 ): Promise<CodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const parsed = z
     .object({ id: idSchema, content: contentSchema })
@@ -223,7 +233,7 @@ export async function updateContentAction(
   }
 
   try {
-    const result = await updateCodeContent(userId, parsed.data.id, parsed.data.content);
+    const result = await updateCodeContent(scope, parsed.data.id, parsed.data.content);
     if (!result.ok) return { error: result.reason };
   } catch (error) {
     console.error("[dashboard] content change failed", error);
@@ -238,7 +248,9 @@ export async function setStatusAction(
   _previous: CodeState,
   formData: FormData
 ): Promise<CodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const parsed = z
     .object({
@@ -254,7 +266,7 @@ export async function setStatusAction(
   }
 
   try {
-    const ok = await setStatus(userId, parsed.data.id, parsed.data.status);
+    const ok = await setStatus(scope, parsed.data.id, parsed.data.status);
     if (!ok) {
       return {
         error:
@@ -275,7 +287,9 @@ export async function setStyleAction(
   _previous: CodeState,
   formData: FormData
 ): Promise<CodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const parsed = z
     .object({ id: idSchema, style: qrStyleSchema })
@@ -294,7 +308,7 @@ export async function setStyleAction(
   if (!scannable.ok) return { error: scannable.reason };
 
   try {
-    const ok = await setCodeStyle(userId, parsed.data.id, parsed.data.style);
+    const ok = await setCodeStyle(scope, parsed.data.id, parsed.data.style);
     if (!ok) return { error: "That code could not be found." };
   } catch (error) {
     console.error("[dashboard] style change failed", error);
@@ -310,7 +324,9 @@ export async function setLogoAction(
   _previous: CodeState,
   formData: FormData
 ): Promise<CodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const parsed = z
     .object({ id: idSchema, logoId: logoIdSchema })
@@ -321,7 +337,7 @@ export async function setLogoAction(
   }
 
   try {
-    const ok = await setCodeLogo(userId, parsed.data.id, parsed.data.logoId);
+    const ok = await setCodeLogo(scope, parsed.data.id, parsed.data.logoId);
     if (!ok) {
       return {
         error: "That logo is no longer in your library. Pick another, or upload it again.",
@@ -342,13 +358,15 @@ export async function setLogoAction(
  * `archiveLogo`.
  */
 export async function archiveLogoAction(logoId: string): Promise<CodeState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const id = parseLogoId(String(logoId));
   if (!id) return { error: "That logo could not be found." };
 
   try {
-    const ok = await archiveLogo(userId, id);
+    const ok = await archiveLogo(scope, id);
     if (!ok) return { error: "That logo could not be found." };
   } catch (error) {
     console.error("[dashboard] logo archive failed", error);
@@ -368,9 +386,9 @@ export type CustomCodeHint =
  * Read-only and advisory; the save decides (see `customCodeAvailable`).
  */
 export async function checkCustomCodeAction(raw: string): Promise<CustomCodeHint> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
 
-  const entitlement = await getEntitlement(userId);
+  const entitlement = await getEntitlement(scope.accountId);
   if (!canUseCustomCodes(entitlement)) {
     return { state: "unavailable", reason: await featureRefusal("custom_codes", entitlement) };
   }
@@ -396,13 +414,15 @@ export type ShareState = { error?: string; token?: string | null };
  *
  * Creating needs a plan with `share_stats`; turning sharing off never does,
  * so a customer who downgrades can still take a link down. Both only ever act
- * on a code the session owns (`createShare`/`revokeShare` filter by user).
+ * on a code in the session's account (`createShare`/`revokeShare` check access).
  */
 export async function shareStatsAction(
   _previous: ShareState,
   formData: FormData
 ): Promise<ShareState> {
-  const userId = await requireUserId();
+  const scope = await requireScope();
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
 
   const parsed = z
     .object({ id: idSchema, intent: z.enum(["create", "revoke"]) })
@@ -413,13 +433,13 @@ export async function shareStatsAction(
 
   try {
     if (parsed.data.intent === "revoke") {
-      await revokeShare(userId, parsed.data.id);
+      await revokeShare(scope, parsed.data.id);
       revalidatePath(`/app/${parsed.data.id}`);
       return { token: null };
     }
-    const entitlement = await getEntitlement(userId);
+    const entitlement = await getEntitlement(scope.accountId);
     if (!canShareStats(entitlement)) return { error: await featureRefusal("share_stats", entitlement) };
-    const share = await createShare(userId, parsed.data.id);
+    const share = await createShare(scope, parsed.data.id);
     if (!share) return { error: "That code could not be found." };
     revalidatePath(`/app/${parsed.data.id}`);
     return { token: share.token };

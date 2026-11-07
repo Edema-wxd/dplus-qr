@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { query, queryOne } from "@/lib/db";
+import { access, accessArgs, type AccountScope } from "@/lib/account-scope";
 import { isUploadThingUrl } from "@/lib/upload-host";
 
 /**
@@ -58,32 +59,32 @@ export function parseLogoId(raw: string): string | null {
  */
 export { isUploadThingUrl };
 
-export async function listLogos(userId: string): Promise<Logo[]> {
+export async function listLogos(scope: AccountScope): Promise<Logo[]> {
   const rows = await query<LogoRow>(
     `select id, url, name, created_at
      from qr_logos
-     where user_id = $1 and archived_at is null
+     where user_id = $1 and archived_at is null and ${access(2)}
      order by created_at desc
      limit ${MAX_LOGOS}`,
-    [userId]
+    [scope.accountId, ...accessArgs(scope, "read")]
   );
   return rows.map(toLogo);
 }
 
-export async function countLogos(userId: string): Promise<number> {
+export async function countLogos(scope: AccountScope): Promise<number> {
   const row = await queryOne<{ count: string }>(
-    `select count(*) from qr_logos where user_id = $1 and archived_at is null`,
-    [userId]
+    `select count(*) from qr_logos where user_id = $1 and archived_at is null and ${access(2)}`,
+    [scope.accountId, ...accessArgs(scope, "read")]
   );
   return Number(row?.count ?? 0);
 }
 
 /** True when the logo is the account's own and still in its library. */
-export async function ownsLiveLogo(userId: string, logoId: string): Promise<boolean> {
+export async function ownsLiveLogo(scope: AccountScope, logoId: string): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `select id from qr_logos
-     where user_id = $1 and id = $2 and archived_at is null`,
-    [userId, logoId]
+     where user_id = $1 and id = $2 and archived_at is null and ${access(3)}`,
+    [scope.accountId, logoId, ...accessArgs(scope, "read")]
   );
   return row !== null;
 }
@@ -93,9 +94,14 @@ export async function ownsLiveLogo(userId: string, logoId: string): Promise<bool
  *
  * Idempotent on UploadThing's file key: if the completion callback is
  * delivered twice, the second lands on the row the first made.
+ *
+ * Takes the account id, not a scope: this runs in UploadThing's completion
+ * callback, which has no session. The upload middleware resolved the scope
+ * and refused anyone who may not write, and the account it attached is
+ * carried to here by UploadThing, signed.
  */
 export async function recordLogo(
-  userId: string,
+  accountId: string,
   file: { key: string; url: string; name: string; type: string; size: number }
 ): Promise<Logo> {
   if (!isUploadThingUrl(file.url)) {
@@ -103,11 +109,12 @@ export async function recordLogo(
   }
 
   const row = await queryOne<LogoRow>(
-    `insert into qr_logos (user_id, file_key, url, name, mime_type, size_bytes)
+    `-- scope: proved by the upload middleware (see above)
+     insert into qr_logos (user_id, file_key, url, name, mime_type, size_bytes)
      values ($1, $2, $3, $4, $5, $6)
      on conflict (file_key) do update set file_key = excluded.file_key
      returning id, url, name, created_at`,
-    [userId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
+    [accountId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
   );
   return toLogo(row!);
 }
@@ -119,12 +126,12 @@ export async function recordLogo(
  * the owner may reprint that code, and the file is what makes the reprint
  * match. Deleting files nothing references is a later sweep's job.
  */
-export async function archiveLogo(userId: string, logoId: string): Promise<boolean> {
+export async function archiveLogo(scope: AccountScope, logoId: string): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_logos set archived_at = now()
-     where user_id = $1 and id = $2 and archived_at is null
+     where user_id = $1 and id = $2 and archived_at is null and ${access(3)}
      returning id`,
-    [userId, logoId]
+    [scope.accountId, logoId, ...accessArgs(scope, "write")]
   );
   return row !== null;
 }
@@ -137,14 +144,14 @@ export async function archiveLogo(userId: string, logoId: string): Promise<boole
  * logos are refused too: the picker no longer offers them.
  */
 export async function setCodeLogo(
-  userId: string,
+  scope: AccountScope,
   codeId: string,
   logoId: string | null
 ): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_codes c
        set logo_id = $3::bigint, updated_at = now()
-     where c.user_id = $1 and c.id = $2
+     where c.user_id = $1 and c.id = $2 and ${access(4)}
        and (
          $3::bigint is null
          or exists (
@@ -153,7 +160,7 @@ export async function setCodeLogo(
          )
        )
      returning c.id`,
-    [userId, codeId, logoId]
+    [scope.accountId, codeId, logoId, ...accessArgs(scope, "write")]
   );
   return row !== null;
 }

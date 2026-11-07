@@ -21,7 +21,7 @@ jest.mock("@/lib/db", () => ({
   withTransaction: async (work: (run: unknown) => Promise<unknown>) => {
     const pending = new Set<string>();
     const run = async (text: string, params: unknown[] = []) => {
-      statements.push(text.trim().split(/\s+/).slice(0, 3).join(" "));
+      statements.push(text.replace(/--[^\n]*\n/g, "").trim().split(/\s+/).slice(0, 3).join(" "));
       if (text.includes("count(*) as used")) return [{ used: "0" }];
       if (text.includes("insert into qr_codes")) {
         const shortCodes = params[1] as string[];
@@ -59,6 +59,9 @@ jest.mock("@/lib/refusals", () => ({ featureRefusal: async () => "refused" }));
 
 import { checkRows, readRows } from "@/lib/bulk-import";
 import { createBulk } from "@/lib/bulk-create";
+import { scopeFor } from "@/lib/account-scope";
+
+const owner = scopeFor("user-1", "user-1", "owner");
 
 const rows = (text: string) => {
   const read = readRows(text);
@@ -75,7 +78,7 @@ beforeEach(() => {
 
 it("never sends one batch two equal codes, and retries a code the index refuses", async () => {
   existing.add("BBBBBBB");
-  const made = await createBulk("user-1", rows("name,destination\na,a.com\nb,b.com"), { source: "csv", logoId: null });
+  const made = await createBulk(owner, rows("name,destination\na,a.com\nb,b.com"), { source: "csv", logoId: null });
   // AAAAAAA is drawn twice and used once; BBBBBBB is taken, so its row is
   // retried and gets the next fresh code.
   expect(made).toEqual({ ok: true, importId: "1", created: 2 });
@@ -85,7 +88,7 @@ it("never sends one batch two equal codes, and retries a code the index refuses"
 
 it("rolls the batch back when a custom link is taken, and names the row", async () => {
   existing.add("my-shop");
-  const made = await createBulk("user-1", rows("name,destination,link\na,a.com,\nb,b.com,my-shop"), {
+  const made = await createBulk(owner, rows("name,destination,link\na,a.com,\nb,b.com,my-shop"), {
     source: "csv",
     logoId: null,
   });
