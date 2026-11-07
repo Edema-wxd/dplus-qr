@@ -75,6 +75,9 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
   );
 
   const check = checkQrStyle(style);
+  // An inverted pair is usually the right two colours the wrong way round.
+  const swapped = { dark: style.light, light: style.dark };
+  const canSwap = !check.ok && check.inverted && checkQrStyle(swapped).ok;
   const dirty = style.dark !== saved.dark || style.light !== saved.light;
 
   // The pair the last save was about. A server message describes those
@@ -97,6 +100,11 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
         >
           {pending ? "Saving…" : "Save colours"}
         </button>
+        {canSwap ? (
+          <button type="button" onClick={() => setStyle(swapped)} className={secondaryButtonClass}>
+            Swap colours
+          </button>
+        ) : null}
         {isDefaultQrStyle(style) ? null : (
           <button
             type="button"

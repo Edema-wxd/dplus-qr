@@ -7,6 +7,13 @@ import { SOCIAL_NETWORKS, type FileRef } from "@/lib/page-content";
 import { EVENT_OFFSETS } from "@/lib/page-helpers";
 import { toProfileFields } from "@/lib/vcard-import";
 import { useUploadThing } from "./uploadthing";
+import {
+  UPLOAD_LIMITS,
+  batches,
+  checkPicked,
+  clientUploadMessage,
+  unsavedUploadMessage,
+} from "@/lib/upload-limits";
 import { ContactImport } from "./ContactImport";
 import { LockIcon, LockedButton } from "./UpgradePrompt";
 import type { UpgradeOffer } from "@/lib/upgrade-offers";
@@ -61,11 +68,15 @@ const ACCEPT: Record<Endpoint, string> = {
   pageAudio: "audio/*",
 };
 
+/** The most a gallery and a playlist hold, as their schemas in `page-content.ts` allow. */
+const MAX_IMAGES = 20;
+const MAX_TRACKS = 30;
+
 const LIMITS: Record<Endpoint, string> = {
-  pageImage: "PNG, JPEG, WebP or GIF, up to 4MB each.",
-  pagePdf: "A PDF up to 16MB.",
-  pageVideo: "MP4, WebM or MOV, up to 64MB.",
-  pageAudio: "MP3 or other audio, up to 16MB each.",
+  pageImage: `PNG, JPEG, WebP or GIF, up to ${UPLOAD_LIMITS.pageImage.maxFileSize} each.`,
+  pagePdf: `A PDF up to ${UPLOAD_LIMITS.pagePdf.maxFileSize}.`,
+  pageVideo: `MP4, WebM or MOV, up to ${UPLOAD_LIMITS.pageVideo.maxFileSize}.`,
+  pageAudio: `MP3 or other audio, up to ${UPLOAD_LIMITS.pageAudio.maxFileSize} each.`,
 };
 
 function list(value: unknown): Row[] {
@@ -149,7 +160,7 @@ export function ContentEditor({
             uploads={uploads}
             value={rows("images") as unknown as FileRef[]}
             onChange={(value) => set("images", value)}
-            onAdd={(files) => append("images", files, 20)}
+            onAdd={(files) => append("images", files, MAX_IMAGES)}
           />
         </Stack>
       );
@@ -470,7 +481,7 @@ export function ContentEditor({
               append(
                 "tracks",
                 files.map((file) => ({ title: file.name.replace(/\.[a-z0-9]+$/i, ""), file })),
-                30
+                MAX_TRACKS
               )
             }
           />
@@ -683,22 +694,58 @@ function LinkRows({
   );
 }
 
-/** Upload through one of the page-file endpoints; resolves to what the server recorded. */
-function useUpload(endpoint: Endpoint, onDone: (files: FileRef[]) => void) {
+/**
+ * Upload through one of the page-file endpoints, adding what the server
+ * recorded to the draft.
+ *
+ * The pick is checked against the endpoint's limits first, so an oversized
+ * file is named before anything is sent and the files that fit still go.
+ * A pick larger than one request allows is sent in batches. A file that
+ * comes back without server data uploaded but was not recorded, and is
+ * reported rather than silently left out.
+ *
+ * `room` is how many more files the field takes.
+ */
+function useUpload(endpoint: Endpoint, room: number, onDone: (files: FileRef[]) => void) {
   const [error, setError] = useState<string | null>(null);
-  const { startUpload, isUploading } = useUploadThing(endpoint, {
-    onClientUploadComplete: (results) => {
-      const files = results
-        .map((result) => result.serverData)
-        .filter((data): data is FileRef => Boolean(data));
-      onDone(files);
-      setError(null);
-    },
+  const [busy, setBusy] = useState(false);
+  const refusal = useRef<string | null>(null);
+  const { startUpload } = useUploadThing(endpoint, {
     onUploadError: (uploadError) => {
-      setError(uploadError.message || "That upload did not finish. Please try again.");
+      refusal.current = clientUploadMessage(uploadError);
     },
   });
-  return { startUpload, isUploading, error, setError };
+
+  async function upload(picked: File[]) {
+    const { accepted, problem } = checkPicked(endpoint, picked, room);
+    setError(problem);
+    if (accepted.length === 0) return;
+
+    const { noun, maxFileCount } = UPLOAD_LIMITS[endpoint];
+    let unsaved = 0;
+    refusal.current = null;
+    setBusy(true);
+    try {
+      for (const batch of batches(accepted, maxFileCount)) {
+        // Resolves to undefined when the batch failed; `onUploadError` has
+        // recorded why.
+        const results = await startUpload(batch);
+        if (!results) continue;
+        const files = results
+          .map((result) => result.serverData)
+          .filter((data): data is FileRef => Boolean(data));
+        unsaved += results.length - files.length;
+        if (files.length) onDone(files);
+      }
+    } finally {
+      setBusy(false);
+    }
+
+    const problems = [problem, refusal.current, unsaved ? unsavedUploadMessage(unsaved, noun) : null];
+    setError(problems.filter(Boolean).join(" ") || null);
+  }
+
+  return { upload, busy, error };
 }
 
 function UploadButton({
@@ -771,7 +818,7 @@ function FileField({
   value: FileRef | null;
   onChange: (value: FileRef | null) => void;
 }) {
-  const { startUpload, isUploading, error } = useUpload(endpoint, (files) => {
+  const { upload, busy, error } = useUpload(endpoint, 1, (files) => {
     if (files[0]) onChange(files[0]);
   });
 
@@ -781,7 +828,7 @@ function FileField({
       <div className="flex flex-wrap items-center gap-3">
         {value ? <FileChip file={value} onRemove={() => onChange(null)} /> : null}
         {uploads ? (
-          <UploadButton endpoint={endpoint} busy={isUploading} onFiles={(files) => startUpload(files.slice(0, 1))}>
+          <UploadButton endpoint={endpoint} busy={busy} onFiles={(files) => upload(files.slice(0, 1))}>
             {value ? "Replace" : "Upload"}
           </UploadButton>
         ) : null}
@@ -806,7 +853,7 @@ function FileList({
   onChange: (value: FileRef[]) => void;
   onAdd: (files: FileRef[]) => void;
 }) {
-  const { startUpload, isUploading, error } = useUpload(endpoint, onAdd);
+  const { upload, busy, error } = useUpload(endpoint, MAX_IMAGES - value.length, onAdd);
 
   return (
     <div>
@@ -818,9 +865,9 @@ function FileList({
           </li>
         ))}
       </ul>
-      {uploads && value.length < 20 ? (
+      {uploads && value.length < MAX_IMAGES ? (
         <div className="mt-3">
-          <UploadButton endpoint={endpoint} multiple busy={isUploading} onFiles={(files) => startUpload(files)}>
+          <UploadButton endpoint={endpoint} multiple busy={busy} onFiles={upload}>
             {value.length ? "Add more" : "Upload"}
           </UploadButton>
         </div>
@@ -841,7 +888,7 @@ function TrackList({
   onChange: (rows: Row[]) => void;
   onAdd: (files: FileRef[]) => void;
 }) {
-  const { startUpload, isUploading, error } = useUpload("pageAudio", onAdd);
+  const { upload, busy, error } = useUpload("pageAudio", MAX_TRACKS - rows.length, onAdd);
 
   return (
     <div>
@@ -866,9 +913,9 @@ function TrackList({
           </div>
         )}
       />
-      {uploads && rows.length < 30 ? (
+      {uploads && rows.length < MAX_TRACKS ? (
         <div className="mt-3">
-          <UploadButton endpoint="pageAudio" multiple busy={isUploading} onFiles={(files) => startUpload(files)}>
+          <UploadButton endpoint="pageAudio" multiple busy={busy} onFiles={upload}>
             Upload tracks
           </UploadButton>
         </div>
