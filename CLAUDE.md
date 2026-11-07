@@ -139,11 +139,18 @@ reliability for a feature, reliability wins. Everything below follows from that.
   from the session, so revoking it takes effect at once.
 - `requireStaff()` gates every page and `staffForAction()` every Server
   Action, in `src/app/(admin)/admin/guard.ts`. Non-admins, signed out included,
-  get the ordinary 404. The proxy must never redirect `/admin` to sign-in,
-  which would reveal the page exists. It is in the `proxy.ts` matcher only so
-  the session is refreshed there: a page cannot write cookies, so a refresh
-  attempted by `requireStaff()` threw. `proxy.ts` turns its login redirect on
-  `/admin` into a pass-through.
+  get the ordinary 404, **byte for byte the response a dead link gets**, and
+  that is decided in `proxy.ts` before the page streams: the page cannot say
+  no in time, because its `loading.tsx` shell, with the admin's title, is sent
+  with a 200 before `requireStaff()` runs. The proxy rewrites anyone who is not
+  staff to `/_nowhere/404`, a path no route serves. Signed out: no database
+  read needed. Signed in: it verifies Neon Auth's signed `session_data` cookie
+  (`src/lib/session-cookie.ts`) and reads the role from the database. When it
+  cannot tell (unreadable cookie, database down) it lets the page decide, so
+  it can only hide the admin, never lock staff out. It never redirects
+  `/admin` to sign-in. Being in the matcher also refreshes the session there:
+  a page cannot write cookies, so a refresh attempted by `requireStaff()`
+  threw.
 - Every page view, search and change writes `qr_admin_audit` (`audit()` after
   the response, `recordChange()` awaited).
 
@@ -186,6 +193,11 @@ differs from older training data. What has already bitten this repo:
     shell, streamed detail.
   - A route touching no request API is evaluated at build time — use
     `await connection()` to stop that (see `src/app/health/route.ts`).
+  - **Await `connection()` before `auth.getSession()`** in any page or server
+    component. Otherwise Next prerenders it, and a session read that has to
+    ask Neon Auth starts a fetch that is cut off when the prerender ends
+    ("During prerendering, fetch() rejects…", seen on `/app/[id]`).
+    `src/__tests__/session-before-prerender.test.ts` enforces it.
   - A page whose whole content is per-request, with no useful static shell to
     stream around (an authenticated account page), sets
     `export const instant = false` instead of wrapping everything in Suspense.

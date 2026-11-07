@@ -674,8 +674,9 @@ proxy matcher for that reason, but the proxy is also where a session gets
 refreshed, and a Server Component cannot write the refreshed cookie: on
 4 Nov 2026 `/admin` failed with "Cookies can only be modified in a Server
 Action or Route Handler". So `/admin` is in the matcher for the refresh, and
-`proxy.ts` turns its login redirect there into a pass-through. Granting the
-role is SQL, never a screen:
+`proxy.ts` answers a signed-out visitor there itself (see "A signed-out
+`/admin` is a real 404", 6 November 2026). Granting the role is SQL, never a
+screen:
 
     update neon_auth."user" set role = 'admin' where email = '...';
 
@@ -1119,6 +1120,72 @@ and the live codes that show it. Logos keep their own library in the picker.
 Tested against a local Postgres (each upload matched to its codes, an unused
 one marked, another account's file excluded) and rendered at phone and
 desktop width.
+
+## A signed-out `/admin` is a real 404, 6 November 2026
+
+"Everyone else gets the ordinary 404" was not what a signed-out visitor got.
+`admin/loading.tsx` puts the admin page inside a Suspense boundary, so Next
+prerendered a shell: the visitor was sent HTTP 200, a skeleton and the
+title "Admin · QRiate+", and the 404 from `requireStaff()` only arrived later
+in the streamed payload. Status and title both said the page exists.
+
+- **The proxy answers it, because the page cannot.** By the time any admin
+  code runs, the shell and its status are on the wire. `proxy.ts` already
+  reads the session on `/admin` for the refresh, so when that read finds no
+  one signed in it rewrites the request to `/_nowhere/404`: two segments, so
+  `[code]` cannot claim it, under a `_` folder, which the App Router never
+  routes. Next serves the site's not-found page with a 404, the same bytes as
+  any other dead link with two or more segments. Cookies the middleware
+  cleared are kept.
+- **The target names nothing**, because `next start` echoes a rewrite's
+  target to the client in `x-middleware-rewrite`.
+- **Signed-in non-admins still get the shell.** The proxy knows whether
+  someone is signed in, not their role, and the role is read from the
+  database on every request by design. `requireStaff()` still refuses them,
+  so nothing is exposed but the shell and the title, and only to people with
+  an account.
+- `/admin` is a single segment, where an unknown word on this host goes to
+  `[code]` and is redirected to `/not-found-code`. A signed-out `/admin` gets
+  the two-segment not-found page instead. It reveals nothing about the admin:
+  `admin` is a reserved word, and the page names no feature.
+
+Checked with `next start` against the build: signed-out `/admin`,
+`/admin/customers` and `/admin/plans/abc` match `/foo/bar` byte for byte,
+with a 404 and no mention of the admin, and `/app` still redirects to
+sign-in.
+
+## Signed-in non-staff get the real 404 too, 6 November 2026
+
+Extends the entry above, which closed the gap for signed-out visitors and
+named the one it left: a signed-in customer still got the 200, the admin's
+title and its loading screen, so any account holder could tell the admin
+exists. The proxy now answers them the same way.
+
+- `proxy.ts` answers anyone who is not staff by rewriting to `/_nowhere/404`
+  (see above), so Next gives the 404 status, the not-found page and its
+  title. Checked with `next start` against the build: for a signed-in
+  customer, `/admin`, `/admin/customers` and `/admin/codes/1` match
+  `/foo/bar`, a path outside the proxy, byte for byte, while a staff account
+  gets the real pages. (`next start` also sends `x-middleware-rewrite` on the
+  rewritten responses; production on Vercel does not.)
+- **Who is staff** comes from Neon Auth's `session_data` cookie, an HS256 JWT
+  signed with our `NEON_AUTH_COOKIE_SECRET`, verified in
+  `src/lib/session-cookie.ts` with `node:crypto` (fixed algorithm,
+  constant-time compare, expiry enforced; `jose` is ESM-only and cannot load
+  in the test suite). The middleware has just refreshed it, so it is current.
+  Then the role is read from the database, as `requireStaff()` reads it, so
+  revoking or banning takes effect on the next request (checked).
+- **It can only hide, never lock out.** No session cookie, or a sign-in
+  redirect from the middleware: not staff, with no database read. A cookie
+  that does not verify, or a database error: the proxy cannot tell, and the
+  request goes on to the page, where `requireStaff()` decides as before. The
+  cookie's name and format are Neon Auth's, not a published API; if they
+  change, the hiding stops and nothing else does. A test checks our verifier
+  against a token the library itself minted. Seen in testing: with the
+  database stopped, a customer got the page's old answer (the shell, then
+  `requireStaff()`'s refusal), not a lockout and not an error.
+- Staff keep descriptive tab titles: nobody else ever receives them.
+- `requireStaff()` and `staffForAction()` are unchanged and remain the guard.
 
 ## Page type gaps: social icons, dish photos, AppGallery, Product Info, 6 November 2026
 

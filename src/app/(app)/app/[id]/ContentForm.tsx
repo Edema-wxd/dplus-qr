@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { updateContentAction, type CodeState } from "../actions";
 import type { PageKind } from "@/lib/qr-types";
 import { primaryButtonClass } from "@/components/controls";
@@ -11,6 +11,12 @@ import type { UpgradeOffer } from "@/lib/upgrade-offers";
 /**
  * Edit a hosted page. The page-type counterpart of `DestinationForm`: the
  * printed code never changes, only what it shows.
+ *
+ * An upload lands in the draft, not on the page. Until "Save page" is
+ * pressed the new photos exist only in this tab, so the form says it has
+ * unsaved changes and the browser asks before a reload or a closed tab
+ * throws them away. Owners who added photos and refreshed found them gone,
+ * with nothing to say they had never been saved.
  */
 export function ContentForm({
   id,
@@ -31,8 +37,27 @@ export function ContentForm({
   videoOffer?: UpgradeOffer;
   disabled?: boolean;
 }) {
-  const [state, action, pending] = useActionState(updateContentAction, {} as CodeState);
   const [draft, setDraft] = useState<Draft>(initial);
+  // The draft as last saved, serialised as it is posted, so a change and its
+  // undo compare equal and the note goes away again.
+  const [saved, setSaved] = useState(() => JSON.stringify(initial));
+  const [state, action, pending] = useActionState(
+    async (previous: CodeState, formData: FormData) => {
+      const next = await updateContentAction(previous, formData);
+      if (next.saved) setSaved(String(formData.get("content")));
+      return next;
+    },
+    {} as CodeState
+  );
+  const content = JSON.stringify(draft);
+  const dirty = content !== saved;
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   useSuccessToast(state, "content", (s) =>
     s.saved
       ? { title: "Page saved", description: "The next person to scan sees the new page." }
@@ -42,7 +67,7 @@ export function ContentForm({
   return (
     <form action={action}>
       <input type="hidden" name="id" value={id} />
-      <input type="hidden" name="content" value={JSON.stringify(draft)} />
+      <input type="hidden" name="content" value={content} />
       <fieldset disabled={disabled} className="rounded-lg border border-[var(--paper-rule)] bg-white p-4 sm:p-5">
         <legend className="px-1 text-sm">What it shows</legend>
         <ContentEditor
@@ -62,6 +87,10 @@ export function ContentForm({
         {state.error ? (
           <p role="alert" className="text-sm text-[var(--struck-ink)]">
             {state.error}
+          </p>
+        ) : dirty ? (
+          <p role="status" className="text-xs text-[var(--paper-ink)]">
+            Unsaved changes. Save the page and the next person to scan sees them.
           </p>
         ) : (
           <p className="text-xs text-[var(--paper-soft)]">

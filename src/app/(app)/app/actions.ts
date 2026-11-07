@@ -20,6 +20,7 @@ import { checkQrStyle, qrStyleSchema } from "@/lib/qr-style";
 import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
 import { canShareStats, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { createShare, revokeShare } from "@/lib/stat-shares";
+import { featureRefusal } from "@/lib/refusals";
 import { checkCustomCode } from "@/lib/short-code";
 import { flash } from "@/lib/flash";
 
@@ -369,8 +370,10 @@ export type CustomCodeHint =
 export async function checkCustomCodeAction(raw: string): Promise<CustomCodeHint> {
   const userId = await requireUserId();
 
-  const permitted = canUseCustomCodes(await getEntitlement(userId));
-  if (!permitted.ok) return { state: "unavailable", reason: permitted.reason };
+  const entitlement = await getEntitlement(userId);
+  if (!canUseCustomCodes(entitlement)) {
+    return { state: "unavailable", reason: await featureRefusal("custom_codes", entitlement) };
+  }
 
   const checked = checkCustomCode(String(raw ?? ""));
   if (!checked.ok) return { state: "invalid", reason: checked.reason };
@@ -414,8 +417,8 @@ export async function shareStatsAction(
       revalidatePath(`/app/${parsed.data.id}`);
       return { token: null };
     }
-    const permitted = canShareStats(await getEntitlement(userId));
-    if (!permitted.ok) return { error: permitted.reason };
+    const entitlement = await getEntitlement(userId);
+    if (!canShareStats(entitlement)) return { error: await featureRefusal("share_stats", entitlement) };
     const share = await createShare(userId, parsed.data.id);
     if (!share) return { error: "That code could not be found." };
     revalidatePath(`/app/${parsed.data.id}`);

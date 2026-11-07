@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { archiveLogoAction } from "./actions";
 import { useUploadThing } from "./uploadthing";
+import { UPLOAD_LIMITS, checkPicked, clientUploadMessage } from "@/lib/upload-limits";
 import { secondaryButtonClass } from "@/components/controls";
 
 export type PickerLogo = { id: string; url: string; name: string };
@@ -50,7 +51,12 @@ export function LogoPicker({
   const { startUpload, isUploading } = useUploadThing("logo", {
     onClientUploadComplete: (results) => {
       const data = results[0]?.serverData;
-      if (!data) return;
+      // The server records a logo only once it decodes as an image, and a
+      // refusal there cannot carry a message back; no data is how it shows.
+      if (!data) {
+        setError("That logo could not be saved. Check it is a PNG, JPEG or WebP image, then try again.");
+        return;
+      }
       setLogos((previous) => [
         { id: data.logoId, url: data.url, name: data.name },
         ...previous.filter((logo) => logo.id !== data.logoId),
@@ -63,7 +69,7 @@ export function LogoPicker({
       });
     },
     onUploadError: (uploadError) => {
-      setError(uploadError.message || "That upload did not finish. Please try again.");
+      setError(clientUploadMessage(uploadError));
     },
   });
 
@@ -71,8 +77,9 @@ export function LogoPicker({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    setError(null);
-    startUpload([file]);
+    const { accepted, problem } = checkPicked("logo", [file], 1);
+    setError(problem);
+    if (accepted.length) startUpload(accepted);
   }
 
   function remove(logo: PickerLogo) {
@@ -177,7 +184,7 @@ export function LogoPicker({
       ) : (
         <p className="mt-2 max-w-[48ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           {uploads
-            ? "PNG, JPEG or WebP, up to 1MB. A logo you upload stays in your library for your next code. A square mark on a plain background reads best at small sizes."
+            ? `PNG, JPEG or WebP, up to ${UPLOAD_LIMITS.logo.maxFileSize}. A logo you upload stays in your library for your next code. A square mark on a plain background reads best at small sizes.`
             : logos.length > 0
               ? "Pick a logo from your library."
               : "Logo uploads are not available yet."}

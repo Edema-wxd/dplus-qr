@@ -52,8 +52,8 @@ export function CreateCodeForm({
   videoUploads: boolean;
   /** What clicking the locked video upload explains, when it is locked. */
   videoOffer?: UpgradeOffer;
-  /** Whether the plan includes custom links, and why not when it does not. */
-  customLinks: { ok: true } | { ok: false; reason: string };
+  /** Whether the plan includes custom links. */
+  customLinks: boolean;
   /** What clicking the locked custom link field explains. */
   customOffer?: UpgradeOffer;
 }) {
@@ -118,7 +118,7 @@ export function CreateCodeForm({
         </section>
       )}
 
-      <CustomLinkField allowed={customLinks.ok} offer={customOffer} />
+      <CustomLinkField allowed={customLinks} offer={customOffer} />
 
       {/*
         Shown when there is anything to pick or a way to add something. With
