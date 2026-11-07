@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { attachDatabasePool } from "@vercel/functions";
 import { required } from "@/lib/env";
 import { pinSslMode } from "@/lib/db-url";
@@ -45,19 +45,64 @@ export function db(): Pool {
   return pool;
 }
 
+export type QueryOptions = {
+  /**
+   * Give up on the first failed connection instead of trying once more. Only
+   * the redirect asks for this: a scanner should get the status page after
+   * one wait, never two.
+   */
+  failFast?: boolean;
+};
+
+/**
+ * A client from the pool, with one more try if connecting fails.
+ *
+ * Neon pauses the database when nobody has used it for a while, and the first
+ * connection after that waits while it wakes. Twice, in the small hours, that
+ * took longer than the 5-second limit above: the pricing page fell back to
+ * its default copy and the nightly grace job missed its run. By the time the
+ * first attempt gives up, the database has usually woken, so a second
+ * attempt connects at once.
+ *
+ * Only connecting is retried, never a query: a failed connection means no
+ * statement reached the database, so trying again cannot run anything twice.
+ */
+async function connect(options: QueryOptions = {}): Promise<PoolClient> {
+  try {
+    return await db().connect();
+  } catch (error) {
+    if (options.failFast) throw error;
+    console.warn("[db] could not connect; trying once more", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return db().connect();
+  }
+}
+
 export async function query<T extends Record<string, unknown>>(
   text: string,
-  params: readonly unknown[] = []
+  params: readonly unknown[] = [],
+  options: QueryOptions = {}
 ): Promise<T[]> {
-  const result = await db().query(text, params as unknown[]);
-  return result.rows as T[];
+  const client = await connect(options);
+  try {
+    const result = await client.query(text, params as unknown[]);
+    client.release();
+    return result.rows as T[];
+  } catch (error) {
+    // Handing the error back makes the pool discard the client, as
+    // `pool.query()` does, so a connection that broke is not reused.
+    client.release(error instanceof Error ? error : true);
+    throw error;
+  }
 }
 
 export async function queryOne<T extends Record<string, unknown>>(
   text: string,
-  params: readonly unknown[] = []
+  params: readonly unknown[] = [],
+  options: QueryOptions = {}
 ): Promise<T | null> {
-  const rows = await query<T>(text, params);
+  const rows = await query<T>(text, params, options);
   return rows[0] ?? null;
 }
 
@@ -82,7 +127,7 @@ export async function withTransaction<T>(
     params?: readonly unknown[]
   ) => Promise<R[]>) => Promise<T>
 ): Promise<T> {
-  const client = await db().connect();
+  const client = await connect();
   try {
     await client.query("begin");
     const result = await run(async <R extends Record<string, unknown>>(
