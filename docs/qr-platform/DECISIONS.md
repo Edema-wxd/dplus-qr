@@ -1660,15 +1660,81 @@ used of 5; staff assignment to a plan without a team was refused with the
 count, then allowed once the team was cleared; checkout onto that plan was
 refused before any call to Paystack.
 
+## Team seats, part 3: invites, joining and switching, 7 November 2026
+
+Step 4 of `docs/qr-platform/plans/team-seats.md`. **Built but switched off:**
+every page, invite and accept below answers as if it did not exist until
+`team_seats` is marked built (`teamSeatsLive()` in `src/lib/team-invite.ts`),
+which the launch step does together with the lock-out rules and the privacy
+copy. Business plans already carry five seats, so without the switch their
+owners could start inviting people before those are in place.
+
+**Inviting** (`/app/team`, owner only). An email address and a role, editor
+or viewer. `createInvite` (`src/lib/team.ts`) runs under a lock on the
+account's `qr_users` row, so two invites cannot take the last seat, and
+refuses the owner's own address, someone already in the team, an address
+with an invite waiting, and a full plan. The token is 32 random bytes; only
+its SHA-256 is stored, so reading the table cannot get anyone into a team.
+The email comes from `onboarding@`, replies to `hello@`, and says who
+invited them, as what, the link and the expiry (seven days). **A failed send
+keeps nothing:** the invite is revoked at once, logged as unsent, and the
+owner is told. Rate-limited to 20 invites a day per account
+(`allowInvite`, fails open; the seats are the real ceiling).
+
+**Joining** (`/auth/invite/{token}`, outside the proxy matcher so someone
+without an account can open it). A token that matches nothing is the
+ordinary not-found page. Signed out, it offers sign-in or sign-up, which
+carry the invite as a hidden field (`InviteField`) and come back to it;
+`afterAuthPath` builds that return only from a token that passes the format
+check, so the field cannot be an open redirect. The invited address is only
+ever shown masked (`a•••@e•••.com`). Accepting needs the signed-in person's
+**verified** address to **match the invitation** (decided 7 Nov 2026), and
+runs under the same account lock: the invite is live, the owner in good
+standing on an active plan with a team, the seats still fit (the pending
+invite already holds its seat, so accepting moves it rather than taking a
+new one). The new member's dashboard then opens on the team. Their own free
+account stays theirs.
+
+**Managing.** The owner changes roles and removes people; a member can
+leave. Nobody is deleted: membership is stamped `removed_at`, and anything
+a member made stays in the account. The team page shows the owner the
+people with their addresses, pending invites and a log of changes (stored
+as ids and roles, never an address); a member sees who is in the team and
+can leave.
+
+**Switching.** "Working in" in the sidebar lists the person's own account
+and each team they belong to, and posts to `switchAccountAction`; the
+choice is kept in `qr_active_accounts`, and `switchAccount` writes nothing
+unless the account is their own or a team they are a live member of.
+
+**Forms drawn for another account.** The plan put a hidden account id on
+every dashboard form. Only the create forms (new code, both bulk steps)
+carry it: a form about an existing code names that code, and the access
+check already refuses a code from the account switched away from, so it
+changes nothing. A create form names no code, and would otherwise make one
+in whichever account is now active; `pinMismatch` refuses it with "You
+switched accounts in another tab".
+
+Tested on a local Postgres 16 with all migrations, real rows and a stand-in
+for Resend: with no mail service an invite is refused and nothing is left
+pending; the owner's own address, a repeat invite and a non-owner are
+refused; two invites racing for the last seat, one wins; accepting as the
+wrong address or unverified is refused, as the invited address (any case)
+succeeds once, opens the dashboard on the team and shows its codes;
+switching into a team you are not in writes nothing; a role change, a
+removal (the member sees no codes on their next read and the team leaves
+their switcher), leaving, and revoking each work and are logged with no
+address. Checked at 375px.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
 
 Not built yet:
 
-- **Team seats**, in progress: the schema, the access check and the seat
-  rules are built (see those entries); invites, role-aware UI and lock-out,
-  staff admin and erasure, and the launch copy remain, per
+- **Team seats**, in progress and switched off: the schema, access check,
+  seat rules and invites are built (see those entries); role-aware UI and
+  lock-out, staff admin and erasure, and the launch copy remain, per
   `docs/qr-platform/plans/team-seats.md`.
   The flag stays `built: false` until then.
 - **A reputation check on destinations.** `checkReputation()` in

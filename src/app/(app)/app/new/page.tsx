@@ -101,6 +101,7 @@ export default async function NewCodePage({
     return (
       <DashShell heading={type.label} meta={type.blurb} back={back}>
         <CreateCodeForm
+          accountId={scope.accountId}
           kind={dynamic}
           logos={library.map(({ id, url, name }) => ({ id, url, name }))}
           uploads={uploads}

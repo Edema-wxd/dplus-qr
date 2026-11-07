@@ -191,3 +191,44 @@ export async function allowBulkImport(userId: string): Promise<boolean> {
     return true;
   }
 }
+
+/**
+ * Invite limiter: 20 invitations a day per account.
+ *
+ * Every invite is an email from the onboarding address, the one whose
+ * reputation password resets depend on, so a script hammering the invite
+ * form is the thing to stop. The seat limit is the real ceiling on members;
+ * this caps the mail. Fails open like the others.
+ */
+const INVITE_LIMIT = 20;
+
+let inviteRl: Ratelimit | null | undefined;
+
+function inviteLimiter(): Ratelimit | null {
+  if (inviteRl !== undefined) return inviteRl;
+
+  const client = redis();
+  inviteRl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(INVITE_LIMIT, "1 d"),
+        prefix: "rl:invite",
+        analytics: false,
+      })
+    : null;
+
+  return inviteRl;
+}
+
+export async function allowInvite(accountId: string): Promise<boolean> {
+  const rl = inviteLimiter();
+  if (!rl) return true;
+
+  try {
+    const { success } = await rl.limit(accountId);
+    return success;
+  } catch (error) {
+    console.error("[ratelimit] invite check failed", error);
+    return true;
+  }
+}

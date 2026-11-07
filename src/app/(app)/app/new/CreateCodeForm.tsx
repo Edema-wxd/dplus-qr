@@ -8,6 +8,7 @@ import { LogoPicker, type PickerLogo } from "../LogoPicker";
 import { ContentEditor, emptyDraft, type Draft } from "../ContentEditor";
 import { CustomLinkField } from "./CustomLinkField";
 import type { UpgradeOffer } from "@/lib/upgrade-offers";
+import { ACCOUNT_PIN_FIELD } from "@/lib/account-scope";
 
 /** What the destination field asks for, per link type. */
 const LINK_FIELD: Record<LinkKind, { label: string; placeholder: string; hint: string }> = {
@@ -36,6 +37,7 @@ const LINK_FIELD: Record<LinkKind, { label: string; placeholder: string; hint: s
  * the same, and the server action decides what is valid.
  */
 export function CreateCodeForm({
+  accountId,
   kind,
   logos,
   uploads,
@@ -44,6 +46,8 @@ export function CreateCodeForm({
   customLinks,
   customOffer,
 }: {
+  /** The account this form was drawn for; see `pinMismatch`. */
+  accountId: string;
   kind: DynamicKind;
   /** The account's logo library, offered so a logo is uploaded only once. */
   logos: PickerLogo[];
@@ -63,6 +67,7 @@ export function CreateCodeForm({
   return (
     <form action={action} className="max-w-2xl space-y-6">
       <input type="hidden" name="kind" value={kind} />
+      <input type="hidden" name={ACCOUNT_PIN_FIELD} value={accountId} />
 
       <div>
         <label htmlFor="new-code-name" className="mb-1 block text-sm">

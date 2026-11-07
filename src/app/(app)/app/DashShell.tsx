@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { DashNav } from "./DashNav";
 import { PlanUsage } from "./PlanUsage";
 import { StaffLink } from "./StaffLink";
+import { TeamSlot } from "./TeamSlot";
 import { UpgradeButton } from "./UpgradeButton";
 
 /**
@@ -44,6 +45,11 @@ export function DashShell({
         staff={
           <Suspense fallback={null}>
             <StaffLink />
+          </Suspense>
+        }
+        team={
+          <Suspense fallback={null}>
+            <TeamSlot />
           </Suspense>
         }
       />
