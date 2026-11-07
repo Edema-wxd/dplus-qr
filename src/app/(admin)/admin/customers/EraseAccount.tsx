@@ -10,7 +10,16 @@ import { ActionNote, dangerButtonClass } from "../ActionNote";
  * The one change that cannot be undone. Typing the email is the confirmation;
  * the server checks it again, and every other rule, before anything happens.
  */
-export function EraseAccount({ userId, email }: { userId: string; email: string }) {
+export function EraseAccount({
+  userId,
+  email,
+  teamMembers = 0,
+}: {
+  userId: string;
+  email: string;
+  /** People in this account's team, who lose access to it. */
+  teamMembers?: number;
+}) {
   const [state, action, pending] = useActionState<AdminFormState, FormData>(eraseAccountAction, {});
 
   return (
@@ -21,6 +30,14 @@ export function EraseAccount({ userId, email }: { userId: string; email: string 
         destinations and profile details, and removes its sign-in. Its codes stop working for good and their
         short codes stay reserved. Billing records and this audit trail are kept. <strong>This cannot be undone.</strong>
       </p>
+      {teamMembers > 0 ? (
+        <p className="text-sm leading-relaxed">
+          <strong className="font-medium">
+            {teamMembers === 1 ? "1 person" : `${teamMembers} people`} in this account&apos;s team lose access to it.
+          </strong>{" "}
+          Their own accounts are not touched.
+        </p>
+      ) : null}
       <label htmlFor="erase-confirm" className="block pt-2 text-xs text-[var(--paper-soft)]">
         Type <span className="font-mono text-[var(--paper-ink)]">{email}</span> to confirm
       </label>

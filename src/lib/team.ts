@@ -537,3 +537,124 @@ export async function teamView(scope: AccountScope): Promise<TeamView | null> {
     events: events.map((e) => ({ action: e.action, actor: e.actor, subject: e.subject, detail: e.detail, at: e.created_at })),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Staff. Called only from the staff admin, behind `requireStaff` and
+// `staffForAction`; staff can see a team and take people out of it, never
+// put anyone in.
+// ---------------------------------------------------------------------------
+
+export type StaffTeam = {
+  seats: number;
+  members: { userId: string; name: string; email: string; role: string; joinedAt: Date; locked: boolean }[];
+  invites: { id: string; email: string; role: string; expiresAt: Date }[];
+  events: { action: string; actor: string | null; subject: string | null; detail: Record<string, unknown>; at: Date }[];
+  /** Teams this account belongs to as a member. */
+  memberOf: { accountId: string; ownerName: string; ownerEmail: string; role: string; joinedAt: Date }[];
+};
+
+export async function teamForStaff(accountId: string): Promise<StaffTeam> {
+  const [plan, members, invites, events, memberOf] = await Promise.all([
+    queryOne<{ features: Record<string, unknown> | null }>(
+      `select p.features from qr_subscriptions s join qr_plans p on p.id = s.plan_id
+       where s.user_id = $1 and s.status in ('active', 'past_due') limit 1`,
+      [accountId]
+    ),
+    query<{ user_id: string; name: string; email: string; role: string; joined_at: Date }>(
+      `select m.user_id, u.name, u.email, m.role, m.joined_at
+       from qr_account_members m join qr_users u on u.id = m.user_id
+       where m.account_id = $1 and m.removed_at is null
+       order by m.joined_at, m.user_id`,
+      [accountId]
+    ),
+    query<{ id: string; email: string; role: string; expires_at: Date }>(
+      `select id, email, role, expires_at from qr_account_invites
+       where account_id = $1 and accepted_at is null and revoked_at is null and expires_at > now()
+       order by created_at`,
+      [accountId]
+    ),
+    query<{ action: string; actor: string | null; subject: string | null; detail: Record<string, unknown>; created_at: Date }>(
+      `select e.action, a.name as actor, s.name as subject, e.detail, e.created_at
+       from qr_account_events e
+       left join qr_users a on a.id = e.actor_id
+       left join qr_users s on s.id = e.subject_id
+       where e.account_id = $1
+       order by e.created_at desc limit 20`,
+      [accountId]
+    ),
+    query<{ account_id: string; owner_name: string; owner_email: string; role: string; joined_at: Date }>(
+      `select m.account_id, o.name as owner_name, o.email as owner_email, m.role, m.joined_at
+       from qr_account_members m join qr_users o on o.id = m.account_id
+       where m.user_id = $1 and m.removed_at is null
+       order by m.joined_at`,
+      [accountId]
+    ),
+  ]);
+
+  const seats = planSeats(plan?.features);
+  const { locked } = seatState(
+    members.map((m) => ({ userId: m.user_id, joinedAt: m.joined_at })),
+    seats
+  );
+  const lockedSet = new Set(locked);
+  return {
+    seats,
+    members: members.map((m) => ({
+      userId: m.user_id,
+      name: m.name,
+      email: m.email,
+      role: m.role,
+      joinedAt: m.joined_at,
+      locked: lockedSet.has(m.user_id),
+    })),
+    invites: invites.map((i) => ({ id: String(i.id), email: i.email, role: i.role, expiresAt: i.expires_at })),
+    events: events.map((e) => ({ action: e.action, actor: e.actor, subject: e.subject, detail: e.detail, at: e.created_at })),
+    memberOf: memberOf.map((m) => ({
+      accountId: m.account_id,
+      ownerName: m.owner_name,
+      ownerEmail: m.owner_email,
+      role: m.role,
+      joinedAt: m.joined_at,
+    })),
+  };
+}
+
+/**
+ * Staff take someone out of a team: on a complaint, or when an account is
+ * being cut off from one team without being suspended everywhere. Logged in
+ * the team's own log as a staff change, with no staff name, and in the staff
+ * audit by the caller.
+ */
+export async function staffRemoveMember(accountId: string, memberId: string): Promise<TeamResult<{ role: string }>> {
+  return inTeamTransaction(async (run) => {
+    const rows = await run<{ role: string }>(
+      `update qr_account_members set removed_at = now(), removed_by = null
+       where account_id = $1 and user_id = $2 and removed_at is null
+       returning role`,
+      [accountId, memberId]
+    );
+    if (!rows[0]) throw new Refused("That person is no longer in this team.");
+    await logEvent(run, {
+      accountId,
+      actorId: null,
+      subjectId: memberId,
+      action: "member.remove",
+      detail: { role: rows[0].role, by: "staff" },
+    });
+    return { ok: true as const, role: rows[0].role };
+  });
+}
+
+export async function staffRevokeInvite(accountId: string, inviteId: string): Promise<TeamResult<{ role: string }>> {
+  return inTeamTransaction(async (run) => {
+    const rows = await run<{ role: string }>(
+      `update qr_account_invites set revoked_at = now()
+       where id = $1 and account_id = $2 and accepted_at is null and revoked_at is null
+       returning role`,
+      [inviteId, accountId]
+    );
+    if (!rows[0]) throw new Refused("That invite has already been used or cancelled.");
+    await logEvent(run, { accountId, actorId: null, action: "invite.revoke", detail: { inviteId, by: "staff" } });
+    return { ok: true as const, role: rows[0].role };
+  });
+}
