@@ -6,7 +6,7 @@ import { audit, requireStaff } from "../guard";
 import { AdminShell } from "../AdminShell";
 import { PricingForm } from "./PricingForm";
 
-export const metadata: Metadata = { title: "Pricing page · Admin" };
+export const metadata: Metadata = { title: "Pricing page" };
 export const instant = false;
 
 /**

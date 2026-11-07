@@ -13,7 +13,7 @@ import {
 import { audit, requireStaff } from "../guard";
 import { AdminShell, SectionHeading, Tag, day, tableClass, tdClass, thClass } from "../AdminShell";
 
-export const metadata: Metadata = { title: "Retention · Admin" };
+export const metadata: Metadata = { title: "Retention" };
 
 // Per-request figures for one staff member, with nothing useful to stream around.
 export const instant = false;

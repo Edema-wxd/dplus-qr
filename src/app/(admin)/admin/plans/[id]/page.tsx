@@ -7,7 +7,7 @@ import { audit, requireStaff } from "../../guard";
 import { AdminShell } from "../../AdminShell";
 import { ConnectPaystack, PlanForm } from "../PlanForm";
 
-export const metadata: Metadata = { title: "Edit plan · Admin" };
+export const metadata: Metadata = { title: "Edit plan" };
 export const instant = false;
 
 export default async function AdminEditPlan({ params }: { params: Promise<{ id: string }> }) {

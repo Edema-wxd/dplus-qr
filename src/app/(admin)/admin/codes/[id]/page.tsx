@@ -13,7 +13,7 @@ import { CodeActions } from "../CodeActions";
 import { Destination } from "../Destination";
 import { ResolveReport } from "../../reports/ResolveReport";
 
-export const metadata: Metadata = { title: "Code · Admin" };
+export const metadata: Metadata = { title: "Code" };
 export const instant = false;
 
 const idSchema = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER);

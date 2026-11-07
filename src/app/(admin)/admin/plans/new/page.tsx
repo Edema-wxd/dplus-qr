@@ -3,7 +3,7 @@ import { audit, requireStaff } from "../../guard";
 import { AdminShell } from "../../AdminShell";
 import { PlanForm } from "../PlanForm";
 
-export const metadata: Metadata = { title: "New plan · Admin" };
+export const metadata: Metadata = { title: "New plan" };
 export const instant = false;
 
 export default async function AdminNewPlan() {
