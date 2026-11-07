@@ -1,4 +1,4 @@
-import { csvCell, isTable, tableCsv } from "@/lib/csv-export";
+import { csvCell, feedbackCsv, isTable, tableCsv } from "@/lib/csv-export";
 import { isShareToken, newShareToken } from "@/lib/stat-shares";
 import { canShareStats, type Entitlement } from "@/lib/entitlement";
 import type { Analytics } from "@/lib/user-codes";
@@ -99,5 +99,59 @@ describe("csvCell", () => {
     [null, ""],
   ])("encodes %p as %p", (input, expected) => {
     expect(csvCell(input)).toBe(expected);
+  });
+});
+
+describe("feedbackCsv", () => {
+  const origin = { country: "NG", city: "Lagos", device: "mobile", os: "Android" };
+  const none = { country: null, city: null, device: null, os: null };
+
+  it("lists every answer with where it came from, comment last", () => {
+    const csv = feedbackCsv(
+      [
+        { rating: 5, comment: "Lovely jollof", createdAt: new Date("2026-11-05T12:00:00Z"), ...origin },
+        { rating: 3, comment: null, createdAt: new Date("2026-11-04T09:30:00Z"), ...none },
+      ],
+      true
+    );
+    expect(csv.split("\r\n")).toEqual([
+      "answered_at,rating,country,city,device,os,comment",
+      "2026-11-05T12:00:00.000Z,5,NG,Lagos,mobile,Android,Lovely jollof",
+      "2026-11-04T09:30:00.000Z,3,,,,,",
+    ]);
+  });
+
+  it("leaves out city and OS for a plan without detailed analytics", () => {
+    const csv = feedbackCsv(
+      [{ rating: 4, comment: "Fine", createdAt: new Date("2026-11-05T12:00:00Z"), ...origin }],
+      false
+    );
+    expect(csv.split("\r\n")).toEqual([
+      "answered_at,rating,country,device,comment",
+      "2026-11-05T12:00:00.000Z,4,NG,mobile,Fine",
+    ]);
+  });
+
+  it("defuses a formula in a comment or a city, and keeps a multi-line comment in one cell", () => {
+    const csv = feedbackCsv(
+      [
+        {
+          rating: 1,
+          comment: '=HYPERLINK("http://evil.example")',
+          createdAt: new Date("2026-11-05T12:00:00Z"),
+          ...origin,
+          city: "=1+1",
+        },
+        { rating: 4, comment: "Good food,\nslow service", createdAt: new Date("2026-11-05T11:00:00Z"), ...none },
+      ],
+      true
+    );
+    expect(csv).toContain(`,'=1+1,`);
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"")"`);
+    expect(csv).toContain('"Good food,\nslow service"');
+  });
+
+  it("has a header and nothing else when there are no answers", () => {
+    expect(feedbackCsv([], true)).toBe("answered_at,rating,country,city,device,os,comment");
   });
 });
