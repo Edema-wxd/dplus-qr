@@ -341,10 +341,4 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
   (block, pause, archive, re-screen), plans and features, pricing-page copy.
 - Production deploys apply pending migrations before building.
 
-Known issue: `npm run scans:rollup` (`scripts/rollup-scans.ts`) fails with
-Postgres `42P10`. It carries its own copy of the rollup SQL that predates
-migration 018's re-keyed `qr_scan_daily`. The nightly cron uses
-`src/lib/rollup.ts`, which is correct, so only the manual command is broken;
-the fix is for the script to call `rollupScans()` instead of duplicating it.
-
 What is still open is listed at the end of DECISIONS.md.

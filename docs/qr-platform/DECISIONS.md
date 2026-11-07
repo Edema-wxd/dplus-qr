@@ -1406,14 +1406,43 @@ for every hour it stays awake. That is a plan and budget decision, left open.
 
 ## Still open
 
-Business decisions, none of which block the current phase:
+Reviewed 7 November 2026 against `main`.
+
+Not built yet:
+
+- **Team seats and bulk creation**, listed as Business extras. Both are plan
+  flags marked `built: false` in `src/lib/plan-features.ts`, so they are stored
+  and assignable but never advertised.
+- **Tiered analytics.** The `analytics` flag (basic or trends) is also
+  `built: false`; every plan gets the same charts.
+- **A reputation check on destinations.** `checkReputation()` in
+  `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
+  destination is checked for shape only, never against a malware or phishing
+  list. Google Web Risk is meant to fill it, pending the pricing decision
+  below.
+
+Business decisions:
 
 - Free trial, and whether codes go live during one
-- Team seats and bulk creation, listed as Business extras but not yet built
-- MaxMind GeoLite2 commercial-use licence, and Google Web Risk pricing
+- Google Web Risk pricing, which the reputation check waits on
 - Whether De Sign Plus must register with the Nigeria Data Protection Commission
+- Whether to stop Neon pausing the production compute. The connection retry
+  of 7 November covers the dashboard and the nightly jobs but not a scanner:
+  the first scan of a quiet code while the database is asleep can still reach
+  the unavailable page (see that entry). Keeping it awake costs compute hours.
 
-Infrastructure, needed before this can run end to end:
+Built but switched off:
 
-- Neon project and `DATABASE_URL`
-- `qr.de-signplus.com` DNS, required before the first code is printed
+- The retention and upload sweeps run only with `DELETION_SWEEPS_ENABLED=true`.
+  When to turn them on in production is open; read a dry run against
+  production first (see the 30 October entry).
+
+Closed since this list was first written:
+
+- Neon project and `DATABASE_URL`: provisioned, and the app is live on it.
+- `qr.de-signplus.com` DNS: superseded. Printed codes use `qriateplus.com`
+  (22 October).
+- MaxMind GeoLite2 licence: not needed. Country and city come from Vercel's
+  `x-vercel-ip-country` and `x-vercel-ip-city` headers.
+- `npm run scans:rollup` failing with `42P10`: fixed. The script calls the
+  shared `rollupScans()` instead of carrying its own SQL.
