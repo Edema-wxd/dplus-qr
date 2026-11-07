@@ -21,6 +21,7 @@ export type Gate =
   | "insights"
   | "share_stats"
   | "video_uploads"
+  | "bulk_creation"
   | "history"
   | "codes";
 
@@ -68,6 +69,11 @@ const COPY: Record<Exclude<Gate, "history" | "codes">, { title: string; benefit:
     title: "Video uploads",
     benefit: "Upload a video file to a video page, rather than linking to YouTube or Vimeo.",
     plural: true,
+  },
+  bulk_creation: {
+    title: "Bulk creation",
+    benefit: "Make up to 500 codes at once from a spreadsheet, then download every QR image in one zip.",
+    plural: false,
   },
 };
 

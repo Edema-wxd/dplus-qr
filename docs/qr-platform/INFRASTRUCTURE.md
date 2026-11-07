@@ -76,6 +76,8 @@ counters and rate limits.
 | `qr_scans` | `qr_id`, `scanned_at`, `country`, `city`, `device_type`, `os`, `browser`, `ip_hash`, `is_bot` | Raw events, kept per plan retention |
 | `qr_scan_daily` | `qr_id`, `day`, `scans`, `unique_scans` | Rollup the dashboard reads from |
 | `qr_scan_daily_visitors` | `qr_id`, `day`, `unique_scans` | One distinct-visitor count per code and day (migration 026), since the rollup's per-group uniques do not add up |
+| `qr_bulk_imports` | `user_id`, `source`, `rows_total`, `rows_invalid`, `rows_over_limit`, `rows_created` | One bulk-creation batch, counts only (migration 027) |
+| `qr_bulk_import_codes` | `import_id`, `qr_id`, `row_number` | Which codes a batch made, in spreadsheet order |
 | `qr_payment_events` | `event_key` (unique), `type`, `payload`, `received_at`, `processed_at` | Webhook log and idempotency guard |
 | `qr_abuse_reports` | `qr_id`, `reporter_email`, `reason`, `status` | Fed by the report link on status pages |
 

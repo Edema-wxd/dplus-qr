@@ -1,4 +1,4 @@
-import { query, queryOne } from "@/lib/db";
+import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { checkCustomCode, generateCode } from "@/lib/short-code";
 import { CODE_HOST } from "@/lib/brand";
@@ -321,18 +321,29 @@ export async function createCode(
   }
 
   const name = input.name.trim();
+  const maxCodes = entitlement!.maxCodes;
 
-  // A chosen code gets one attempt: if the unique index says it is taken,
-  // that is the answer, and generating something else would hand the owner a
-  // link they did not ask for. A generated code retries, as it always has.
-  const attempts = customCode ? 1 : 5;
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const shortCode = customCode ?? generateCode();
-    try {
-      const row = await queryOne<{ id: string }>(
+  return withCodeSlots(userId, maxCodes, async (run, free) => {
+    // Counted again under the account's lock: the check above read the count
+    // before anything was locked, and two creates at once could both pass it.
+    if (free < 1) {
+      const refused = canCreateCode({ ...entitlement!, codesUsed: maxCodes });
+      return { ok: false as const, reason: refused.ok ? "No codes left on your plan." : refused.reason };
+    }
+
+    // A chosen code gets one attempt: if the unique index says it is taken,
+    // that is the answer, and generating something else would hand the owner
+    // a link they did not ask for. A generated code retries, as it always has.
+    // `on conflict do nothing` rather than catching the violation, because a
+    // failed statement would abort the transaction holding the lock.
+    const attempts = customCode ? 1 : 5;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const shortCode = customCode ?? generateCode();
+      const rows = await run<{ id: string }>(
         `insert into qr_codes
            (user_id, short_code, name, kind, destination_url, content, logo_id)
          values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint)
+         on conflict (short_code) do nothing
          returning id`,
         [
           userId,
@@ -347,22 +358,50 @@ export async function createCode(
       // A fresh code has no history row: there is no previous destination to
       // record, and inventing one would make the log lie about a change that
       // never happened.
-      return { ok: true, id: String(row!.id), shortCode };
-    } catch (error) {
-      const collided =
-        error instanceof Error &&
-        error.message.includes("qr_codes_short_code_key");
-      if (!collided) throw error;
+      if (rows[0]) return { ok: true as const, id: String(rows[0].id), shortCode };
       if (customCode) {
-        return { ok: false, reason: `${CODE_HOST}/${customCode} is already taken. Try another.` };
+        return { ok: false as const, reason: `${CODE_HOST}/${customCode} is already taken. Try another.` };
       }
     }
-  }
 
-  return {
-    ok: false,
-    reason: "Could not allocate a short code. Please try again.",
-  };
+    return {
+      ok: false as const,
+      reason: "Could not allocate a short code. Please try again.",
+    };
+  });
+}
+
+/** Runs a statement inside the caller's transaction. */
+export type TxRun = <R extends Record<string, unknown>>(
+  text: string,
+  params?: readonly unknown[]
+) => Promise<R[]>;
+
+/**
+ * Run `work` holding this account's code-slot lock, told how many codes the
+ * plan still has room for.
+ *
+ * Every path that makes dynamic codes goes through here, single and bulk, so
+ * two creates at the same moment cannot both read "one slot left" and both
+ * take it. The lock is a transaction-scoped advisory lock keyed on the
+ * account: it is released by the commit or rollback, so it is safe over
+ * PgBouncer in transaction mode (the same reasoning as `withTransaction`)
+ * and cannot outlive a crashed request. Codes are counted as the entitlement
+ * counts them, archived ones aside.
+ */
+export async function withCodeSlots<T>(
+  userId: string,
+  maxCodes: number,
+  work: (run: TxRun, free: number) => Promise<T>
+): Promise<T> {
+  return withTransaction(async (run) => {
+    await run(`select pg_advisory_xact_lock(hashtextextended('qr_codes:' || $1::text, 0))`, [userId]);
+    const used = await run<{ used: string }>(
+      `select count(*) as used from qr_codes where user_id = $1 and archived_at is null`,
+      [userId]
+    );
+    return work(run, Math.max(0, maxCodes - Number(used[0]?.used ?? 0)));
+  });
 }
 
 export async function renameCode(

@@ -678,6 +678,13 @@ export async function eraseAccountData(userId: string): Promise<EraseResult> {
     await run(`delete from qr_scans where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_scan_daily where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_scan_daily_visitors where qr_id in (${owned})`, [userId]);
+    // Bulk batches are the account's record of what it imported: counts and
+    // which codes, nothing more, but still theirs (migration 027).
+    await run(
+      `delete from qr_bulk_import_codes where import_id in (select id from qr_bulk_imports where user_id = $1)`,
+      [userId]
+    );
+    await run(`delete from qr_bulk_imports where user_id = $1`, [userId]);
     await run(`delete from qr_destination_history where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_feedback where qr_id in (${owned})`, [userId]);
     await run(`update qr_destination_history set changed_by = null where changed_by = $1`, [userId]);

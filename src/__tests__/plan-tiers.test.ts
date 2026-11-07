@@ -87,7 +87,12 @@ describe("groupTiers", () => {
 describe("featureLines", () => {
   it("never advertises flags nothing implements", () => {
     const lines = featureLines(SEEDED[4]).join(" ").toLowerCase();
-    expect(lines).not.toMatch(/team|seat|bulk/);
+    expect(lines).not.toMatch(/team|seat/);
+  });
+
+  it("advertises bulk creation on the plans that hold it, now it is built", () => {
+    expect(featureLines(SEEDED[4])).toContain("Bulk creation from a spreadsheet");
+    expect(featureLines(SEEDED[2]).join(" ")).not.toMatch(/bulk/i);
   });
 
   it("lists what the product enforces", () => {

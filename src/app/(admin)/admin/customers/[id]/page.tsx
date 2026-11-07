@@ -6,6 +6,7 @@ import { getCustomer } from "@/lib/admin-billing";
 import { isAdmin } from "@/lib/admin";
 import { hasSignInAccount, staffActions } from "@/lib/moderation";
 import { getEntitlement } from "@/lib/entitlement";
+import { listBatches } from "@/lib/bulk-create";
 import { listAllPlans } from "@/lib/plans";
 import { naira } from "@/lib/plan-tiers";
 import { CODE_HOST } from "@/lib/brand";
@@ -40,13 +41,14 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
   const parsed = idSchema.safeParse((await params).id);
   if (!parsed.success) notFound();
 
-  const [customer, entitlement, plans, actions, signIn, staffAccount] = await Promise.all([
+  const [customer, entitlement, plans, actions, signIn, staffAccount, batches] = await Promise.all([
     getCustomer(parsed.data),
     getEntitlement(parsed.data),
     listAllPlans(),
     staffActions("customer", parsed.data),
     hasSignInAccount(parsed.data),
     isAdmin(parsed.data),
+    listBatches(parsed.data, 10),
   ]);
   if (!customer) notFound();
   const erased = customer.erasedAt !== null;
@@ -224,6 +226,20 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
             </div>
           )}
         </section>
+
+        {batches.length > 0 ? (
+          <section aria-labelledby="batches-heading">
+            <SectionHeading id="batches-heading">Bulk batches, newest first</SectionHeading>
+            <ul className="mt-4 text-sm">
+              {batches.map((batch) => (
+                <li key={batch.id} className="dash-num border-b border-[var(--paper-rule)] py-2 last:border-b-0">
+                  {day(batch.createdAt)}: {batch.rowsCreated.toLocaleString("en-NG")} codes made from{" "}
+                  {batch.rowsTotal.toLocaleString("en-NG")} rows
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
 
         <section aria-labelledby="staff-heading">
           <SectionHeading id="staff-heading">Staff changes</SectionHeading>

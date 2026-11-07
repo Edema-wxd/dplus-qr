@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
-import { getEntitlement } from "@/lib/entitlement";
+import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
 import { listCodes } from "@/lib/user-codes";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { qrStyleVars } from "@/lib/qr-style";
@@ -82,7 +82,20 @@ export default async function CodesPage({
         ) : null
       }
       action={
-        hasCodes ? <NewCodeButton /> : null
+        hasCodes ? (
+          <span className="flex flex-wrap gap-2">
+            {/*
+              Only on plans with bulk creation. Everyone else meets it, locked,
+              on the new-code page, rather than a second upgrade button here.
+            */}
+            {canBulkCreate(entitlement) && !atLimit ? (
+              <Link href="/app/new/bulk" className={`${secondaryButtonClass} no-underline`}>
+                Make many at once
+              </Link>
+            ) : null}
+            <NewCodeButton />
+          </span>
+        ) : null
       }
     >
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}

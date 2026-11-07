@@ -161,6 +161,16 @@ export function canUploadVideo(entitlement: Entitlement | null): boolean {
   return entitlement?.features.video_uploads === true;
 }
 
+/**
+ * Whether this account may make codes from a spreadsheet, and download a
+ * batch's artwork as one zip, from `qr_plans.features.bulk_creation`. The
+ * code limit still applies to every row: this decides whether the tool is
+ * offered, `withCodeSlots` how many codes it may make.
+ */
+export function canBulkCreate(entitlement: Entitlement | null): boolean {
+  return entitlement?.features.bulk_creation === true;
+}
+
 /** Whether this account may publish a read-only stats link for a code. */
 export function canShareStats(entitlement: Entitlement | null): boolean {
   return entitlement?.features.share_stats === true;
