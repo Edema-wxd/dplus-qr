@@ -130,10 +130,10 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
   },
   {
     key: "bulk_creation",
-    label: "Bulk creation",
+    label: "Bulk creation from a spreadsheet",
     kind: "boolean",
-    built: false,
-    help: "Not built yet. Stored, never advertised.",
+    built: true,
+    help: "Customers can make up to 500 link codes at once from a CSV or pasted rows, and download a batch's QR images as one zip. Their code limit still applies. Without it, the bulk button explains which plans include it.",
   },
 ];
 

@@ -1476,15 +1476,90 @@ week; another account's code returns nothing. Checked at 375px and 1280px:
 six short range labels fit across a phone, and the page does not scroll
 sideways.
 
+## Bulk creation from a spreadsheet, 7 November 2026
+
+Built from section 1 of `docs/qr-platform/plans/bulk-creation-and-analytics.md`.
+Francis's answers (7 Nov 2026): Business only, as seeded; when a batch has
+more good rows than free code slots, **make the first ones that fit and
+report the rest** (the plan had recommended refusing the whole batch); the
+zip download comes with bulk plans only; the other defaults as written.
+
+**What a customer does.** `/app/new/bulk`: upload a CSV or paste rows with
+`name` and `destination`, and optionally `type` (link, instagram or facebook)
+and `link` (a custom short link, on plans with custom links). "Check rows"
+writes nothing and shows every problem on its own row, with "Download these
+rows to fix" as a CSV built in the browser. Confirming says exactly how many
+codes it makes and how many rows it leaves out, then lands on the batch's
+page, `/app/imports/{id}`, with every code, an SVG zip, a PNG zip and the
+list as CSV.
+
+- **Ways in:** a card on `/app/new` (locked, and explaining on click, on a
+  plan without the flag or at the code limit), and "Make many at once" in
+  the codes list header for plans that have it. That header button is left
+  off other plans rather than shown locked, so the main page does not carry a
+  second upgrade button.
+- **Same rules as one code.** Every row goes through `linkDestination` and
+  `checkCustomCode`. Page types are left out: their content and files cannot
+  come from a CSV. Up to 500 rows and 256 KB per batch; a header the parser
+  does not know, a missing name or destination column, or too many rows stops
+  the whole file. Codes go live at once, as single codes do.
+- **Create re-checks everything.** The check step sends the batch text back
+  to the page, and the create step parses, screens and counts it again;
+  nothing from the preview is trusted. Rate-limited to 10 batches an hour per
+  account (`allowBulkImport`, fails open; the code limit is the real ceiling).
+
+**The code limit is now checked under a lock, for single codes too.** It was
+read, checked and then inserted with nothing held, so two creates at once
+could both take the last slot. `withCodeSlots()` in `src/lib/user-codes.ts`
+takes a transaction-scoped advisory lock on the account, recounts its codes
+and hands over the number free. `createCode` and `createBulk` both go through
+it. Transaction-scoped, so it is released by commit or rollback and is safe
+over PgBouncer. Inserts now use `on conflict (short_code) do nothing` instead
+of catching the violation, because a failed statement would abort the
+transaction holding the lock; the unique index still decides, and a
+generated code that comes back missing is retried, never checked first.
+
+**A taken custom link stops the batch.** All of a batch's codes are made in
+one transaction. A custom link the index refuses rolls everything back and
+names the row; substituting another link would print one the owner did not
+ask for.
+
+**Migration `027`:** `qr_bulk_imports` (who, csv or paste, rows total,
+invalid, over the limit, created) and `qr_bulk_import_codes` (which codes,
+with their spreadsheet row). Counts only: the uploaded file and the rows
+that failed are never stored. A join table, so `qr_codes`, which every scan
+reads, is not altered. Erasing an account deletes both. Staff see an
+account's recent batches on its customer page.
+
+**One renderer for every download.** The single download's drawing moved
+into `renderArtwork()` (`src/lib/qr-artwork.ts`), which the zip uses too, so
+a code out of a zip is byte for byte the code downloaded on its own (tested).
+The zip (`/app/imports/{id}/zip`, `fflate` 0.8.3, pinned) is streamed, names
+each file `{name}-{shortCode}` with only `[a-z0-9-]` kept from the name,
+includes `codes.csv` (cells through `csvCell`), and fetches every logo before
+the first byte, so a logo that will not load is a 503 rather than a zip cut
+short. A 500-code PNG zip takes about 30 seconds; the route allows 60.
+
+**Pricing:** `bulk_creation` is now `built: true`, so the price table lists
+"Bulk creation from a spreadsheet" on the plans that hold it.
+
+Tested on a local Postgres 16: eight rows with six free slots made six and
+reported one over the limit and one invalid, in spreadsheet order; a full
+account refused bulk and single creates; two batches of three and a single
+create racing for five free slots ended at exactly the limit; a taken custom
+link left no codes and no batch behind; erase removed the batches. The
+collision retry is unit-tested against a fake transaction, and the form was
+checked at 375px.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
 
 Not built yet:
 
-- **Team seats and bulk creation**, listed as Business extras. Both are plan
-  flags marked `built: false` in `src/lib/plan-features.ts`, so they are stored
-  and assignable but never advertised.
+- **Team seats**, listed as a Business extra. A plan flag marked
+  `built: false` in `src/lib/plan-features.ts`, so it is stored and assignable
+  but never advertised. Proposed plan: `docs/qr-platform/plans/team-seats.md`.
 - **A reputation check on destinations.** `checkReputation()` in
   `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
   destination is checked for shape only, never against a malware or phishing
@@ -1518,3 +1593,4 @@ Closed since this list was first written:
   shared `rollupScans()` instead of carrying its own SQL.
 - Tiered analytics: built 7 November. Chart length follows `history_days`,
   and the `analytics` flag is retired (see that entry).
+- Bulk creation: built 7 November (see that entry).
