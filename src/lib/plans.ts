@@ -30,7 +30,8 @@ export type PlanFeatures = {
   csv_export?: boolean;
   support?: string;
   months_free?: number;
-  team_seats?: boolean;
+  /** People on the account, owner included (migration 028). Absent: no team. */
+  team_seats?: number;
   bulk_creation?: boolean;
   /** Owner-chosen short codes, such as `qriateplus.com/dplus`. */
   custom_codes?: boolean;

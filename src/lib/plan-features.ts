@@ -124,9 +124,11 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
   {
     key: "team_seats",
     label: "Team seats",
-    kind: "boolean",
+    kind: "number",
     built: false,
-    help: "Not built yet. Stored, never advertised.",
+    min: 2,
+    max: 50,
+    help: "People who can use the account, the owner included. Not built yet: stored, never advertised. Empty means no team.",
   },
   {
     key: "bulk_creation",
