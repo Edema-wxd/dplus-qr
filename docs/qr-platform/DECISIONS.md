@@ -1871,25 +1871,75 @@ invitations settled more than 30 days ago (accepted, cancelled and expired
 alike), kept live and recently settled ones, and deleted nothing on a second
 run.
 
+## Destination reputation: Google Web Risk, 8 November 2026
+
+`checkReputation` was a stub that always answered `unavailable`. It is now a
+Google Web Risk lookup (`src/lib/reputation.ts`), **dormant until
+`WEB_RISK_API_KEY` is set**: without the key every answer is `unavailable`
+and nothing behaves differently from before.
+
+**Why Web Risk** (Francis, 8 Nov 2026). Google's free Safe Browsing API is
+for non-commercial use only, and points commercial users to Web Risk. The
+free phishing feeds were looked at first and do not fit a paid product:
+OpenPhish's community feed is non-commercial only, PhishTank has taken no
+new registrations since 2020, and abuse.ch URLhaus is free under "fair use"
+with commercial use possibly needing a paid Spamhaus plan. Web Risk's
+Lookup API is licensed for commercial use and free for the first 100,000
+lookups a month ($0.50 per 1,000 after), which covers this volume. It needs
+a Google Cloud project with billing on, the Web Risk API enabled, and a key
+restricted to it, set as `WEB_RISK_API_KEY` in Vercel.
+
+**What is checked** (decided 8 Nov 2026): a link code's destination and
+every outside link on a hosted page (`pageLinks`, which skips the account's
+own uploaded files), for MALWARE, SOCIAL_ENGINEERING and UNWANTED_SOFTWARE.
+
+- **On save, a flagged link is refused**, naming the site and the threat:
+  making a code, re-pointing one, saving a hosted page, and both bulk steps
+  (a flagged row becomes a row with a problem). The lookup runs before the
+  code-slot lock, so a slow answer holds nothing.
+- **An unavailable answer lets the save through** (decided 8 Nov 2026): no
+  key, a timeout (3 seconds), an error or a refusal from Google never stops
+  a customer working. The weekly re-check catches what slipped past.
+- **The weekly re-check blocks** (decided 8 Nov 2026, as INFRASTRUCTURE.md
+  planned). `/api/cron/reputation`, Mondays at 04:50 UTC, looks up every
+  code that is live or paused, not archived and not on an erased account,
+  each distinct link once. A code with a flagged link is blocked with a
+  reason naming the site, written to `qr_admin_audit` as a system change
+  (`actor_id` null, `code.block.reputation`), its owner emailed from
+  `support@` with which link, why, and to reply if it was wrong, and staff
+  sent one summary. Only `flagged` blocks; a code already blocked is left
+  alone. Staff lift a wrong block from the code's admin page, and the
+  re-screen button there now gives a real answer.
+- **Never on the redirect path**: scanning a code never waits on Google.
+  `reputation.ts` is apart from `screening.ts`, which the page editor runs in
+  the browser, because it holds the key; a failed lookup is logged by status
+  only, since the request URL carries the key.
+
+**Legal copy:** the privacy page names Google (Web Risk) as a processor that
+receives links only; the acceptable-use page describes the save-time refusal
+and the weekly automatic block. Both are part of the lawyer's review.
+
+Tested on a local Postgres 16 with Google's answers faked: a flagged link
+was refused on a new code, a re-point and a hosted page, and a clean one
+saved; the weekly re-check blocked a live link code and a paused hosted page
+whose one bad link sat among good ones, left a clean code and an
+already-blocked one alone, looked each of five distinct links up once,
+wrote one system audit row per block, emailed the owner and staff, and
+blocked nothing new on a second run. Without the key, nothing is looked up.
+
 ## Still open
 
-Reviewed 7 November 2026 against `main`.
+Reviewed 8 November 2026 against `main`.
 
-Not built yet:
-
-- **A reputation check on destinations.** `checkReputation()` in
-  `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
-  destination is checked for shape only, never against a malware or phishing
-  list. Google Web Risk is meant to fill it, pending the pricing decision
-  below.
+Not built yet: nothing from the plan.
 
 Business decisions:
 
 - Free trial, and whether codes go live during one
-- Google Web Risk pricing, which the reputation check waits on
 - Whether De Sign Plus must register with the Nigeria Data Protection Commission
 - A Nigerian lawyer's review of the three legal pages, drafts since 25 October
-  and now including the team seats clauses, before live payments are taken
+  and now including the team seats and reputation-check clauses, before live
+  payments are taken
 - Whether to stop Neon pausing the production compute. The connection retry
   of 7 November covers the dashboard and the nightly jobs but not a scanner:
   the first scan of a quiet code while the database is asleep can still reach
@@ -1897,6 +1947,9 @@ Business decisions:
 
 Built but switched off:
 
+- The destination reputation check: needs a Google Cloud project with billing
+  on, the Web Risk API enabled and a key restricted to it, set as
+  `WEB_RISK_API_KEY` in Vercel (8 November entry).
 - The retention and upload sweeps run only with `DELETION_SWEEPS_ENABLED=true`.
   When to turn them on in production is open; read a dry run against
   production first (see the 30 October entry).
@@ -1913,5 +1966,7 @@ Closed since this list was first written:
 - Tiered analytics: built 7 November. Chart length follows `history_days`,
   and the `analytics` flag is retired (see that entry).
 - Bulk creation: built 7 November (see that entry).
+- Destination reputation check: built 8 November on Google Web Risk, dormant
+  until its key is set (see that entry).
 - Team seats: built and launched 7 November (see those entries). Its terms
   and privacy clauses are drafts and are part of the lawyer's review above.

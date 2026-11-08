@@ -26,6 +26,7 @@ import { featureOffer, offerRefusal } from "@/lib/upgrade-offers";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
 import { featureRefusal } from "@/lib/refusals";
+import { firstFlagged, flaggedReason, pageLinks } from "@/lib/reputation";
 import {
   analyticsWindow,
   bucketFor,
@@ -328,6 +329,12 @@ export async function createCode(
     };
   }
 
+  // Google's lists of unsafe sites, for the destination or every outside link
+  // on the page. Before the slot lock, so a slow lookup holds nothing. Only a
+  // flagged link refuses; an unavailable check lets the save through.
+  const unsafe = await firstFlagged(destination ? [destination] : pageLinks(content));
+  if (unsafe) return { ok: false, reason: flaggedReason(unsafe.url, unsafe.threats) };
+
   const name = input.name.trim();
   const maxCodes = entitlement!.maxCodes;
 
@@ -507,6 +514,8 @@ export async function changeDestination(
   }
   const screened = linkDestination(current.kind, destinationUrl);
   if (!screened.ok) return { ok: false, reason: screened.reason };
+  const unsafe = await firstFlagged([screened.normalised]);
+  if (unsafe) return { ok: false, reason: flaggedReason(unsafe.url, unsafe.threats) };
 
   const row = await queryOne<{ short_code: string }>(
     `with prev as (
@@ -561,6 +570,8 @@ export async function updateCodeContent(
 
   const checked = await checkContent(scope, current.kind, raw);
   if (!checked.ok) return checked;
+  const unsafe = await firstFlagged(pageLinks(checked.content));
+  if (unsafe) return { ok: false, reason: flaggedReason(unsafe.url, unsafe.threats) };
 
   // Keeping a video already on the page is always allowed (it may be
   // printed); attaching a different one needs a plan with video uploads.

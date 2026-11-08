@@ -5,6 +5,7 @@ import { canBulkCreate, canCreateCode, getEntitlement } from "@/lib/entitlement"
 import { ownsLiveLogo } from "@/lib/logos";
 import { featureRefusal } from "@/lib/refusals";
 import { fitToSlots, type CheckedRow, type GoodRow } from "@/lib/bulk-import";
+import { flaggedReason, reputationOfMany } from "@/lib/reputation";
 import { AccessLost, withCodeSlots, type TxRun } from "@/lib/user-codes";
 import { access, accessArgs, writable, type AccountScope } from "@/lib/account-scope";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
@@ -290,4 +291,27 @@ type BatchRow = { id: string; rows_created: number; rows_total: number; created_
 
 function toSummary(r: BatchRow): BatchSummary {
   return { id: String(r.id), rowsCreated: r.rows_created, rowsTotal: r.rows_total, createdAt: r.created_at };
+}
+
+/**
+ * Look every good row's destination up on Google's lists of unsafe sites and
+ * turn a flagged one into a row with a problem, as a single code would be
+ * refused. Run by both the check and the create step, which never trusts the
+ * check's answer. An unavailable lookup leaves the row good (decided 8 Nov
+ * 2026). Each distinct destination is looked up once.
+ */
+export async function markUnsafeRows(rows: CheckedRow[]): Promise<CheckedRow[]> {
+  const results = await reputationOfMany(rows.flatMap((r) => (r.ok ? [r.destination] : [])));
+  return rows.map((row) => {
+    if (!row.ok) return row;
+    const result = results.get(row.destination);
+    if (result?.verdict !== "flagged") return row;
+    return {
+      row: row.row,
+      ok: false,
+      name: row.name,
+      destination: row.destination,
+      reason: flaggedReason(row.destination, result.threats),
+    };
+  });
 }

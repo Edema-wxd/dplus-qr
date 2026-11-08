@@ -2,7 +2,8 @@ import { z } from "zod";
 import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { isDynamicKind, isPageKind } from "@/lib/qr-types";
-import { checkReputation, screenUrl, type ReputationVerdict } from "@/lib/screening";
+import { screenUrl } from "@/lib/screening";
+import { checkReputation, type ReputationVerdict } from "@/lib/reputation";
 import { likeContains } from "@/lib/admin-billing";
 
 /**

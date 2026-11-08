@@ -552,8 +552,8 @@ export const PRIVACY: LegalDocument = {
             { term: "Paystack", detail: `Payments and subscriptions.` },
             { term: "Resend", detail: `Sending the transactional email above.` },
             {
-              term: "A URL reputation service",
-              detail: `Destination screening checks a link against a reputation service. It receives the destination address, which is a customer's own link and not a scanner's data.`,
+              term: "Google (Web Risk)",
+              detail: `Checks each link a customer saves, and each live code's links once a week, against Google's lists of malware and phishing sites. It receives the link only, which is a customer's own link and not a scanner's data.`,
             },
           ],
         },
@@ -758,6 +758,10 @@ export const ACCEPTABLE_USE: LegalDocument = {
             {
               term: "We block the code",
               detail: `For a clear breach, immediately and without warning. Scans meet a page explaining the link has been disabled and carrying its reference.`,
+            },
+            {
+              term: "A check blocks it for us",
+              detail: `Every link is checked against Google's lists of malware and phishing sites when you save it, and a listed link is refused. Live codes are checked again every week, because a safe site can be hacked later: a code whose link has since been listed is blocked at once, and we email you which link and why. If Google was wrong, or you have fixed the site, reply and we will look again.`,
             },
             {
               term: "We suspend the account",

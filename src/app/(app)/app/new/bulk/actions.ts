@@ -8,7 +8,7 @@ import { resolveScope } from "@/lib/resolve-scope";
 import { canBulkCreate, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { featureRefusal } from "@/lib/refusals";
 import { BULK_MAX_BYTES, checkRows, fitToSlots, readRows, type CheckedRow } from "@/lib/bulk-import";
-import { createBulk } from "@/lib/bulk-create";
+import { createBulk, markUnsafeRows } from "@/lib/bulk-create";
 import { allowBulkImport } from "@/lib/ratelimit";
 import { parseLogoId } from "@/lib/logos";
 import { flash } from "@/lib/flash";
@@ -84,10 +84,10 @@ async function checkBatch(scope: AccountScope, text: string) {
   const read = readRows(text);
   if (!read.ok) return { ok: false as const, error: read.reason };
   const customLinks = canUseCustomCodes(entitlement);
-  const rows = checkRows(read.rows, {
+  const rows = await markUnsafeRows(checkRows(read.rows, {
     customLinks,
     customRefusal: customLinks ? "" : await featureRefusal("custom_codes", entitlement),
-  });
+  }));
   return { ok: true as const, rows, entitlement: entitlement! };
 }
 
