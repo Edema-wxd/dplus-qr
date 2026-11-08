@@ -16,7 +16,7 @@ import { audit, requireStaff } from "../guard";
 import { AdminShell, Tag, day, tableClass, tdClass, thClass } from "../AdminShell";
 import { SubscriptionStatus } from "./SubscriptionStatus";
 
-export const metadata: Metadata = { title: "Customers · Admin" };
+export const metadata: Metadata = { title: "Customers" };
 export const instant = false;
 
 /** The list's URL with some filters changed, for the pager and "clear". */
