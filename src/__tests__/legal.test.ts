@@ -165,6 +165,13 @@ describe("legal pages", () => {
     expect(body).toMatch(/shortener/i);
   });
 
+  it("names the reputation provider and describes the automatic block it can cause", () => {
+    expect(text(PRIVACY)).toMatch(/Google \(Web Risk\)/);
+    expect(text(PRIVACY)).toMatch(/It receives the link only/);
+    expect(text(ACCEPTABLE_USE)).toMatch(/Live codes are checked again every week/);
+    expect(text(ACCEPTABLE_USE)).toMatch(/blocked at once, and we email you which link and why/);
+  });
+
   it("explains enforcement and how to appeal it", () => {
     const body = text(ACCEPTABLE_USE);
     expect(body).toMatch(/suspend/i);

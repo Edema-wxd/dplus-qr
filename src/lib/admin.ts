@@ -36,7 +36,8 @@ export async function isAdmin(userId: string): Promise<boolean> {
 }
 
 export type AdminAuditEntry = {
-  actorId: string;
+  /** Null for the system's own changes, such as the weekly safety check. */
+  actorId: string | null;
   action: string;
   targetType: string;
   targetId?: string | null;

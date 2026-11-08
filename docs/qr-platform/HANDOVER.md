@@ -133,8 +133,9 @@ does not count as a scan; the redirect responds in under 100 ms when cached.
 - [ ] Plan limits enforced on code creation; codes only go live with an active
       subscription
 - [ ] Grace period, lapse to paused page, restore on payment; failure emails
-- [ ] Destination screening (scheme rules, shortener block, Web Risk) and weekly
-      re-check cron
+- [x] Destination screening (scheme rules, shortener block, Web Risk) and weekly
+      re-check cron (8 Nov 2026: Web Risk built, dormant until
+      `WEB_RISK_API_KEY` is set)
 - [ ] Admin tools: search, block code, suspend account, abuse reports, audit log
       (27 Oct 2026: search, block, suspend, archive, erase and per-target audit
       history done; abuse-report queue and warnings to follow)

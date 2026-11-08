@@ -86,6 +86,10 @@ const schema = z.object({
   // rather than failing the caller.
   RESEND_API_KEY: z.string().min(1).optional(),
 
+  // Google Web Risk (destination reputation, src/lib/reputation.ts). Without
+  // it every lookup answers "unavailable" and saves go through unchecked.
+  WEB_RISK_API_KEY: z.string().min(1).optional(),
+
   PAYSTACK_SECRET_KEY: z.string().min(1).optional(),
 
   // One shared secret for every /api/cron/* route: the scan rollup and
