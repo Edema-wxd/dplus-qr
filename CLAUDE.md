@@ -346,5 +346,8 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
   customers (filters, plan assignment, suspend, archive, erase), codes
   (block, pause, archive, re-screen), plans and features, pricing-page copy.
 - Production deploys apply pending migrations before building.
+- Monitoring: server errors emailed to staff (throttled, production only,
+  `src/lib/error-alerts.ts`) and a Monday summary email. The outside uptime
+  check on `/health` is an account still to open (DECISIONS.md, 8 November).
 
 What is still open is listed at the end of DECISIONS.md.

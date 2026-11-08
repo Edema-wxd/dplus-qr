@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { env } from "@/lib/env";
+import { reportError } from "@/lib/error-alerts";
 import { pruneScans, rollupScans } from "@/lib/rollup";
 import { pruneInvites } from "@/lib/team";
 
@@ -31,8 +32,9 @@ export async function GET(request: Request) {
     const pruned = await pruneScans();
     // Old team invitations, which hold the address of someone who may never
     // have joined. After the scan work, and never allowed to fail it.
-    const invites = await pruneInvites().catch((error) => {
+    const invites = await pruneInvites().catch(async (error) => {
       console.error("[cron] invite prune failed", error);
+      await reportError(error, { where: "cron scans (invite prune)" });
       return null;
     });
 
@@ -42,6 +44,7 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     console.error("[cron] scan maintenance failed", error);
+    await reportError(error, { where: "cron scans" });
     // Reported rather than thrown: a scheduler reads the status code, and a
     // 500 with no body tells whoever is paged nothing about which half failed.
     return Response.json(

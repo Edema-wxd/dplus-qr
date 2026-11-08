@@ -1,5 +1,6 @@
 import { after } from "next/server";
 import { env } from "@/lib/env";
+import { alertOnce, reportError } from "@/lib/error-alerts";
 import { verifySignature } from "@/lib/paystack";
 import { applyPaystackEvent } from "@/lib/billing";
 
@@ -53,11 +54,25 @@ export async function POST(request: Request): Promise<Response> {
       if (outcome.kind === "deferred") {
         // Needs a human: the event is stored with its reason in `error`.
         console.error("[paystack] deferred", outcome.eventKey, outcome.why);
+        await alertOnce(
+          `paystack-deferred:${outcome.why}`,
+          "A Paystack event needs a person",
+          [
+            "The webhook stored a Paystack event it could not apply on its own:",
+            "",
+            `  ${outcome.why}`,
+            "",
+            "It is listed under Payments on the admin overview. Until it is dealt with,",
+            "a customer's plan may not match what they paid for.",
+            "Further events deferred for the same reason are not emailed for an hour.",
+          ].join("\n")
+        );
       } else {
         console.info("[paystack]", outcome.kind, outcome.eventKey);
       }
     } catch (error) {
       console.error("[paystack] processing failed", error);
+      await reportError(error, { where: "Paystack webhook", method: "POST", path: "/api/paystack/webhook" });
     }
   });
 

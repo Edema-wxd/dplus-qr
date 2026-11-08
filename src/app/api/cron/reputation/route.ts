@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { env } from "@/lib/env";
+import { reportError } from "@/lib/error-alerts";
 import { recheckDestinations } from "@/lib/reputation-sweep";
 
 /**
@@ -37,6 +38,7 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     console.error("[cron] reputation re-check failed", error);
+    await reportError(error, { where: "cron reputation" });
     return Response.json(
       { ok: false, error: "reputation re-check failed" },
       { status: 500, headers: { "Cache-Control": "no-store" } }

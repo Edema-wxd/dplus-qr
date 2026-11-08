@@ -16,6 +16,8 @@ jest.mock("@/lib/auth/server", () => ({
 }));
 const isAdmin = jest.fn<Promise<boolean>, [string]>();
 jest.mock("@/lib/admin", () => ({ isAdmin: (id: string) => isAdmin(id) }));
+const reportError = jest.fn(async (..._args: unknown[]) => {});
+jest.mock("@/lib/error-alerts", () => ({ reportError: (...args: unknown[]) => reportError(...args) }));
 
 import proxy, { config } from "@/proxy";
 
@@ -150,6 +152,13 @@ describe("everything else", () => {
     const oauth = NextResponse.redirect(new URL("/admin?verified=1", "https://qriateplus.com"));
     middleware.mockResolvedValueOnce(oauth);
     expect(await proxy(request("/admin?neon_auth_session_verifier=x"))).toBe(oauth);
+  });
+
+  it("reports a failure, without the query string, and still fails the request", async () => {
+    const failure = new Error("NEON_AUTH_BASE_URL is not set");
+    middleware.mockRejectedValueOnce(failure);
+    await expect(proxy(request("/app?token=secret"))).rejects.toBe(failure);
+    expect(reportError).toHaveBeenCalledWith(failure, { where: "proxy", method: "GET", path: "/app" });
   });
 
   it("does not treat a route that merely starts with admin as the admin", async () => {
