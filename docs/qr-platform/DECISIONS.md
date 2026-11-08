@@ -1927,6 +1927,102 @@ already-blocked one alone, looked each of five distinct links up once,
 wrote one system audit row per block, emailed the owner and staff, and
 blocked nothing new on a second run. Without the key, nothing is looked up.
 
+## Monitoring: error alerts, the weekly summary, and the outside check, 8 November 2026
+
+Phase 4's last monitoring item, in three parts. The one hard limit shaped
+it: **the site cannot be what notices the site is down.** Vercel's crons run
+at most daily here and stop with the deployment, so the two-minute outage
+alert in HANDOVER.md needs a checker outside Vercel. That is an account to
+open, not code, and is listed under Still open. The other two parts are in
+the app.
+
+**Error alerts** (`src/lib/error-alerts.ts`). Every uncaught server error
+is counted and emailed to staff (`notifyAdmin`, so `support@` to
+`hello@qriateplus.com`). It is fed from:
+
+- `onRequestError` in `src/instrumentation.ts`: pages, Route Handlers and
+  Server Actions;
+- `src/proxy.ts`, which reports its own failures and throws on as before,
+  because Next hands only an edge proxy's errors to `onRequestError`, and
+  this proxy runs on Node (found by testing: a proxy failure under
+  `next start` reached no hook). The hook skips `routeType: "proxy"` so a
+  failure is never reported twice;
+- the jobs that catch their own failures and would otherwise reach only a
+  log: every cron route, the Paystack webhook's processing, and a Paystack
+  event the webhook defers for a person (`alertOnce`);
+- the redirect's failed lookup, inside `after()`, so the scanner is answered
+  first and the alert never delays a scan.
+
+The rules, chosen while building (change them in `error-alerts.ts`):
+
+- **Production only**: `VERCEL_ENV=production`, or `NODE_ENV=production` off
+  Vercel. Previews share the production database but run unmerged code;
+  their errors are their author's to read. Never during `next build`.
+- **One email per kind of error per hour.** The kind is where it happened
+  plus the error's name and first line, with numbers and quoted values taken
+  out, so the same failure on a thousand scans is one email.
+- **At most ten alert emails an hour in all**, so a bad deploy cannot bury
+  the support inbox.
+- **Every error is counted per day** in Redis (`err:count:<day>`, kept 16
+  days) for the weekly summary, emailed or not.
+- **Nothing personal in the email**: email addresses, IPv4 and IPv6
+  addresses and long tokens are blanked, and the request's query string is
+  dropped, since invite and share links carry their token there. The digest
+  and commit are included so the full stack can be found in the Vercel logs.
+- **Never throws.** Any Redis failure answers "send": a duplicate alert
+  costs less than a missed one. Without Redis the throttle is per instance.
+
+**Weekly summary** (`src/lib/weekly-summary.ts`, `/api/cron/summary`,
+Mondays at 05:30 UTC). After the nightly rollup and the 04:50 safety check,
+so Sunday's scans and this morning's blocks are in it. Figures only, never
+a customer's name or address, since it goes to a shared inbox:
+
+- the last seven whole UTC days against the seven before: sign-ups, new
+  codes, scans (from `qr_scan_daily`), plus codes in service now;
+- money now, read as the admin overview reads it: monthly recurring,
+  paying accounts and how many will not renew, overdue and the amount at
+  risk;
+- safety: abuse reports received, codes blocked by staff, codes blocked by
+  the Web Risk check over the seven days to the run (or that the check is
+  off);
+- server errors counted that week (or that Redis is absent, rather than a
+  reassuring zero);
+- what is waiting on staff, from `attentionCounts()`, the overview's own
+  "Needs attention" numbers.
+
+**The outside check, to set up.** Recommended: Better Stack, whose free
+plan checks every 3 minutes with 10 monitors and email alerts (from its docs
+and comparisons; confirm on the pricing page before relying on it). The free
+UptimeRobot plan checks every 5 minutes. A scheduled GitHub Actions job was
+ruled out: its schedule can run many minutes late, and on a private
+repository a check every few minutes uses more than the free Actions
+minutes. Two monitors:
+
+1. `GET https://qriateplus.com/health`, alert on anything but 2xx. It
+   answers 503 when the database is down or the schema is behind the code.
+   Timeout 15 seconds: a database waking from a pause can take two
+   5-second connection attempts.
+2. `GET https://qriateplus.com/Ab3kQ9x` (the demo code) with redirect
+   following off, expecting 302. It is answered before any database lookup,
+   so it shows the redirect route is deployed and serving even when the
+   first monitor is red for a database reason.
+
+Alerts to `hello@qriateplus.com` and a phone. A 3-minute check alerts in
+3 to 6 minutes, not the 2 minutes HANDOVER.md asks for; meeting that needs a
+paid plan with 30-second or 1-minute checks, which is listed as a decision.
+
+Tested: unit tests for the scrubbing, the throttle (with and without Redis,
+across instances, the hourly cap), the environments that stay silent, the
+hook, the proxy's report and the summary's wording. Against a production
+build with the database unreachable and mail sent to a fake Resend: two
+failed summary runs gave one alert; a route error and two proxy errors on
+different paths gave one alert each, the query string absent; scans of a
+code fell to the unavailable page as before. The summary's query was run on
+a local Postgres 16 with rows either side of each boundary: a sign-up at
+23:00 on Sunday counted and one at 01:00 on Monday did not, Monday's scans
+waited for next week, and a safety block at 04:50 that morning counted while
+last Monday's did not.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.
@@ -1940,10 +2036,20 @@ Business decisions:
 - A Nigerian lawyer's review of the three legal pages, drafts since 25 October
   and now including the team seats and reputation-check clauses, before live
   payments are taken
+- Whether to pay for 30-second or 1-minute uptime checks. The free outside
+  checks run every 3 to 5 minutes, so an outage alerts in 3 to 6 minutes,
+  not the 2 HANDOVER.md asks for (8 November monitoring entry).
 - Whether to stop Neon pausing the production compute. The connection retry
   of 7 November covers the dashboard and the nightly jobs but not a scanner:
   the first scan of a quiet code while the database is asleep can still reach
   the unavailable page (see that entry). Keeping it awake costs compute hours.
+
+To set up outside the app:
+
+- The outside uptime monitor: an account with Better Stack (or similar) and
+  the two monitors in the 8 November monitoring entry. Until it exists,
+  nothing alerts when the site is down, since the site cannot report its own
+  outage.
 
 Built but switched off:
 
@@ -1968,5 +2074,7 @@ Closed since this list was first written:
 - Bulk creation: built 7 November (see that entry).
 - Destination reputation check: built 8 November on Google Web Risk, dormant
   until its key is set (see that entry).
+- Error alerts and the weekly admin summary email: built 8 November (see
+  that entry). The outside uptime monitor is above, to set up.
 - Team seats: built and launched 7 November (see those entries). Its terms
   and privacy clauses are drafts and are part of the lawyer's review above.

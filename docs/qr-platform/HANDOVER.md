@@ -155,7 +155,10 @@ and a new payment restores them; a known test phishing URL is refused.
       `/api/cron/scans`, `npm run scans:rollup`)
 - [ ] Analytics charts: scans by day, country, device; CSV export
 - [ ] Nightly backup to S3 and a tested restore
-- [ ] Uptime monitor on `/health`, error alerts, weekly admin summary email
+- [x] Error alerts and weekly admin summary email (8 Nov 2026, see
+      DECISIONS.md)
+- [ ] Uptime monitor on `/health`: an outside service to set up, see
+      DECISIONS.md, 8 November monitoring entry
 - [ ] Public landing and pricing pages
 
 **Done when:** dashboards load from rollups only; a backup restore succeeds on

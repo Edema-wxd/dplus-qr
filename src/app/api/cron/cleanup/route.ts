@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { env } from "@/lib/env";
+import { reportError } from "@/lib/error-alerts";
 import { runRetentionSweep, sweepEnabled } from "@/lib/retention";
 import { runUploadCleanup } from "@/lib/upload-cleanup";
 
@@ -30,12 +31,14 @@ export async function GET(request: Request) {
 
   const enabled = sweepEnabled();
   const [retention, uploads] = [
-    await runRetentionSweep().catch((error) => {
+    await runRetentionSweep().catch(async (error) => {
       console.error("[cron] retention sweep failed", error);
+      await reportError(error, { where: "cron cleanup (retention)" });
       return null;
     }),
-    await runUploadCleanup(enabled).catch((error) => {
+    await runUploadCleanup(enabled).catch(async (error) => {
       console.error("[cron] upload clean-up failed", error);
+      await reportError(error, { where: "cron cleanup (uploads)" });
       return null;
     }),
   ];

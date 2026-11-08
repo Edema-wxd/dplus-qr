@@ -336,6 +336,11 @@ Android phone and one iPhone, at small size (2 cm) and from a distance.
 
 **Monitoring**
 
+Built 8 November 2026 as recorded in DECISIONS.md, which wins where it
+differs from the plan below: error alerts by email from the app, a Monday
+summary, and an outside check on `/health` and the demo code, still to set
+up.
+
 - External uptime check every minute on `/health`, alerting by email and phone.
 - The `/health` route checks the database and Redis and returns `200` or `503`.
 - Error tracking, or at minimum a daily cron that emails new error lines.

@@ -109,6 +109,14 @@ const schema = z.object({
   // nothing.
   DELETION_SWEEPS_ENABLED: z.string().optional(),
 
+  // Set by Vercel on every deployment, never by us. Error alerts
+  // (src/lib/error-alerts.ts) go out only from `production`, since previews
+  // run unmerged code, and name the commit they came from. A plain string:
+  // env() validates the whole contract, so a value Vercel adds later must
+  // never fail every request.
+  VERCEL_ENV: z.string().optional(),
+  VERCEL_GIT_COMMIT_SHA: z.string().optional(),
+
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });
 

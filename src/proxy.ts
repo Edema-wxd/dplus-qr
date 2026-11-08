@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { isAdmin } from "@/lib/admin";
+import { reportError } from "@/lib/error-alerts";
 import {
   SESSION_DATA_COOKIE,
   SESSION_TOKEN_COOKIE,
@@ -35,7 +36,25 @@ const ADMIN = /^\/admin(\/|$)/;
  */
 const NOWHERE = "/_nowhere/404";
 
+/**
+ * A failure here fails every signed-in page, and Next does not pass a Node
+ * proxy's errors to `onRequestError` (only an edge proxy's), so it is
+ * reported here: alerted, then thrown on exactly as before.
+ */
 export default async function proxy(request: NextRequest) {
+  try {
+    return await guard(request);
+  } catch (error) {
+    await reportError(error, {
+      where: "proxy",
+      method: request.method,
+      path: request.nextUrl.pathname,
+    });
+    throw error;
+  }
+}
+
+async function guard(request: NextRequest) {
   const response = await auth.middleware({ loginUrl: LOGIN_URL })(request);
   if (!ADMIN.test(request.nextUrl.pathname)) return response;
 

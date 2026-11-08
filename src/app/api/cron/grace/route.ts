@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { env } from "@/lib/env";
+import { reportError } from "@/lib/error-alerts";
 import { expireGracePeriods } from "@/lib/grace";
 
 /**
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     console.error("[cron] grace expiry failed", error);
+    await reportError(error, { where: "cron grace" });
     return Response.json(
       { ok: false, error: "grace expiry failed" },
       { status: 500, headers: { "Cache-Control": "no-store" } }
