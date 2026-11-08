@@ -92,7 +92,7 @@ describe("plan gates for analytics", () => {
     historyDays: 30,
     codesUsed: 0,
     features: {},
-    active: true,
+    active: true, seats: 1, seatsUsed: 1,
   };
 
   it("keeps the detailed analytics for plans with the insights flag", () => {

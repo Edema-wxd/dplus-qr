@@ -75,6 +75,13 @@ counters and rate limits.
 | `qr_destination_history` | `qr_id`, `old_url`, `new_url`, `changed_by`, `changed_at` | Audit trail for every destination edit |
 | `qr_scans` | `qr_id`, `scanned_at`, `country`, `city`, `device_type`, `os`, `browser`, `ip_hash`, `is_bot` | Raw events, kept per plan retention |
 | `qr_scan_daily` | `qr_id`, `day`, `scans`, `unique_scans` | Rollup the dashboard reads from |
+| `qr_scan_daily_visitors` | `qr_id`, `day`, `unique_scans` | One distinct-visitor count per code and day (migration 026), since the rollup's per-group uniques do not add up |
+| `qr_bulk_imports` | `user_id`, `source`, `rows_total`, `rows_invalid`, `rows_over_limit`, `rows_created` | One bulk-creation batch, counts only (migration 027) |
+| `qr_bulk_import_codes` | `import_id`, `qr_id`, `row_number` | Which codes a batch made, in spreadsheet order |
+| `qr_account_members` | `account_id`, `user_id`, `role`, `joined_at`, `removed_at` | Team membership; the owner is implicit (account id = their user id) (migration 028) |
+| `qr_account_invites` | `account_id`, `email`, `role`, `token_hash`, `expires_at` | Pending and settled invites; the token itself is never stored |
+| `qr_account_events` | `account_id`, `actor_id`, `subject_id`, `action`, `detail` | The customer-facing team log, ids and roles only |
+| `qr_active_accounts` | `user_id`, `account_id` | Which account someone's dashboard shows (no cookie) |
 | `qr_payment_events` | `event_key` (unique), `type`, `payload`, `received_at`, `processed_at` | Webhook log and idempotency guard |
 | `qr_abuse_reports` | `qr_id`, `reporter_email`, `reason`, `status` | Fed by the report link on status pages |
 
@@ -328,6 +335,11 @@ Android phone and one iPhone, at small size (2 cm) and from a distance.
 6. Scan two known production codes to confirm.
 
 **Monitoring**
+
+Built 8 November 2026 as recorded in DECISIONS.md, which wins where it
+differs from the plan below: error alerts by email from the app, a Monday
+summary, and an outside check on `/health` and the demo code, still to set
+up.
 
 - External uptime check every minute on `/health`, alerting by email and phone.
 - The `/health` route checks the database and Redis and returns `200` or `503`.

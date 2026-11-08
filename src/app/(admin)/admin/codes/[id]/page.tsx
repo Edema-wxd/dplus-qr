@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { CODE_HOST } from "@/lib/brand";
 import { dynamicType, isDynamicKind } from "@/lib/qr-types";
-import { ANALYTICS_WINDOWS, codeAnalytics } from "@/lib/user-codes";
+import { analyticsForCode } from "@/lib/user-codes";
+import { ANALYTICS_WINDOWS } from "@/lib/chart-buckets";
 import { codeReports, destinationChanges, getStaffCode, staffActions } from "@/lib/moderation";
 import { AnalyticsPanel } from "@/app/(app)/app/[id]/Analytics";
 import { audit, requireStaff } from "../../guard";
@@ -38,9 +39,12 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
     codeReports(code.id),
     staffActions("code", String(code.id)),
     Promise.all(
+      // Every window, computed here: staff see the whole history whatever
+      // the plan, and this page has no live refresh to repeat it.
       ANALYTICS_WINDOWS.map(async (days) => ({
         days,
-        data: await codeAnalytics(code.owner.id, String(code.id), days, { detail: true }),
+        locked: false,
+        data: await analyticsForCode(String(code.id), days, { detail: true }),
       }))
     ),
   ]);

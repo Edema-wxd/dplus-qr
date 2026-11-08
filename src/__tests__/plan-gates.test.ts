@@ -7,7 +7,7 @@ const plan = (features: Entitlement["features"], planName = "Free"): Entitlement
   historyDays: 30,
   codesUsed: 0,
   features,
-  active: true,
+  active: true, seats: 1, seatsUsed: 1,
 });
 
 describe("canMakeHostedPages", () => {

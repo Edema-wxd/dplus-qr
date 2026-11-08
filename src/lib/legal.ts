@@ -8,6 +8,8 @@ import {
   SUPPORT_EMAIL,
 } from "@/lib/brand";
 import { CODE_LENGTH } from "@/lib/short-code";
+// Team-seat figures, quoted so the clauses below cannot drift from the code.
+import { INVITE_DAYS, INVITE_KEEP_DAYS } from "@/lib/team-invite";
 
 /**
  * The legal pages, as content rather than markup.
@@ -115,6 +117,25 @@ export function buildTerms(policy: PricingContent["policy"]): LegalDocument {
             "Confirm your email address. Until you do, some features stay closed.",
             "Keep your password to yourself. You are responsible for what happens under your account, so tell us immediately if you think someone else has access.",
             "One account per business. Opening a second account to get around a limit, a suspension or a plan ceiling is a breach of these terms.",
+          ],
+        },
+      ],
+    },
+    {
+      id: "teams",
+      heading: "Teams",
+      blocks: [
+        {
+          kind: "p",
+          text: `If your plan includes team seats, you can invite people to work in your account, each with their own sign-in. An editor can make and change codes; a viewer can see them and their scans and download them. Only you, the account owner, can invite people, remove them, change their role or change the plan.`,
+        },
+        {
+          kind: "list",
+          items: [
+            "You are responsible for what the people you invite do in your account, as you are for what you do yourself. Invite only people you trust with your codes, and remove anyone who should no longer have access.",
+            "Everything made in your account belongs to your account, whoever made it. A person who leaves or is removed takes nothing with them.",
+            "Each person keeps their own account, separate from yours, under these same terms.",
+            "If your plan lapses, or no longer has seats for everyone, the people in your team lose access until it does again. Nobody is removed, and nothing is lost.",
           ],
         },
       ],
@@ -414,6 +435,33 @@ export const PRIVACY: LegalDocument = {
       ],
     },
     {
+      id: "teams",
+      heading: "Teams",
+      blocks: [
+        {
+          kind: "pairs",
+          rows: [
+            {
+              term: "If you invite someone",
+              detail: `We use the email address you give us to send them the invitation, and keep it with the invitation while it can be accepted (${INVITE_DAYS} days) and for ${INVITE_KEEP_DAYS} days after it is accepted, cancelled or expires, so you can see what became of it. Then it is deleted. Only invite someone who would expect to hear from you.`,
+            },
+            {
+              term: "If you join someone's team",
+              detail: `The account owner can see your name, email address and role, and when you joined. What you change in their account is recorded against you in its history, as it would be for the owner. Other people in the team see your name and role, not your email address.`,
+            },
+            {
+              term: "Whose data it is",
+              detail: `The codes and scan data in a team belong to the account owner. People in the team work on them for the owner, and the owner decides who has access. Your own account stays separate and yours.`,
+            },
+            {
+              term: "If you leave, are removed, or close your account",
+              detail: `You lose access to the team at once. If your account is erased, your memberships and any invitations sent to you are deleted, and your name is removed from the history of every team you were in.`,
+            },
+          ],
+        },
+      ],
+    },
+    {
       id: "scan-data",
       heading: "Scan data",
       blocks: [
@@ -474,7 +522,7 @@ export const PRIVACY: LegalDocument = {
       blocks: [
         {
           kind: "p",
-          text: `Transactional messages only: confirming your address, resetting your password, receipts, a failed payment, a grace period ending, a code blocked. They are sent through Resend, which processes your address to deliver them. We do not send marketing email without asking you first.`,
+          text: `Transactional messages only: confirming your address, resetting your password, receipts, a failed payment, a grace period ending, a code blocked, and an invitation when someone invites you to their team. They are sent through Resend, which processes your address to deliver them. We do not send marketing email without asking you first.`,
         },
       ],
     },
@@ -504,8 +552,8 @@ export const PRIVACY: LegalDocument = {
             { term: "Paystack", detail: `Payments and subscriptions.` },
             { term: "Resend", detail: `Sending the transactional email above.` },
             {
-              term: "A URL reputation service",
-              detail: `Destination screening checks a link against a reputation service. It receives the destination address, which is a customer's own link and not a scanner's data.`,
+              term: "Google (Web Risk)",
+              detail: `Checks each link a customer saves, and each live code's links once a week, against Google's lists of malware and phishing sites. It receives the link only, which is a customer's own link and not a scanner's data.`,
             },
           ],
         },
@@ -545,6 +593,10 @@ export const PRIVACY: LegalDocument = {
             {
               term: "After an account closes or lapses",
               detail: `${LAPSE_RETENTION_MONTHS} months, then deleted. Printed material outlives a missed payment, so a late return restores everything; past that there is no reason for us to hold it.`,
+            },
+            {
+              term: "Team invitations",
+              detail: `${INVITE_KEEP_DAYS} days after the invitation is accepted, cancelled or expires, then deleted with the address it was sent to.`,
             },
             {
               term: "Abuse reports",
@@ -706,6 +758,10 @@ export const ACCEPTABLE_USE: LegalDocument = {
             {
               term: "We block the code",
               detail: `For a clear breach, immediately and without warning. Scans meet a page explaining the link has been disabled and carrying its reference.`,
+            },
+            {
+              term: "A check blocks it for us",
+              detail: `Every link is checked against Google's lists of malware and phishing sites when you save it, and a listed link is refused. Live codes are checked again every week, because a safe site can be hacked later: a code whose link has since been listed is blocked at once, and we email you which link and why. If Google was wrong, or you have fixed the site, reply and we will look again.`,
             },
             {
               term: "We suspend the account",

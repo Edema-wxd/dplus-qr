@@ -12,6 +12,14 @@
     {
       "path": "/api/cron/cleanup",
       "schedule": "10 4 * * *"
+    },
+    {
+      "path": "/api/cron/reputation",
+      "schedule": "50 4 * * 1"
+    },
+    {
+      "path": "/api/cron/summary",
+      "schedule": "30 5 * * 1"
     }
   ]
 }

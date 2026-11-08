@@ -36,7 +36,7 @@ const free: Entitlement = {
   historyDays: 30,
   codesUsed: 5,
   features: {},
-  active: true,
+  active: true, seats: 1, seatsUsed: 1,
 };
 
 describe("featureOffer", () => {
@@ -71,6 +71,13 @@ describe("historyOffer", () => {
     expect(offer.unlock?.name).toBe("Starter");
     expect(offer.why).toBe("Your Free plan keeps 30 days of scan history.");
     expect(historyOffer(365, free, PLANS).unlock?.name).toBe("Pro");
+  });
+
+  it("names a long window in months, as the pricing table does", () => {
+    expect(historyOffer(90, free, PLANS).title).toBe("90 days of scans");
+    expect(historyOffer(180, free, PLANS).title).toBe("6 months of scans");
+    expect(historyOffer(365, free, PLANS).title).toBe("12 months of scans");
+    expect(historyOffer(730, free, PLANS).benefit).toMatch(/^Look back over the last 24 months of scans/);
   });
 });
 

@@ -3,6 +3,7 @@ import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { getPlanBySlug, type Plan, type PlanFeatures } from "@/lib/plans";
 import { PLAN_FEATURES } from "@/lib/plan-features";
+import { planSeats, seatsHeldSql } from "@/lib/seats";
 import {
   createPaystackPlan,
   listPaystackPlans,
@@ -193,8 +194,10 @@ export async function connectPlanToPaystack(
  * customer cancelling), and arrives here as a webhook.
  */
 export function assignRefusal(input: {
-  plan: Pick<Plan, "slug" | "name" | "maxCodes" | "isActive">;
+  plan: Pick<Plan, "slug" | "name" | "maxCodes" | "isActive" | "features">;
   codesHeld: number;
+  /** The owner, live members and pending invites; 1 when there is no team. */
+  seatsHeld?: number;
   liveViaPaystack: boolean;
   currentSlug: string | null;
 }): string | null {
@@ -205,6 +208,10 @@ export function assignRefusal(input: {
   if (!input.plan.isActive) return "That plan is retired. Reactivate it first if it should be assigned.";
   if (input.codesHeld > input.plan.maxCodes) {
     return `The account holds ${input.codesHeld} codes and ${input.plan.name} covers ${input.plan.maxCodes}. Codes are never taken away to fit a plan, so choose a larger one.`;
+  }
+  const held = input.seatsHeld ?? 1;
+  if (held > planSeats(input.plan.features)) {
+    return `The account's team is ${held} people, counting the owner and pending invites, and ${input.plan.name} covers ${planSeats(input.plan.features)}. Nobody is removed to fit a plan, so choose a larger one or ask the owner to remove members.`;
   }
   return null;
 }
@@ -233,14 +240,16 @@ export async function assignPlan(
         for update`,
       [userId]
     );
-    const held = await run<{ n: string }>(
-      `select count(*) as n from qr_codes where user_id = $1 and archived_at is null`,
+    const held = await run<{ n: string; seats: string }>(
+      `select count(*) as n, ${seatsHeldSql(1)} as seats
+       from qr_codes where user_id = $1 and archived_at is null`,
       [userId]
     );
     const current = live[0] ?? null;
     const refusal = assignRefusal({
       plan,
       codesHeld: Number(held[0]?.n ?? 0),
+      seatsHeld: Number(held[0]?.seats ?? 1),
       liveViaPaystack: current?.paystack_subscription_code != null,
       currentSlug: current?.slug ?? null,
     });

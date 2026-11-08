@@ -6,6 +6,8 @@ import { getCustomer } from "@/lib/admin-billing";
 import { isAdmin } from "@/lib/admin";
 import { hasSignInAccount, staffActions } from "@/lib/moderation";
 import { getEntitlement } from "@/lib/entitlement";
+import { batchesForStaff } from "@/lib/bulk-create";
+import { teamForStaff } from "@/lib/team";
 import { listAllPlans } from "@/lib/plans";
 import { naira } from "@/lib/plan-tiers";
 import { CODE_HOST } from "@/lib/brand";
@@ -16,6 +18,7 @@ import { SubscriptionStatus } from "../SubscriptionStatus";
 import { AssignPlan } from "../AssignPlan";
 import { AccountActions } from "../AccountActions";
 import { EraseAccount, RetryRemoveSignIn } from "../EraseAccount";
+import { TeamControl } from "../TeamControls";
 
 export const metadata: Metadata = { title: "Customer" };
 export const instant = false;
@@ -40,13 +43,15 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
   const parsed = idSchema.safeParse((await params).id);
   if (!parsed.success) notFound();
 
-  const [customer, entitlement, plans, actions, signIn, staffAccount] = await Promise.all([
+  const [customer, entitlement, plans, actions, signIn, staffAccount, batches, team] = await Promise.all([
     getCustomer(parsed.data),
     getEntitlement(parsed.data),
     listAllPlans(),
     staffActions("customer", parsed.data),
     hasSignInAccount(parsed.data),
     isAdmin(parsed.data),
+    batchesForStaff(parsed.data, 10),
+    teamForStaff(parsed.data),
   ]);
   if (!customer) notFound();
   const erased = customer.erasedAt !== null;
@@ -225,6 +230,103 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
           )}
         </section>
 
+        {team.members.length > 0 || team.invites.length > 0 || team.events.length > 0 ? (
+          <section aria-labelledby="team-heading">
+            <SectionHeading id="team-heading">
+              Team, {team.members.length + 1} of {team.seats} {team.seats === 1 ? "seat" : "seats"}
+            </SectionHeading>
+            <ul className="mt-4 text-sm">
+              {team.members.map((member) => (
+                <li
+                  key={member.userId}
+                  className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--paper-rule)] py-2.5 last:border-b-0"
+                >
+                  <span className="min-w-0">
+                    <Link href={`/admin/customers/${member.userId}`} className="underline underline-offset-4">
+                      {member.name || member.email}
+                    </Link>
+                    <span className="dash-num ml-2 text-xs text-[var(--paper-soft)]">
+                      {member.email} · {member.role} · joined {day(member.joinedAt)}
+                      {member.locked ? " · over the seats, locked out" : ""}
+                    </span>
+                  </span>
+                  <TeamControl
+                    accountId={customer.id}
+                    op="remove-member"
+                    targetId={member.userId}
+                    label="Remove"
+                    confirm={`Remove ${member.email} from this team? They lose access at once. Their own account is not touched.`}
+                  />
+                </li>
+              ))}
+              {team.invites.map((invite) => (
+                <li
+                  key={invite.id}
+                  className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--paper-rule)] py-2.5 last:border-b-0"
+                >
+                  <span className="dash-num text-xs text-[var(--paper-soft)]">
+                    Invited {invite.email} as {invite.role}, expires {day(invite.expiresAt)}
+                  </span>
+                  <TeamControl
+                    accountId={customer.id}
+                    op="revoke-invite"
+                    targetId={invite.id}
+                    label="Cancel invite"
+                    confirm={`Cancel the invitation to ${invite.email}?`}
+                  />
+                </li>
+              ))}
+            </ul>
+            {team.events.length > 0 ? (
+              <details className="mt-3 text-xs text-[var(--paper-soft)]">
+                <summary className="cursor-pointer">Team log, latest {team.events.length}</summary>
+                <ol className="mt-2 space-y-1">
+                  {team.events.map((event, i) => (
+                    <li key={i} className="dash-num">
+                      {day(event.at)}: {event.action}
+                      {event.detail.by === "staff" ? " by staff" : event.actor ? ` by ${event.actor}` : ""}
+                      {event.subject ? `, ${event.subject}` : ""}
+                      {typeof event.detail.role === "string" ? ` (${event.detail.role})` : ""}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            ) : null}
+          </section>
+        ) : null}
+
+        {team.memberOf.length > 0 ? (
+          <section aria-labelledby="member-of-heading">
+            <SectionHeading id="member-of-heading">Member of</SectionHeading>
+            <ul className="mt-4 text-sm">
+              {team.memberOf.map((membership) => (
+                <li key={membership.accountId} className="border-b border-[var(--paper-rule)] py-2.5 last:border-b-0">
+                  <Link href={`/admin/customers/${membership.accountId}`} className="underline underline-offset-4">
+                    {membership.ownerName || membership.ownerEmail}
+                  </Link>
+                  <span className="dash-num ml-2 text-xs text-[var(--paper-soft)]">
+                    {membership.role} · joined {day(membership.joinedAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {batches.length > 0 ? (
+          <section aria-labelledby="batches-heading">
+            <SectionHeading id="batches-heading">Bulk batches, newest first</SectionHeading>
+            <ul className="mt-4 text-sm">
+              {batches.map((batch) => (
+                <li key={batch.id} className="dash-num border-b border-[var(--paper-rule)] py-2 last:border-b-0">
+                  {day(batch.createdAt)}: {batch.rowsCreated.toLocaleString("en-NG")} codes made from{" "}
+                  {batch.rowsTotal.toLocaleString("en-NG")} rows
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         <section aria-labelledby="staff-heading">
           <SectionHeading id="staff-heading">Staff changes</SectionHeading>
           <StaffHistory entries={actions} />
@@ -275,7 +377,7 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
                     an account that no longer exists.
                   </p>
                 ) : (
-                  <EraseAccount userId={customer.id} email={customer.email} />
+                  <EraseAccount userId={customer.id} email={customer.email} teamMembers={team.members.length} />
                 )}
               </div>
             </section>

@@ -25,7 +25,7 @@ const SEEDED: Plan[] = [
   plan({ id: 2, slug: "starter-annual", interval: "annually", amountKobo: 4_000_000, features: { support: "email", months_free: 2 } }),
   plan({ id: 3, slug: "pro-monthly", name: "Pro", amountKobo: 1_000_000, maxCodes: 50, historyDays: 365, features: { csv_export: true, custom_codes: true, support: "whatsapp_priority" } }),
   plan({ id: 4, slug: "pro-annual", name: "Pro", interval: "annually", amountKobo: 10_000_000, maxCodes: 50, historyDays: 365, features: { csv_export: true, custom_codes: true, months_free: 2 } }),
-  plan({ id: 5, slug: "business-monthly", name: "Business", amountKobo: 2_500_000, maxCodes: 250, historyDays: 730, features: { csv_export: true, custom_codes: true, team_seats: true, bulk_creation: true } }),
+  plan({ id: 5, slug: "business-monthly", name: "Business", amountKobo: 2_500_000, maxCodes: 250, historyDays: 730, features: { csv_export: true, custom_codes: true, team_seats: 5, bulk_creation: true } }),
   plan({ id: 6, slug: "business-annual", name: "Business", interval: "annually", amountKobo: 25_000_000, maxCodes: 250, historyDays: 730, paystackPlanCode: null }),
 ];
 
@@ -85,9 +85,14 @@ describe("groupTiers", () => {
 });
 
 describe("featureLines", () => {
-  it("never advertises flags nothing implements", () => {
-    const lines = featureLines(SEEDED[4]).join(" ").toLowerCase();
-    expect(lines).not.toMatch(/team|seat|bulk/);
+  it("advertises team seats from the plan's count, on the plans that have them", () => {
+    expect(featureLines(SEEDED[4])).toContain("Up to 5 people, with their own sign-in");
+    expect(featureLines(SEEDED[2]).join(" ")).not.toMatch(/people/);
+  });
+
+  it("advertises bulk creation on the plans that hold it, now it is built", () => {
+    expect(featureLines(SEEDED[4])).toContain("Bulk creation from a spreadsheet");
+    expect(featureLines(SEEDED[2]).join(" ")).not.toMatch(/bulk/i);
   });
 
   it("lists what the product enforces", () => {

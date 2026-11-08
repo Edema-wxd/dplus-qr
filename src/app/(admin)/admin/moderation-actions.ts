@@ -33,6 +33,7 @@ import {
 } from "@/lib/reports";
 import { recordChange, staffForAction } from "./guard";
 import { queueUploadDeletions } from "@/lib/upload-cleanup";
+import { staffRemoveMember, staffRevokeInvite } from "@/lib/team";
 import type { AdminFormState } from "./actions";
 
 /**
@@ -286,6 +287,7 @@ export async function eraseAccountAction(_prev: AdminFormState, form: FormData):
     filesRemoved,
     fileKeysLeft: filesRemoved ? [] : erased.fileKeys,
     signInRemoved,
+    teamMembers: erased.teamMembers,
   });
   revalidatePath(`/admin/customers/${userId}`);
   revalidatePath("/admin/customers");
@@ -365,4 +367,47 @@ export async function reportAction(_prev: AdminFormState, form: FormData): Promi
   revalidatePath("/admin/reports");
   if (closed.qrId !== null) revalidatePath(`/admin/codes/${closed.qrId}`);
   return { notice: resolution === "dismissed" ? "Dismissed." : "Marked actioned." };
+}
+
+const teamOpSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("remove-member"), accountId: z.string().regex(UUID), memberId: z.string().regex(UUID) }),
+  z.object({ op: z.literal("revoke-invite"), accountId: z.string().regex(UUID), inviteId: z.string().regex(/^[1-9]\d{0,18}$/) }),
+]);
+
+/**
+ * Take someone out of an account's team, or cancel an invitation to it.
+ * Staff never add anyone. Audited with ids and the role, never an address.
+ */
+export async function teamAction(_prev: AdminFormState, form: FormData): Promise<AdminFormState> {
+  const staff = await staffForAction();
+  if (!staff) return REFUSED;
+
+  const parsed = teamOpSchema.safeParse({
+    op: form.get("op"),
+    accountId: form.get("accountId"),
+    memberId: form.get("memberId") ?? undefined,
+    inviteId: form.get("inviteId") ?? undefined,
+  });
+  if (!parsed.success) return { error: "That could not be found." };
+  const input = parsed.data;
+
+  if (input.op === "remove-member") {
+    const result = await staffRemoveMember(input.accountId, input.memberId);
+    if (!result.ok) return { error: result.reason };
+    await recordChange(staff, "team.member.remove", "customer", input.accountId, {
+      memberId: input.memberId,
+      role: result.role,
+    });
+    revalidatePath(`/admin/customers/${input.accountId}`);
+    return { notice: "Removed from the team. They lose access at once; their own account is untouched." };
+  }
+
+  const result = await staffRevokeInvite(input.accountId, input.inviteId);
+  if (!result.ok) return { error: result.reason };
+  await recordChange(staff, "team.invite.revoke", "customer", input.accountId, {
+    inviteId: input.inviteId,
+    role: result.role,
+  });
+  revalidatePath(`/admin/customers/${input.accountId}`);
+  return { notice: "Invitation cancelled." };
 }

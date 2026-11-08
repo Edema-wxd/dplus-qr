@@ -1,8 +1,16 @@
 # Plan: Team seats
 
-**Status: proposed, not approved.** Drafted 6 November 2026 from a review of
-the code as it stood that day. Per CLAUDE.md, nothing here is built until
-Francis has answered the decisions at the end and approved the plan.
+**Status: built and launched 7 November 2026 (steps 1 to 7), see
+DECISIONS.md. Kept as the record of the design.** Answers: Business only, 5 people
+including the owner; owner, editor and viewer; lock members out and keep
+memberships; every other recommendation as written. Changes from the text
+below: the account check is `access(n)` with the actor and roles appended
+after a statement's own parameters, so existing numbering stays; the
+session-reading `resolveScope` lives in `resolve-scope.ts` so the query
+libraries stay pure; seat rules live in `src/lib/seats.ts` rather than
+`entitlement.ts`; the hidden `accountId` is on create forms only, since the
+access check already refuses a stale form about an existing code; and the
+whole feature stays behind `teamSeatsLive()` until launch.
 
 **Migration number:** this plan says `025`, which `025_feedback_context`
 (PR #34) has since taken. Use the next free number when building, and update

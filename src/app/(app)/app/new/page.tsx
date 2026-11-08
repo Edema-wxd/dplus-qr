@@ -3,8 +3,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { resolveAccess, resolveScope } from "@/lib/resolve-scope";
+import { roleAllows } from "@/lib/account-scope";
 import { ensureProfile } from "@/lib/profile";
 import {
+  canBulkCreate,
   canMakeHostedPages,
   canUploadVideo,
   canUseCustomCodes,
@@ -25,9 +28,12 @@ import {
   staticType,
 } from "@/lib/qr-types";
 import { DashShell } from "../DashShell";
+import { ReadOnlyNote } from "../TeamNotices";
 import { TypeSection, UPLOAD_ONLY } from "./TypeSection";
 import { CreateCodeForm } from "./CreateCodeForm";
 import { StaticCodeForm } from "./StaticCodeForm";
+import { LockIcon, LockedButton } from "../UpgradePrompt";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 
 export const metadata: Metadata = { title: "New code" };
 
@@ -57,12 +63,26 @@ export default async function NewCodePage({
   if (!user) redirect("/auth/sign-in");
 
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  // Which account this page shows, and as whom. Its own unless the person
+  // is working in a team they belong to; every read below proves access.
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
+
+  // A viewer makes nothing; say so rather than show a form the server refuses.
+  if (!roleAllows(scope.role, "write")) {
+    const access = await resolveAccess();
+    return (
+      <DashShell heading="Choose your code type" back={{ href: "/app", label: "All codes" }}>
+        <ReadOnlyNote ownerName={access?.team?.ownerName ?? null} className="max-w-2xl" />
+      </DashShell>
+    );
+  }
 
   const [params, codes, entitlement, library, plans] = await Promise.all([
     searchParams,
-    listCodes(user.id),
-    getEntitlement(user.id),
-    listLogos(user.id),
+    listCodes(scope),
+    getEntitlement(scope.accountId),
+    listLogos(scope),
     listPublicPlans(),
   ]);
 
@@ -84,13 +104,16 @@ export default async function NewCodePage({
     hosted: featureOffer("hosted_pages", entitlement, plans),
     custom: featureOffer("custom_codes", entitlement, plans),
     video: featureOffer("video_uploads", entitlement, plans),
+    bulk: featureOffer("bulk_creation", entitlement, plans),
   };
+  const bulkLocked = atLimit ? offers.codes : canBulkCreate(entitlement) ? null : offers.bulk;
 
   if (dynamic && isDynamicKind(dynamic) && !atLimit && !lockedPage(dynamic)) {
     const type = dynamicType(dynamic);
     return (
       <DashShell heading={type.label} meta={type.blurb} back={back}>
         <CreateCodeForm
+          accountId={scope.accountId}
           kind={dynamic}
           logos={library.map(({ id, url, name }) => ({ id, url, name }))}
           uploads={uploads}
@@ -167,6 +190,13 @@ export default async function NewCodePage({
         </p>
       ) : null}
 
+      <section aria-labelledby="bulk-heading" className="-mt-2 mb-12">
+        <h2 id="bulk-heading" className="sr-only">
+          Many codes at once
+        </h2>
+        <BulkCard locked={bulkLocked} />
+      </section>
+
       <TypeSection
         id="static-heading"
         heading="Static codes"
@@ -175,5 +205,49 @@ export default async function NewCodePage({
         href={(kind) => `/app/new?static=${kind}`}
       />
     </DashShell>
+  );
+}
+
+/**
+ * The way in to bulk creation, under the dynamic types it makes. Locked on a
+ * plan without it (or at the code limit), and then it explains on click.
+ */
+function BulkCard({ locked }: { locked: UpgradeOffer | null }) {
+  const card =
+    "flex w-full items-start gap-3 rounded-lg border border-[var(--paper-rule)] bg-white px-4 py-3.5 text-left sm:max-w-md";
+  const body = (
+    <span className="min-w-0 flex-1">
+      <span className="flex items-center gap-1.5 text-[15px] font-medium text-[var(--paper-ink)]">
+        Many at once, from a spreadsheet
+        {locked ? <LockIcon className="text-[var(--paper-soft)]" /> : null}
+      </span>
+      <span className="block text-sm text-[var(--paper-soft)]">
+        Link, Instagram and Facebook codes from a CSV, with every QR image in one zip.
+      </span>
+      {locked ? (
+        <span className="mt-1 block text-xs text-[var(--paper-ink)]">
+          {locked.gate === "codes"
+            ? "No dynamic codes left on your plan"
+            : locked.unlock
+              ? `Included from ${locked.unlock.name}`
+              : "Not on your plan"}
+        </span>
+      ) : null}
+    </span>
+  );
+  return locked ? (
+    <LockedButton
+      offer={locked}
+      className={`${card} border-dashed transition-colors duration-150 hover:border-[var(--paper-ink)]`}
+    >
+      {body}
+    </LockedButton>
+  ) : (
+    <Link
+      href="/app/new/bulk"
+      className={`${card} no-underline transition-colors duration-150 hover:border-[var(--paper-ink)]`}
+    >
+      {body}
+    </Link>
   );
 }

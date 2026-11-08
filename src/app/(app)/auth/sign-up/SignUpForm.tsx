@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { signUpAction, type SignUpState } from "./actions";
 import { Field, PasswordField, FormError, SubmitButton } from "../../AuthFields";
 import { SIGNUP_REF_PARAM } from "@/lib/signup-ref";
+import { InviteField } from "../InviteField";
 
 /**
  * Carries the code of the hosted page whose footer sent this visitor, so the
@@ -26,6 +27,7 @@ export function SignUpForm() {
     <form action={action} className="space-y-5">
       <Suspense fallback={null}>
         <RefField />
+        <InviteField />
       </Suspense>
       <Field
         label="Business or contact name"

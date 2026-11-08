@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
+import { afterAuthPath, INVITE_PARAM } from "@/lib/team-invite";
 import { ensureProfile } from "@/lib/profile";
 import { parseSignupRef, recordSignupSource, SIGNUP_REF_PARAM } from "@/lib/signup-source";
 
@@ -101,5 +102,6 @@ export async function signUpAction(
     }
   }
 
-  redirect("/app");
+  // Back to the invitation, when the form carried one (checked in afterAuthPath).
+  redirect(afterAuthPath(formData.get(INVITE_PARAM)));
 }

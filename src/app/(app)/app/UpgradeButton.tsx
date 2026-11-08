@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { connection } from "next/server";
 import { readEntitlement } from "./plan-read";
+import { resolveAccess } from "@/lib/resolve-scope";
 
 /**
  * "Upgrade" in the corner of every dashboard page, for free accounts only.
@@ -14,6 +15,9 @@ import { readEntitlement } from "./plan-read";
  */
 export async function UpgradeButton() {
   await connection();
+  // A team member does not choose the team's plan.
+  const access = await resolveAccess().catch(() => null);
+  if (access?.team) return null;
   const entitlement = await readEntitlement();
   if (entitlement === undefined) return null;
 
