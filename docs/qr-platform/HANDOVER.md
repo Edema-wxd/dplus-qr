@@ -154,7 +154,9 @@ and a new payment restores them; a known test phishing URL is refused.
       (migration `012` added the country/device dimensions; `src/lib/rollup.ts`,
       `/api/cron/scans`, `npm run scans:rollup`)
 - [ ] Analytics charts: scans by day, country, device; CSV export
-- [ ] Nightly backup to S3 and a tested restore
+- [x] Nightly backup and a tested restore: restore-tested every night,
+      encrypted on GitHub rather than S3 (8 Nov 2026, see DECISIONS.md and
+      RESTORE.md; needs its key and secrets set up)
 - [x] Error alerts and weekly admin summary email (8 Nov 2026, see
       DECISIONS.md)
 - [ ] Uptime monitor on `/health`: an outside service to set up, see

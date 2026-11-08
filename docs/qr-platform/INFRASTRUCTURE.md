@@ -106,6 +106,9 @@ enumerate other clients' codes.
   the account.
 - A nightly dump is gzipped and uploaded to S3 under a `backups/` prefix with a
   30-day lifecycle rule. Test a restore once before launch and once a quarter.
+  *Built 8 November 2026 differently, as DECISIONS.md records: the copies are
+  encrypted GitHub Actions artifacts kept 30 days, and every copy is
+  restore-tested before it is kept. See RESTORE.md.*
 
 ## Redirect and scan tracking
 

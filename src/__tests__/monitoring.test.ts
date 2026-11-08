@@ -215,6 +215,7 @@ describe("the weekly summary", () => {
     revenue: { mrrKobo: 12_000_000, paidActive: 8, nonRenewing: 1, pastDue: 1, atRiskKobo: 400_000 },
     attention: { openReports: 1, overdueAccounts: 1, unappliedPayments: 0, unpurchasablePlans: 0, signInsToRemove: 0 },
     errors: 5,
+    backups: "Backups are working: last good backup 9 Nov, 01:21 UTC, 2.4 MB, 27 tables restored and checked.",
     ...over,
   });
 
@@ -236,6 +237,7 @@ describe("the weekly summary", () => {
     expect(text).toMatch(/Monthly recurring\s+₦120,000/);
     expect(text).toMatch(/Payment overdue\s+1\s+₦4,000 a month at risk/);
     expect(text).toMatch(/Server errors\s+5/);
+    expect(text).toContain("Backups are working: last good backup");
     expect(text).toContain("- 1 open abuse report\n- 1 account overdue");
     expect(text).toContain("Details: https://qriateplus.com/admin");
   });
