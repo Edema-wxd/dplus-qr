@@ -103,6 +103,23 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     help: "Customers can upload video files to a video page. Without it they can still show a YouTube or Vimeo link; videos already uploaded keep playing.",
   },
   {
+    key: "team_seats",
+    label: "Team seats",
+    kind: "number",
+    built: true,
+    min: 2,
+    max: 50,
+    advertise: (people) => `Up to ${people} people, with their own sign-in`,
+    help: "People who can use the account, the owner included: the owner invites the rest as editors or viewers. Empty means no team. Lowering it below a team's size locks out the latest to join; nobody is removed.",
+  },
+  {
+    key: "bulk_creation",
+    label: "Bulk creation from a spreadsheet",
+    kind: "boolean",
+    built: true,
+    help: "Customers can make up to 500 link codes at once from a CSV or pasted rows, and download a batch's QR images as one zip. Their code limit still applies. Without it, the bulk button explains which plans include it.",
+  },
+  {
     key: "support",
     label: "Support",
     kind: "choice",
@@ -122,23 +139,6 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     min: 0,
     max: 11,
     help: "Annual plans only: the saving the price table mentions. It does not change the price; set that above.",
-  },
-  {
-    key: "team_seats",
-    label: "Team seats",
-    kind: "number",
-    built: false,
-    min: 2,
-    max: 50,
-    advertise: (people) => `Up to ${people} people, with their own sign-in`,
-    help: "People who can use the account, the owner included. Not built yet: stored, never advertised. Empty means no team.",
-  },
-  {
-    key: "bulk_creation",
-    label: "Bulk creation from a spreadsheet",
-    kind: "boolean",
-    built: true,
-    help: "Customers can make up to 500 link codes at once from a CSV or pasted rows, and download a batch's QR images as one zip. Their code limit still applies. Without it, the bulk button explains which plans include it.",
   },
 ];
 

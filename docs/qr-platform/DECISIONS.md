@@ -1826,18 +1826,57 @@ log and the other member's choice of it, and left that member's own account
 and another team's invitation to them alone; staff removal and revocation
 each worked once and refused a repeat, logged as by staff with no name.
 
+## Team seats launch: the legal copy and the switch, 7 November 2026
+
+Step 7 of `docs/qr-platform/plans/team-seats.md`, and the end of it.
+
+**The switch.** `team_seats` is now `built: true` in `PLAN_FEATURES`, which
+is what `teamSeatsLive()` reads: the team page, invitations, accepting,
+switching and everything in the earlier team entries are reachable, and the
+price table lists "Up to N people, with their own sign-in" on any plan whose
+`team_seats` is 2 or more (5 on Business, from migration 028). Staff change
+the number from `/admin/plans`. The catalogue now lists team seats and bulk
+creation before support, so a plan's price table ends with its support line.
+
+**The legal copy** (`src/lib/legal.ts`, asserted in `legal.test.ts`):
+
+- **Terms, "Teams":** the owner alone invites, removes, changes roles and
+  changes the plan; **the owner is responsible for what the people they
+  invite do in the account**; what is made in the account belongs to it; each
+  person keeps their own account; a lapse or a seat shortfall locks people
+  out until it is fixed, and removes nobody.
+- **Privacy, "Teams":** an invitee's address is used to send the invitation
+  and kept while it can be accepted (`INVITE_DAYS`) and for
+  `INVITE_KEEP_DAYS` (30) after it settles; the owner sees a member's name,
+  email, role and join date, and changes are recorded against them; other
+  members see name and role only; team data belongs to the owner; erasure
+  removes memberships, invitations and the person's name from team history.
+  The email and retention sections say the same.
+- These are drafts like the rest of the legal pages, and go into the
+  lawyer's review that is still due before live payments (Legal pages,
+  25 October 2026).
+
+**Invitation addresses are deleted on schedule.** `pruneInvites()` runs in
+the nightly scan job (`/api/cron/scans`, after the scan work, and never
+allowed to fail it) and deletes any invitation accepted, cancelled or
+expired more than 30 days ago. An invitation holds the address of someone
+who may never have used the service, so the privacy page states the limit
+and the job keeps it. Unlike the retention sweeps, this one is not behind
+`DELETION_SWEEPS_ENABLED`: it removes nothing a customer made.
+
+Tested: all 984 tests pass with the switch on, including the price-table
+line read from the plan's count and the legal clauses quoting their
+constants; on a local Postgres 16, `pruneInvites` deleted exactly the
+invitations settled more than 30 days ago (accepted, cancelled and expired
+alike), kept live and recently settled ones, and deleted nothing on a second
+run.
+
 ## Still open
 
 Reviewed 7 November 2026 against `main`.
 
 Not built yet:
 
-- **Team seats**, built and switched off: everything but the launch is in
-  (see those entries). Launching needs the privacy and terms copy (invitee
-  addresses are processed to send invitations; members see the account's
-  data; the owner answers for their members), a lawyer's pass on it, and
-  `team_seats` marked built, per `docs/qr-platform/plans/team-seats.md`.
-  The flag stays `built: false` until then.
 - **A reputation check on destinations.** `checkReputation()` in
   `src/lib/screening.ts` is a stub that always answers `unavailable`, so a
   destination is checked for shape only, never against a malware or phishing
@@ -1849,6 +1888,8 @@ Business decisions:
 - Free trial, and whether codes go live during one
 - Google Web Risk pricing, which the reputation check waits on
 - Whether De Sign Plus must register with the Nigeria Data Protection Commission
+- A Nigerian lawyer's review of the three legal pages, drafts since 25 October
+  and now including the team seats clauses, before live payments are taken
 - Whether to stop Neon pausing the production compute. The connection retry
   of 7 November covers the dashboard and the nightly jobs but not a scanner:
   the first scan of a quiet code while the database is asleep can still reach
@@ -1872,3 +1913,5 @@ Closed since this list was first written:
 - Tiered analytics: built 7 November. Chart length follows `history_days`,
   and the `analytics` flag is retired (see that entry).
 - Bulk creation: built 7 November (see that entry).
+- Team seats: built and launched 7 November (see those entries). Its terms
+  and privacy clauses are drafts and are part of the lawyer's review above.

@@ -85,9 +85,9 @@ describe("groupTiers", () => {
 });
 
 describe("featureLines", () => {
-  it("never advertises flags nothing implements", () => {
-    const lines = featureLines(SEEDED[4]).join(" ").toLowerCase();
-    expect(lines).not.toMatch(/team|seat/);
+  it("advertises team seats from the plan's count, on the plans that have them", () => {
+    expect(featureLines(SEEDED[4])).toContain("Up to 5 people, with their own sign-in");
+    expect(featureLines(SEEDED[2]).join(" ")).not.toMatch(/people/);
   });
 
   it("advertises bulk creation on the plans that hold it, now it is built", () => {
