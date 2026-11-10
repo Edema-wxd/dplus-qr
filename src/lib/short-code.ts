@@ -17,7 +17,7 @@ const CODE_PATTERN = new RegExp(`^[${ALPHABET}]{${CODE_LENGTH}}$`);
  * Every top-level route must be here. A generated code can only collide with
  * a 7-character name, but a custom code (see `checkCustomCode`) can be any
  * word, so an unreserved `/pricing` could be claimed today and dead-end the
- * day a pricing page ships. `src/__tests__/reserved-routes.test.ts` fails the
+ * day a pricing page ships. `src/__tests__/custom-codes.test.ts` fails the
  * suite if a route under `src/app` is missing from this set.
  */
 export const RESERVED_CODES: ReadonlySet<string> = new Set([
@@ -61,6 +61,8 @@ export const RESERVED_CODES: ReadonlySet<string> = new Set([
   "sitemap",
   "llms",
   "llms.txt",
+  // The blog and everything under it: posts, the feed, the Markdown copies.
+  "blog",
   // Hosted pages for page-type codes live under `/p/{code}`.
   "p",
   // Public, read-only stats links live under `/s/{token}`.
