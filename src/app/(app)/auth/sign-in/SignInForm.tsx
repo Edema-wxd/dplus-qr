@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState } from "react";
+import { Suspense, useActionState } from "react";
 import Link from "next/link";
 import { signInAction, type SignInState } from "./actions";
 import { Field, PasswordField, FormError, SubmitButton } from "../../AuthFields";
+import { InviteField } from "../InviteField";
 
 export function SignInForm() {
   const [state, action, pending] = useActionState(signInAction, {} as SignInState);
@@ -11,6 +12,9 @@ export function SignInForm() {
 
   return (
     <form action={action} className="space-y-5">
+      <Suspense fallback={null}>
+        <InviteField />
+      </Suspense>
       <Field
         label="Email"
         name="email"

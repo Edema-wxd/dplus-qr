@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import type { UpgradeOffer } from "@/lib/upgrade-offers";
+import { useBillingOwner } from "./BillingOwner";
 
 /**
  * The answer to clicking something the plan does not include: what it is, why
@@ -23,6 +24,9 @@ export function UpgradeDialog({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // A team member cannot change the team's plan: say who can, and offer no
+  // way to plans, which would be their own account's.
+  const owner = useBillingOwner();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -47,14 +51,19 @@ export function UpgradeDialog({
       <div className="px-5 pb-5 pt-5 sm:px-6">
         <p className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.14em] text-[var(--paper-soft)]">
           <LockIcon />
-          Not on your plan
+          {owner ? "Not on this account's plan" : "Not on your plan"}
         </p>
         <h2 id={headingId} className="mt-2 font-sarlotte text-[1.6rem] leading-tight">
           {offer.title}
         </h2>
         <p className="mt-2 text-sm leading-relaxed">{offer.benefit}</p>
-        <p className="mt-3 text-sm leading-relaxed text-[var(--paper-soft)]">{offer.why}</p>
-        {offer.unlock ? (
+        {/* `why` says "your ... plan", which is the owner's, not a member's. */}
+        {owner ? null : <p className="mt-3 text-sm leading-relaxed text-[var(--paper-soft)]">{offer.why}</p>}
+        {owner ? (
+          <p className="mt-3 rounded-md border border-[var(--paper-rule)] bg-white px-3 py-2 text-sm">
+            {owner} manages the plan for this account. Ask them if you need it.
+          </p>
+        ) : offer.unlock ? (
           <p className="mt-3 rounded-md border border-[var(--paper-rule)] bg-white px-3 py-2 text-sm">
             Included from <strong className="font-medium">{offer.unlock.name}</strong>,{" "}
             <span className="dash-num">{offer.unlock.price}</span>.
@@ -62,12 +71,14 @@ export function UpgradeDialog({
         ) : null}
 
         <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={onClose} className={secondaryButtonClass}>
-            Not now
+          <button type="button" onClick={onClose} className={owner ? primaryButtonClass : secondaryButtonClass}>
+            {owner ? "Close" : "Not now"}
           </button>
-          <Link href="/billing" className={`${primaryButtonClass} no-underline`}>
-            {offer.unlock ? `See ${offer.unlock.name} and other plans` : "See plans"}
-          </Link>
+          {owner ? null : (
+            <Link href="/billing" className={`${primaryButtonClass} no-underline`}>
+              {offer.unlock ? `See ${offer.unlock.name} and other plans` : "See plans"}
+            </Link>
+          )}
         </div>
       </div>
     </dialog>

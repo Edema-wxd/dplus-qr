@@ -2,7 +2,8 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
+import type { AccountScope } from "@/lib/account-scope";
 import { flash } from "@/lib/flash";
 import { linkDestination } from "@/lib/page-content";
 import { LINK_KINDS } from "@/lib/qr-types";
@@ -13,6 +14,7 @@ import {
   attachCode,
   completeOnboarding,
   getOnboarding,
+  isOwnAccount,
   setDraft,
   setPurpose,
   skipOnboarding,
@@ -22,19 +24,25 @@ import { isPurpose, isStartScreen } from "@/lib/onboarding-steps";
 /**
  * The onboarding's Server Actions.
  *
- * Like every dashboard mutation, each re-reads the session and takes the user
- * id from it, never from the form. The screens are plain forms, so every
- * action ends in a redirect to the next screen and the flow works before any
- * JavaScript has loaded.
+ * Like every dashboard mutation, each resolves the scope from the session,
+ * never from the form. The screens are plain forms, so every action ends in
+ * a redirect to the next screen and the flow works before any JavaScript has
+ * loaded.
+ *
+ * Onboarding is the person's own account's. If they switched to a team in
+ * another tab since the screen was drawn, the action changes nothing and
+ * sends them to the dashboard, which is the team's: a code made here would
+ * otherwise land in whichever account is now active.
  *
  * Making the code goes through `createCode`, the dashboard's own path, so the
- * onboarding's first code meets exactly the same screening, plan limits and
- * short-code rules as any other.
+ * onboarding's first code meets exactly the same screening, plan limits,
+ * reputation check and short-code rules as any other.
  */
-async function requireUserId(): Promise<string> {
-  const { data: session } = await auth.getSession();
-  if (!session?.user) redirect("/auth/sign-in");
-  return session.user.id;
+async function requireOwnScope(): Promise<AccountScope> {
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
+  if (!isOwnAccount(scope)) redirect("/app");
+  return scope;
 }
 
 /**
@@ -45,13 +53,13 @@ export type StepState = { error?: string; value?: string };
 
 /** Screen 2. One tap: each choice is its own submit button. */
 export async function choosePurposeAction(formData: FormData): Promise<void> {
-  const userId = await requireUserId();
+  const scope = await requireOwnScope();
   const purpose = formData.get("purpose");
   // A tampered value is not worth an error on a one-tap screen: the person
   // simply stays where they are.
   if (!isPurpose(purpose)) redirect("/app/start?step=purpose");
 
-  await setPurpose(userId, purpose);
+  await setPurpose(scope, purpose);
   redirect("/app/start?step=link");
 }
 
@@ -61,7 +69,7 @@ export async function choosePurposeAction(formData: FormData): Promise<void> {
  * `createCode` screens it again on screen 4.
  */
 export async function setLinkAction(_previous: StepState, formData: FormData): Promise<StepState> {
-  const userId = await requireUserId();
+  const scope = await requireOwnScope();
   const typed = String(formData.get("destination") ?? "").slice(0, 2048);
 
   const parsed = z
@@ -85,7 +93,7 @@ export async function setLinkAction(_previous: StepState, formData: FormData): P
   try {
     // The person's own wording is kept, not the normalised URL, so going back
     // shows them what they typed. `createCode` normalises it again.
-    await setDraft(userId, { kind: parsed.data.kind, destination: parsed.data.destination });
+    await setDraft(scope, { kind: parsed.data.kind, destination: parsed.data.destination });
   } catch (error) {
     console.error("[onboarding] could not save the link", error);
     return { error: "We could not save that. Please try again.", value: typed };
@@ -113,7 +121,7 @@ export async function createFirstCodeAction(
   _previous: StepState,
   formData: FormData
 ): Promise<StepState> {
-  const userId = await requireUserId();
+  const scope = await requireOwnScope();
   const typed = String(formData.get("name") ?? "").slice(0, 80);
   const fail = (error: string): StepState => ({ error, value: typed });
 
@@ -131,7 +139,7 @@ export async function createFirstCodeAction(
   const contrast = checkQrStyle(style.data);
   if (!contrast.ok) return fail(contrast.reason);
 
-  const onboarding = await getOnboarding(userId);
+  const onboarding = await getOnboarding(scope);
   // Made already, from another tab or a double submit: carry on rather than
   // make a second code.
   if (onboarding?.codeId) redirect("/app/start?step=download");
@@ -139,7 +147,7 @@ export async function createFirstCodeAction(
 
   let created;
   try {
-    created = await createCode(userId, {
+    created = await createCode(scope, {
       kind: onboarding.draft.kind,
       name: parsed.data.name,
       destinationUrl: onboarding.draft.destination,
@@ -153,9 +161,9 @@ export async function createFirstCodeAction(
 
   try {
     if (style.data.dark !== DEFAULT_QR_STYLE.dark) {
-      await setCodeStyle(userId, created.id, style.data);
+      await setCodeStyle(scope, created.id, style.data);
     }
-    await attachCode(userId, created.id);
+    await attachCode(scope, created.id);
   } catch (error) {
     // The code exists and works. Losing its colour or its funnel row is not
     // a reason to tell someone it failed.
@@ -167,10 +175,10 @@ export async function createFirstCodeAction(
 
 /** "Skip to dashboard", from any screen. Remembered: they are not sent back. */
 export async function skipAction(formData: FormData): Promise<void> {
-  const userId = await requireUserId();
+  const scope = await requireOwnScope();
   const screen = formData.get("screen");
   try {
-    await skipOnboarding(userId, isStartScreen(screen) ? screen : "unknown");
+    await skipOnboarding(scope, isStartScreen(screen) ? screen : "unknown");
   } catch (error) {
     console.error("[onboarding] could not record the skip", error);
   }
@@ -179,11 +187,11 @@ export async function skipAction(formData: FormData): Promise<void> {
 
 /** The last screen's way out, scanned or not. Lands on the new code's page. */
 export async function finishAction(): Promise<void> {
-  const userId = await requireUserId();
+  const scope = await requireOwnScope();
   let codeId: string | null = null;
   try {
-    codeId = (await getOnboarding(userId))?.codeId ?? null;
-    await completeOnboarding(userId);
+    codeId = (await getOnboarding(scope))?.codeId ?? null;
+    await completeOnboarding(scope);
   } catch (error) {
     console.error("[onboarding] could not record finishing", error);
   }

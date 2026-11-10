@@ -3,10 +3,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import { ensureProfile } from "@/lib/profile";
-import { getEntitlement } from "@/lib/entitlement";
+import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
+import { roleAllows } from "@/lib/account-scope";
 import { listCodes } from "@/lib/user-codes";
-import { readOnboardingSafely } from "@/lib/onboarding";
+import { belongsToATeamSafely, isOwnAccount, readOnboardingSafely } from "@/lib/onboarding";
 import { shouldOnboard } from "@/lib/onboarding-steps";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { qrStyleVars } from "@/lib/qr-style";
@@ -49,24 +51,39 @@ export default async function CodesPage({
   // Also grants the free plan on first load, so a code created here can
   // actually serve traffic. See ensureFreeSubscription.
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  // Which account this page shows, and as whom. Its own unless the person
+  // is working in a team they belong to; every read below proves access.
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
 
+  // Onboarding is the person's own account's, never a team's: in a team
+  // there is nothing to read and nobody is sent anywhere.
+  const ownAccount = isOwnAccount(scope);
   const [codes, entitlement, params, onboarding] = await Promise.all([
-    listCodes(user.id),
-    getEntitlement(user.id),
+    listCodes(scope),
+    getEntitlement(scope.accountId),
     searchParams,
-    readOnboardingSafely(user.id),
+    ownAccount ? readOnboardingSafely(scope) : null,
   ]);
 
   // An account with no codes is walked to its first one, unless it already
   // finished or chose to skip. An onboarding that cannot be read sends nobody
-  // anywhere: the dashboard always opens.
-  if (onboarding !== "unavailable" && shouldOnboard(codes.length, onboarding)) {
+  // anywhere: the dashboard always opens. Someone who never started it and
+  // belongs to a team is not sent either: they came to work in the team, and
+  // the empty dashboard below still offers the setup.
+  if (
+    ownAccount &&
+    onboarding !== "unavailable" &&
+    shouldOnboard(codes.length, onboarding) &&
+    (onboarding !== null || !(await belongsToATeamSafely(scope)))
+  ) {
     redirect("/app/start");
   }
 
   // Made the first code in the onboarding but left before scanning it: one
   // line pointing back, until they scan, finish or skip.
   const untested =
+    ownAccount &&
     onboarding !== "unavailable" &&
     onboarding !== null &&
     onboarding.codeId !== null &&
@@ -90,6 +107,11 @@ export default async function CodesPage({
   // path's `decide()` serves the paused page for every code on the account.
   const lapsed = entitlement === null || !entitlement.active;
 
+  // A viewer sees the codes and downloads, and makes nothing; the owner alone
+  // is sold a plan.
+  const canWrite = roleAllows(scope.role, "write");
+  const isOwner = scope.role === "owner";
+
   return (
     <DashShell
       heading="Your codes"
@@ -102,7 +124,20 @@ export default async function CodesPage({
         ) : null
       }
       action={
-        hasCodes ? <NewCodeButton /> : null
+        hasCodes && canWrite ? (
+          <span className="flex flex-wrap gap-2">
+            {/*
+              Only on plans with bulk creation. Everyone else meets it, locked,
+              on the new-code page, rather than a second upgrade button here.
+            */}
+            {canBulkCreate(entitlement) && !atLimit ? (
+              <Link href="/app/new/bulk" className={`${secondaryButtonClass} no-underline`}>
+                Make many at once
+              </Link>
+            ) : null}
+            <NewCodeButton />
+          </span>
+        ) : null
       }
     >
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
@@ -123,7 +158,7 @@ export default async function CodesPage({
         A free account is prompted only when there is a reason it would care:
         its codes are being scanned, or it is one code from the limit.
       */}
-      {!lapsed && entitlement?.planSlug === "free" ? (
+      {isOwner && !lapsed && entitlement?.planSlug === "free" ? (
         codes.length >= entitlement.maxCodes - 1 ? (
           <UpgradeBanner reason="limit" />
         ) : codes.some((code) => code.scans30d > 0) ? (
@@ -138,7 +173,7 @@ export default async function CodesPage({
       ) : null}
 
       {codes.length === 0 ? (
-        <EmptyState />
+        <EmptyState canWrite={canWrite} offerSetup={ownAccount} />
       ) : shown.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-10 text-center text-sm text-[var(--paper-soft)]">
           No codes match.{" "}
@@ -431,19 +466,24 @@ function NewCodeButton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ canWrite, offerSetup }: { canWrite: boolean; offerSetup: boolean }) {
   return (
     <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-14 text-center">
       <p className="mx-auto max-w-[42ch] text-[15px] leading-relaxed text-[var(--paper-soft)]">
         No codes yet. Make one, print it, and you can change where it leads for
         as long as the printed thing exists.
       </p>
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
-        <NewCodeButton />
-        <Link href="/app/start" className="text-sm underline underline-offset-4">
-          Set up your first code step by step
-        </Link>
-      </div>
+      {canWrite ? (
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
+          <NewCodeButton />
+          {/* The setup makes a code in the person's own account only. */}
+          {offerSetup ? (
+            <Link href="/app/start" className="text-sm underline underline-offset-4">
+              Set up your first code step by step
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -17,6 +17,17 @@ jest.mock("@/lib/auth/server", () => ({
   auth: { getSession: (...args: unknown[]) => getSession(...args) },
 }));
 
+// The session's own account, as `resolveScope` gives it to a person not
+// working in a team. Team scopes are built in the tests that need them.
+jest.mock("@/lib/resolve-scope", () => ({
+  resolveScope: async () => {
+    const { data } = await getSession();
+    if (!data?.user) return null;
+    const { scopeFor } = jest.requireActual("@/lib/account-scope");
+    return scopeFor(data.user.id, data.user.id, "owner");
+  },
+}));
+
 import {
   biggestDrop,
   buildFunnel,
@@ -35,13 +46,21 @@ import {
   type OnboardingEvent,
   type OnboardingProgress,
 } from "@/lib/onboarding-steps";
-import { latestTestScan, recordStep } from "@/lib/onboarding";
+import {
+  attachCode,
+  getOnboarding,
+  isOwnAccount,
+  latestTestScan,
+  recordStep,
+  startOnboardingAtSignUp,
+} from "@/lib/onboarding";
+import { scopeFor } from "@/lib/account-scope";
 import { checkQrStyle, DEFAULT_QR_STYLE } from "@/lib/qr-style";
 import { PRIVACY, type LegalDocument } from "@/lib/legal";
 import { GET as scanRoute } from "@/app/(app)/app/start/scan/route";
 
 const root = path.join(__dirname, "..", "..");
-const migration = readFileSync(path.join(root, "db/migrations/025_onboarding.sql"), "utf8");
+const migration = readFileSync(path.join(root, "db/migrations/029_onboarding.sql"), "utf8");
 
 function progress(
   reached: OnboardingEvent[],
@@ -226,21 +245,50 @@ describe("describing a test scan", () => {
   });
 });
 
+const own = scopeFor("user-1", "user-1", "owner");
+/** user-2 working in user-1's team. */
+const member = scopeFor("user-1", "user-2", "editor");
+
 describe("recording steps", () => {
   it("writes once per account and step, and only for an open onboarding", async () => {
-    await recordStep("user-1", "purpose_chosen");
+    await recordStep(own, "purpose_chosen");
     const [sql, params] = query.mock.calls[0] as [string, unknown[]];
-    expect(sql).toMatch(/from qr_onboarding where user_id = \$1/);
+    expect(sql).toMatch(/from qr_onboarding where user_id = \$1 and \(\$1::uuid = \$3::uuid/);
     expect(sql).toMatch(/on conflict \(user_id, step\) do nothing/);
-    expect(params).toEqual(["user-1", "purpose_chosen"]);
+    expect(params).toEqual(["user-1", "purpose_chosen", "user-1", ["admin", "editor"]]);
   });
 
   it("reads test scans only from the account's own code, and never a bot", async () => {
-    await latestTestScan("user-1");
+    await latestTestScan(own);
     const [sql, params] = queryOne.mock.calls[0] as [string, unknown[]];
     expect(sql).toMatch(/c\.user_id = o\.user_id/);
-    expect(sql).toMatch(/where o\.user_id = \$1 and not s\.is_bot/);
-    expect(params).toEqual(["user-1"]);
+    expect(sql).toMatch(/where o\.user_id = \$1 and not s\.is_bot and \(\$1::uuid = \$2::uuid/);
+    expect(params).toEqual(["user-1", "user-1", ["admin", "editor", "viewer"]]);
+  });
+
+  it("opens a sign-up's onboarding and records its first step", async () => {
+    await startOnboardingAtSignUp("user-1");
+    const [open, first] = query.mock.calls as [string, unknown[]][];
+    expect(open[0]).toMatch(/insert into qr_onboarding \(user_id, origin\) values \(\$1, 'signup'\)/);
+    expect(first[0]).toMatch(/'account_created'/);
+    expect(open[1]).toEqual(["user-1"]);
+  });
+});
+
+describe("onboarding is the person's own account's", () => {
+  it("tells a person's own account from a team they work in", () => {
+    expect(isOwnAccount(own)).toBe(true);
+    expect(isOwnAccount(member)).toBe(false);
+    expect(isOwnAccount(scopeFor("user-1", "user-2", "viewer"))).toBe(false);
+  });
+
+  it("reads and writes nothing for a member working in a team", async () => {
+    expect(await getOnboarding(member)).toBeNull();
+    expect(await latestTestScan(member)).toBeNull();
+    await recordStep(member, "artwork_downloaded");
+    await attachCode(member, "42");
+    expect(query).not.toHaveBeenCalled();
+    expect(queryOne).not.toHaveBeenCalled();
   });
 });
 
@@ -271,7 +319,7 @@ describe("the scan check the last screen polls", () => {
     });
     const [sql, params] = query.mock.calls[0] as [string, unknown[]];
     expect(sql).toMatch(/insert into qr_onboarding_steps/);
-    expect(params).toEqual(["user-1", "test_scanned"]);
+    expect(params).toEqual(["user-1", "test_scanned", "user-1", ["admin", "editor"]]);
   });
 });
 

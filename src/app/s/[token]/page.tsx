@@ -11,7 +11,8 @@ import {
   getEntitlement,
 } from "@/lib/entitlement";
 import { loadSharedCode } from "@/lib/stat-shares";
-import { ANALYTICS_WINDOWS, codeAnalytics } from "@/lib/user-codes";
+import { analyticsForCode } from "@/lib/user-codes";
+import { ANALYTICS_WINDOWS, LONGEST_DAILY_WINDOW } from "@/lib/chart-buckets";
 import { LegalLinks } from "@/components/LegalLinks";
 import { AnalyticsPanel } from "@/app/(app)/app/[id]/Analytics";
 
@@ -51,15 +52,20 @@ export default async function SharedStatsPage({
   if (!shared) notFound();
 
   const entitlement = await getEntitlement(shared.userId);
-  if (!canShareStats(entitlement).ok) notFound();
+  if (!canShareStats(entitlement)) notFound();
 
   const insights = canSeeInsights(entitlement);
   const historyDays = chartDaysAllowed(entitlement);
+  // Daily windows only, for now (decided 7 Nov 2026): the long ranges are
+  // fetched from an owner-only route, and a public page has no owner signed in.
   const windows = await Promise.all(
-    ANALYTICS_WINDOWS.filter((days) => days <= historyDays).map(async (days) => ({
-      days,
-      data: await codeAnalytics(shared.userId, shared.codeId, days, { detail: insights }),
-    }))
+    ANALYTICS_WINDOWS.filter((days) => days <= historyDays && days <= LONGEST_DAILY_WINDOW).map(
+      async (days) => ({
+        days,
+        locked: false,
+        data: await analyticsForCode(shared.codeId, days, { detail: insights }),
+      })
+    )
   );
   if (windows.length === 0) notFound();
 

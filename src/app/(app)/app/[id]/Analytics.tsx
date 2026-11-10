@@ -4,6 +4,12 @@ import Link from "next/link";
 import { createContext, useContext, useState } from "react";
 import type { Analytics, Slice } from "@/lib/user-codes";
 import type { UpgradeOffer } from "@/lib/upgrade-offers";
+import {
+  windowLabel,
+  windowShortLabel,
+  type Bucket,
+  type ChartPoint,
+} from "@/lib/chart-buckets";
 import { UpgradeDialog } from "../UpgradePrompt";
 
 /**
@@ -16,13 +22,28 @@ const AskUpgrade = createContext<((offer: UpgradeOffer) => void) | null>(null);
 /** The detailed-analytics offer, for the locked panels and lines inside a window. */
 const InsightsOffer = createContext<UpgradeOffer | null>(null);
 
+/** One date range the panel offers. */
+export type ChartWindow = {
+  days: number;
+  /** Longer than the plan's scan history: offered as an upgrade, never drawn. */
+  locked: boolean;
+  /**
+   * The figures, when the server computed them. Null on a locked window, and
+   * on a long window the plan covers, which is fetched from `fetchBase` when
+   * picked.
+   */
+  data: Analytics | null;
+};
+
 /**
  * Scans over time, by country, device, operating system and city.
  *
- * All windows are rendered on the server and switched here, rather than read
- * from `searchParams`. Under Cache Components a page that reads searchParams
- * must do it inside a Suspense child or the build fails on prerender; keeping
- * the range in client state avoids that entirely and makes switching instant.
+ * Daily windows are rendered on the server and switched here, rather than
+ * read from `searchParams`. Under Cache Components a page that reads
+ * searchParams must do it inside a Suspense child or the build fails on
+ * prerender; keeping the range in client state avoids that entirely and makes
+ * switching instant. Longer windows (6, 12 and 24 months) are fetched when
+ * picked, so the page's live refresh does not recompute them every 30 seconds.
  *
  * What a plan does not include is shown, locked, with one line on what
  * upgrading unlocks, rather than hidden: a feature nobody can see is one
@@ -35,11 +56,11 @@ export function AnalyticsPanel({
   historyDays,
   createdAt,
   audience = "owner",
+  fetchBase = null,
   exportBase = null,
   upgrade,
 }: {
-  /** `data` is null for a window longer than the plan's scan history. */
-  windows: { days: number; data: Analytics | null }[];
+  windows: ChartWindow[];
   /** Whether the plan includes unique scans, OS, cities and the trend. */
   insights: boolean;
   /** The plan's scan history in days, quoted when a window is locked. */
@@ -51,6 +72,8 @@ export function AnalyticsPanel({
    * customer, so there is no plan talk, no upgrade links and no exports.
    */
   audience?: "owner" | "public";
+  /** Where a window without data is fetched from (`/app/{id}/analytics`). */
+  fetchBase?: string | null;
   /**
    * The CSV export route for this code (`/app/{id}/export`), when the plan
    * includes export. Each table then offers its own CSV.
@@ -62,10 +85,53 @@ export function AnalyticsPanel({
    */
   upgrade?: { insights: UpgradeOffer; history: Record<number, UpgradeOffer> };
 }) {
-  const [active, setActive] = useState(windows[1]?.days ?? windows[0].days);
+  const [active, setActive] = useState(
+    windows.find((w) => w.days === 30 && !w.locked)?.days ?? windows[0].days
+  );
   const [prompt, setPrompt] = useState<UpgradeOffer | null>(null);
+  // Long windows, once fetched. Kept while the panel lives, and refreshed
+  // each time one is picked again, so going back to it is instant and current.
+  const [fetched, setFetched] = useState<Record<number, Analytics>>({});
+  const [pending, setPending] = useState<Record<number, boolean>>({});
+  const [failed, setFailed] = useState<Record<number, boolean>>({});
   const current = windows.find((w) => w.days === active) ?? windows[0];
   const ask = audience === "owner" && upgrade ? (offer: UpgradeOffer) => setPrompt(offer) : null;
+
+  const load = async (days: number) => {
+    if (!fetchBase) return;
+    setPending((p) => ({ ...p, [days]: true }));
+    setFailed((f) => ({ ...f, [days]: false }));
+    try {
+      const response = await fetch(`${fetchBase}?days=${days}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      // A signed-out fetch follows the proxy to the sign-in page and gets
+      // HTML with a 200, which `json()` refuses: reported as a failure.
+      const data = (await response.json()) as Analytics;
+      setFetched((f) => ({ ...f, [days]: data }));
+    } catch {
+      setFailed((f) => ({ ...f, [days]: true }));
+    } finally {
+      setPending((p) => ({ ...p, [days]: false }));
+    }
+  };
+
+  const pick = (w: ChartWindow) => {
+    // A window the plan does not keep explains itself rather than switching
+    // to an empty view.
+    const offer = w.locked ? upgrade?.history[w.days] : null;
+    if (offer && ask) {
+      ask(offer);
+      return;
+    }
+    setActive(w.days);
+    if (!w.locked && w.data === null) void load(w.days);
+  };
+
+  const data = current.data ?? fetched[current.days] ?? null;
+  const label = windowLabel(current.days);
 
   return (
     <AskUpgrade.Provider value={ask}>
@@ -82,6 +148,7 @@ export function AnalyticsPanel({
               between the tabs; this has neither, and announcing "tab 1 of 3" to
               someone whose arrow keys then do nothing is worse than describing
               the controls as what they are. `aria-pressed` carries the state.
+              Short labels on a phone, so six ranges fit across it.
             */}
             <div
               role="group"
@@ -93,49 +160,86 @@ export function AnalyticsPanel({
                   key={w.days}
                   type="button"
                   aria-pressed={w.days === active}
-                  onClick={() => {
-                    // A window the plan does not keep explains itself rather
-                    // than switching to an empty view.
-                    const offer = w.data ? null : upgrade?.history[w.days];
-                    if (offer && ask) ask(offer);
-                    else setActive(w.days);
-                  }}
-                  className={`inline-flex items-center gap-1 rounded px-3 py-1 text-xs transition-colors duration-150 ${
+                  onClick={() => pick(w)}
+                  className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs transition-colors duration-150 sm:px-3 ${
                     w.days === active
                       ? "bg-[var(--paper-ink)] text-[var(--paper)]"
                       : "text-[var(--paper-soft)] hover:text-[var(--paper-ink)]"
                   }`}
                 >
-                  {w.data ? null : <LockIcon />}
-                  {w.days} days
-                  {w.data ? null : <span className="sr-only"> (not on your plan)</span>}
+                  {w.locked ? <LockIcon /> : null}
+                  <span aria-hidden className="sm:hidden">
+                    {windowShortLabel(w.days)}
+                  </span>
+                  <span className="sr-only sm:not-sr-only">{windowLabel(w.days)}</span>
+                  {w.locked ? <span className="sr-only"> (not on your plan)</span> : null}
                 </button>
               ))}
             </div>
           </div>
 
-          {current.data === null ? (
+          {current.locked ? (
             <Locked
               className="mt-6"
               offer={upgrade?.history[current.days]}
-              title={`${current.days} days of scans`}
-              line={`Your plan keeps ${historyDays} days of scan history. Upgrade to see the last ${current.days} days.`}
+              title={`${label} of scans`}
+              line={`Your plan keeps ${windowLabel(historyDays)} of scan history. Upgrade to see the last ${label}.`}
             />
+          ) : data ? (
+            <div aria-busy={pending[current.days] === true}>
+              <WindowView
+                days={current.days}
+                data={data}
+                insights={insights}
+                createdAt={createdAt}
+                audience={audience}
+                exportBase={audience === "owner" ? exportBase : null}
+              />
+            </div>
+          ) : failed[current.days] ? (
+            <p
+              role="alert"
+              className="mt-6 rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-5 py-10 text-center text-sm text-[var(--paper-soft)]"
+            >
+              The last {label} could not be loaded.{" "}
+              <button
+                type="button"
+                onClick={() => void load(current.days)}
+                className="text-[var(--paper-ink)] underline underline-offset-4"
+              >
+                Try again
+              </button>
+            </p>
           ) : (
-            <WindowView
-              days={current.days}
-              data={current.data}
-              insights={insights}
-              createdAt={createdAt}
-              audience={audience}
-              exportBase={audience === "owner" ? exportBase : null}
-            />
+            <p
+              role="status"
+              className="mt-6 rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-5 py-10 text-center text-sm text-[var(--paper-soft)]"
+            >
+              Loading the last {label}…
+            </p>
           )}
         </section>
         {prompt ? <UpgradeDialog offer={prompt} open onClose={() => setPrompt(null)} /> : null}
       </InsightsOffer.Provider>
     </AskUpgrade.Provider>
   );
+}
+
+const BUCKET_NOUN: Record<Bucket, string> = { day: "day", week: "week", month: "month" };
+
+/** A bar's dates, for its tooltip, the axis and the screen-reader table. */
+function pointLabel(point: ChartPoint, bucket: Bucket): string {
+  if (bucket === "day") return point.start;
+  const date = new Date(`${point.start}T00:00:00Z`);
+  if (bucket === "month") {
+    return date.toLocaleDateString("en-NG", { month: "short", year: "numeric", timeZone: "UTC" });
+  }
+  return `Week of ${date.toLocaleDateString("en-NG", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  })}`;
 }
 
 function WindowView({
@@ -154,23 +258,28 @@ function WindowView({
   exportBase: string | null;
 }) {
   const isPublic = audience === "public";
+  const label = windowLabel(days);
+  const noun = BUCKET_NOUN[data.bucket];
   const csv = (table: string) => (exportBase ? `${exportBase}?table=${table}&days=${days}` : null);
-  const peak = Math.max(1, ...data.days.map((d) => d.scans));
-  const today = data.days.at(-1)?.scans ?? 0;
+  const peak = Math.max(1, ...data.points.map((p) => p.scans));
   const detail = data.detail;
-  const showUnique = insights && detail?.unique !== null && detail?.unique !== undefined;
+  // Unique visitors per bar only on a daily chart: the hash behind them
+  // rotates daily, so a week's figure would be days added up, not people.
+  const showUnique =
+    data.bucket === "day" && insights && detail?.unique !== null && detail?.unique !== undefined;
+  const anyPartial = data.points.some((p) => p.partial);
 
   return (
     <>
       <dl className="mt-5 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-[var(--paper-rule)] bg-[var(--paper-rule)] sm:grid-cols-4">
-        <Stat label={`Scans, ${days} days`}>
+        <Stat label={`Scans, ${label}`}>
           <span className="text-2xl leading-none text-[var(--paper-ink)]">
             {data.total.toLocaleString("en-NG")}
           </span>
           {detail ? (
-            <Trend total={data.total} previous={detail.previousTotal} days={days} />
+            <Trend total={data.total} previous={detail.previousTotal} label={label} />
           ) : (
-            isPublic ? null : <UpsellLine>Compare with the previous {days} days</UpsellLine>
+            isPublic ? null : <UpsellLine>Compare with the previous {label}</UpsellLine>
           )}
         </Stat>
         <Stat label="Unique scans">
@@ -190,7 +299,7 @@ function WindowView({
         </Stat>
         <Stat label="Today">
           <span className="text-2xl leading-none text-[var(--paper-ink)]">
-            {today.toLocaleString("en-NG")}
+            {data.today.toLocaleString("en-NG")}
           </span>
         </Stat>
         <Stat label="Created">
@@ -213,38 +322,56 @@ function WindowView({
         </p>
       ) : (
         <>
-          {showUnique ? (
-            <ul className="mt-6 flex gap-4 text-xs text-[var(--paper-soft)]" aria-label="Chart key">
-              <li className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-[var(--pin-ink)] opacity-35" />
-                Scans
-              </li>
-              <li className="inline-flex items-center gap-1.5">
-                <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-[var(--pin-ink)]" />
-                Unique
-              </li>
+          {showUnique || anyPartial ? (
+            <ul className="mt-6 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--paper-soft)]" aria-label="Chart key">
+              {showUnique ? (
+                <>
+                  <li className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-[var(--pin-ink)] opacity-35" />
+                    Scans
+                  </li>
+                  <li className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-[var(--pin-ink)]" />
+                    Unique
+                  </li>
+                </>
+              ) : null}
+              {anyPartial ? (
+                <li className="inline-flex items-center gap-1.5">
+                  <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-[var(--pin-ink)] opacity-40" />
+                  Part of a {noun}
+                </li>
+              ) : null}
             </ul>
           ) : null}
 
           {/*
-            Bars, not a line: these are counts per day, and a line between two
-            days implies values that were never measured in between. Unique
-            scans sit inside each day's bar: they can never exceed it, so one
-            bar carries both without a second scale.
+            Bars, not a line: these are counts per day, week or month, and a
+            line between two bars implies values that were never measured in
+            between. Unique scans sit inside each day's bar: they can never
+            exceed it, so one bar carries both without a second scale. A
+            week or month the window only partly covers is drawn lighter, so
+            a short bar reads as short on time rather than on scans.
           */}
-          <div className={`${showUnique ? "mt-2" : "mt-5"} flex h-32 items-end gap-[2px]`} aria-hidden>
-            {data.days.map((point) => (
-              <div key={point.day} className="group relative flex-1" style={{ height: "100%" }}>
+          <div
+            className={`${showUnique || anyPartial ? "mt-2" : "mt-5"} flex h-32 items-end ${
+              data.points.length > 60 ? "gap-px" : "gap-[2px]"
+            }`}
+            aria-hidden
+          >
+            {data.points.map((point) => (
+              <div key={point.start} className="group relative flex-1" style={{ height: "100%" }}>
                 <div
                   className="absolute bottom-0 w-full rounded-[2px] bg-[var(--pin-ink)] transition-opacity duration-150"
                   style={{
-                    // A day with scans never renders as nothing: a 2px floor
+                    // A bar with scans never renders as nothing: a 2px floor
                     // keeps one scan visibly different from zero.
                     height: point.scans === 0 ? "1px" : `max(2px, ${(point.scans / peak) * 100}%)`,
-                    opacity: point.scans === 0 ? 0.25 : showUnique ? 0.35 : 1,
+                    opacity:
+                      point.scans === 0 ? 0.25 : showUnique ? 0.35 : point.partial ? 0.4 : 1,
                   }}
                 />
-                {showUnique && point.unique > 0 ? (
+                {showUnique && point.unique ? (
                   <div
                     className="absolute bottom-0 w-full rounded-[2px] bg-[var(--pin-ink)]"
                     style={{ height: `max(2px, ${(point.unique / peak) * 100}%)` }}
@@ -252,15 +379,18 @@ function WindowView({
                 ) : null}
                 <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded bg-[var(--paper-ink)] px-2 py-1 text-xs text-[var(--paper)] group-hover:block">
                   {point.scans} {point.scans === 1 ? "scan" : "scans"}
-                  {showUnique ? `, ${point.unique} unique` : ""} on {point.day}
+                  {showUnique ? `, ${point.unique ?? 0} unique` : ""}
+                  {data.bucket === "day" ? " on " : ", "}
+                  {pointLabel(point, data.bucket)}
+                  {point.partial ? (point.end === data.points.at(-1)?.end ? " so far" : ", part") : ""}
                 </span>
               </div>
             ))}
           </div>
-          <div className="dash-num mt-2 flex justify-between text-xs text-[var(--paper-soft)]">
-            <span>{data.days[0]?.day}</span>
-            {csv("days") ? <CsvLink href={csv("days")!} label={`scans per day, ${days} days`} /> : null}
-            <span>{data.days.at(-1)?.day}</span>
+          <div className="dash-num mt-2 flex justify-between gap-3 text-xs text-[var(--paper-soft)]">
+            <span>{data.points[0] ? pointLabel(data.points[0], data.bucket) : null}</span>
+            {csv("days") ? <CsvLink href={csv("days")!} label={`scans per ${noun}, ${label}`} /> : null}
+            <span>{data.points.at(-1) ? pointLabel(data.points.at(-1)!, data.bucket) : null}</span>
           </div>
 
           {/*
@@ -268,27 +398,38 @@ function WindowView({
             tooltip is hover-only -- there is no hover on a phone and no focus
             on a `div` -- so the same data is a table a screen reader can walk
             row by row. The bars are `aria-hidden` so the two are not
-            announced twice.
+            announced twice. Wrapped, because a table ignores `sr-only`'s 1px
+            width once its row labels are long (a week's dates) and would push
+            the page wider than a phone.
           */}
-          <table className="sr-only">
-            <caption>Scans per day over the last {days} days.</caption>
-            <thead>
-              <tr>
-                <th scope="col">Day</th>
-                <th scope="col">Scans</th>
-                {showUnique ? <th scope="col">Unique</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {data.days.map((point) => (
-                <tr key={point.day}>
-                  <th scope="row">{point.day}</th>
-                  <td>{point.scans}</td>
-                  {showUnique ? <td>{point.unique}</td> : null}
+          <div className="sr-only">
+            <table>
+              <caption>
+                Scans per {noun} over the last {label}.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    {data.bucket === "day" ? "Day" : data.bucket === "week" ? "Week starting" : "Month"}
+                  </th>
+                  <th scope="col">Scans</th>
+                  {showUnique ? <th scope="col">Unique</th> : null}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.points.map((point) => (
+                  <tr key={point.start}>
+                    <th scope="row">
+                      {pointLabel(point, data.bucket)}
+                      {point.partial ? ` (part ${noun}, from ${point.start} to ${point.end})` : ""}
+                    </th>
+                    <td>{point.scans}</td>
+                    {showUnique ? <td>{point.unique ?? 0}</td> : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <div className="mt-8 grid gap-8 sm:grid-cols-2">
             <Breakdown title="Country" slices={data.countries} total={data.total} format={countryLabel} csvHref={csv("countries")} />
@@ -325,11 +466,11 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
  * Text and an arrow, in the page's ink, never colour alone: a fall in scans
  * is information, not an alarm.
  */
-function Trend({ total, previous, days }: { total: number; previous: number; days: number }) {
+function Trend({ total, previous, label }: { total: number; previous: number; label: string }) {
   if (previous === 0) {
     return (
       <span className="text-xs text-[var(--paper-soft)]">
-        {total > 0 ? `No scans in the ${days} days before` : `None in the ${days} days before either`}
+        {total > 0 ? `No scans in the ${label} before` : `None in the ${label} before either`}
       </span>
     );
   }
@@ -339,8 +480,8 @@ function Trend({ total, previous, days }: { total: number; previous: number; day
     <span className="text-xs text-[var(--paper-soft)]">
       <span aria-hidden>{arrow} </span>
       {change === 0
-        ? `Same as the ${days} days before`
-        : `${Math.abs(change)}% ${change > 0 ? "up" : "down"} on the ${days} days before`}
+        ? `Same as the ${label} before`
+        : `${Math.abs(change)}% ${change > 0 ? "up" : "down"} on the ${label} before`}
     </span>
   );
 }

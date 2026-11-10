@@ -1,6 +1,6 @@
 import type { Entitlement } from "@/lib/entitlement";
 import type { Plan } from "@/lib/plans";
-import { codesOffer, featureOffer, historyOffer } from "@/lib/upgrade-offers";
+import { codesOffer, featureOffer, historyOffer, offerRefusal } from "@/lib/upgrade-offers";
 
 function plan(overrides: Partial<Plan>): Plan {
   return {
@@ -36,7 +36,7 @@ const free: Entitlement = {
   historyDays: 30,
   codesUsed: 5,
   features: {},
-  active: true,
+  active: true, seats: 1, seatsUsed: 1,
 };
 
 describe("featureOffer", () => {
@@ -72,6 +72,13 @@ describe("historyOffer", () => {
     expect(offer.why).toBe("Your Free plan keeps 30 days of scan history.");
     expect(historyOffer(365, free, PLANS).unlock?.name).toBe("Pro");
   });
+
+  it("names a long window in months, as the pricing table does", () => {
+    expect(historyOffer(90, free, PLANS).title).toBe("90 days of scans");
+    expect(historyOffer(180, free, PLANS).title).toBe("6 months of scans");
+    expect(historyOffer(365, free, PLANS).title).toBe("12 months of scans");
+    expect(historyOffer(730, free, PLANS).benefit).toMatch(/^Look back over the last 24 months of scans/);
+  });
 });
 
 describe("codesOffer", () => {
@@ -83,5 +90,22 @@ describe("codesOffer", () => {
 
   it("offers nothing above the largest plan", () => {
     expect(codesOffer({ ...free, maxCodes: 250 }, PLANS).unlock).toBeNull();
+  });
+});
+
+describe("offerRefusal", () => {
+  it("names the plan the rows say unlocks it, then what to do instead", () => {
+    const offer = featureOffer("video_uploads", null, [
+      plan({ id: 7, name: "Studio", features: { video_uploads: true } }),
+    ]);
+    const sentence = offerRefusal(offer, "Link a YouTube or Vimeo video instead.");
+    expect(sentence).toContain("They come with Studio.");
+    expect(sentence).toMatch(/Link a YouTube or Vimeo video instead\.$/);
+    expect(sentence).not.toMatch(/Pro|Business/);
+  });
+
+  it("names no plan when none on sale has the feature", () => {
+    const sentence = offerRefusal(featureOffer("video_uploads", null, PLANS));
+    expect(sentence).not.toMatch(/come with/);
   });
 });

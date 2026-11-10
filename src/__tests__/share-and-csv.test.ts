@@ -1,16 +1,18 @@
-import { csvCell, isTable, tableCsv } from "@/lib/csv-export";
+import { csvCell, feedbackCsv, isTable, tableCsv } from "@/lib/csv-export";
 import { isShareToken, newShareToken } from "@/lib/stat-shares";
 import { canShareStats, type Entitlement } from "@/lib/entitlement";
 import type { Analytics } from "@/lib/user-codes";
 
 const data: Analytics = {
-  days: [
-    { day: "2026-10-27", scans: 3, unique: 2 },
-    { day: "2026-10-28", scans: 1, unique: 1 },
+  bucket: "day",
+  points: [
+    { start: "2026-10-27", end: "2026-10-27", scans: 3, unique: 2, partial: false },
+    { start: "2026-10-28", end: "2026-10-28", scans: 1, unique: 1, partial: false },
   ],
   countries: [{ label: "NG", scans: 3 }, { label: "GH", scans: 1 }],
   devices: [{ label: "mobile", scans: 4 }],
   total: 4,
+  today: 1,
   detail: {
     os: [{ label: "Android", scans: 4 }],
     cities: [{ label: '=HYPERLINK("http://evil.example","Lagos")', scans: 1 }, { label: "Accra, GH", scans: 3 }],
@@ -44,15 +46,13 @@ describe("canShareStats", () => {
     historyDays: 365,
     codesUsed: 0,
     features: { share_stats: true },
-    active: true,
+    active: true, seats: 1, seatsUsed: 1,
   };
 
-  it("allows a plan with the flag and refuses one without, naming the plans", () => {
-    expect(canShareStats(pro)).toEqual({ ok: true });
-    const starter = canShareStats({ ...pro, planName: "Starter", features: {} });
-    if (starter.ok) throw new Error("expected refusal");
-    expect(starter.reason).toMatch(/Pro and Business/);
-    expect(canShareStats(null).ok).toBe(false);
+  it("allows a plan with the flag and refuses one without", () => {
+    expect(canShareStats(pro)).toBe(true);
+    expect(canShareStats({ ...pro, planName: "Starter", features: {} })).toBe(false);
+    expect(canShareStats(null)).toBe(false);
   });
 });
 
@@ -70,6 +70,27 @@ describe("tableCsv", () => {
       "2026-10-28,1,1",
     ]);
     expect(tableCsv("days", data, false).split("\r\n")[0]).toBe("day,scans");
+  });
+
+  it("exports a long window a row per week or month, as the chart draws it", () => {
+    const weeks: Analytics = {
+      ...data,
+      bucket: "week",
+      points: [
+        { start: "2026-10-27", end: "2026-11-01", scans: 4, unique: null, partial: true },
+        { start: "2026-11-02", end: "2026-11-07", scans: 9, unique: null, partial: true },
+      ],
+    };
+    expect(tableCsv("days", weeks, true).split("\r\n")).toEqual([
+      "week_starting,scans",
+      "2026-10-27,4",
+      "2026-11-02,9",
+    ]);
+    expect(tableCsv("days", { ...weeks, bucket: "month" }, true).split("\r\n")).toEqual([
+      "month,scans",
+      "2026-10,4",
+      "2026-11,9",
+    ]);
   });
 
   it("gives each share of all scans, not of the rows listed", () => {
@@ -101,5 +122,59 @@ describe("csvCell", () => {
     [null, ""],
   ])("encodes %p as %p", (input, expected) => {
     expect(csvCell(input)).toBe(expected);
+  });
+});
+
+describe("feedbackCsv", () => {
+  const origin = { country: "NG", city: "Lagos", device: "mobile", os: "Android" };
+  const none = { country: null, city: null, device: null, os: null };
+
+  it("lists every answer with where it came from, comment last", () => {
+    const csv = feedbackCsv(
+      [
+        { rating: 5, comment: "Lovely jollof", createdAt: new Date("2026-11-05T12:00:00Z"), ...origin },
+        { rating: 3, comment: null, createdAt: new Date("2026-11-04T09:30:00Z"), ...none },
+      ],
+      true
+    );
+    expect(csv.split("\r\n")).toEqual([
+      "answered_at,rating,country,city,device,os,comment",
+      "2026-11-05T12:00:00.000Z,5,NG,Lagos,mobile,Android,Lovely jollof",
+      "2026-11-04T09:30:00.000Z,3,,,,,",
+    ]);
+  });
+
+  it("leaves out city and OS for a plan without detailed analytics", () => {
+    const csv = feedbackCsv(
+      [{ rating: 4, comment: "Fine", createdAt: new Date("2026-11-05T12:00:00Z"), ...origin }],
+      false
+    );
+    expect(csv.split("\r\n")).toEqual([
+      "answered_at,rating,country,device,comment",
+      "2026-11-05T12:00:00.000Z,4,NG,mobile,Fine",
+    ]);
+  });
+
+  it("defuses a formula in a comment or a city, and keeps a multi-line comment in one cell", () => {
+    const csv = feedbackCsv(
+      [
+        {
+          rating: 1,
+          comment: '=HYPERLINK("http://evil.example")',
+          createdAt: new Date("2026-11-05T12:00:00Z"),
+          ...origin,
+          city: "=1+1",
+        },
+        { rating: 4, comment: "Good food,\nslow service", createdAt: new Date("2026-11-05T11:00:00Z"), ...none },
+      ],
+      true
+    );
+    expect(csv).toContain(`,'=1+1,`);
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil.example"")"`);
+    expect(csv).toContain('"Good food,\nslow service"');
+  });
+
+  it("has a header and nothing else when there are no answers", () => {
+    expect(feedbackCsv([], true)).toBe("answered_at,rating,country,city,device,os,comment");
   });
 });

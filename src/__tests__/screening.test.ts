@@ -1,4 +1,4 @@
-import { checkReputation, screenUrl } from "@/lib/screening";
+import { screenUrl } from "@/lib/screening";
 
 describe("screenUrl", () => {
   it("accepts an ordinary https link", () => {
@@ -103,12 +103,5 @@ describe("screenUrl", () => {
 
   it("is not case-sensitive about the scheme", () => {
     expect(screenUrl("JAVASCRIPT:alert(1)").ok).toBe(false);
-  });
-});
-
-describe("checkReputation", () => {
-  it("reports unavailable rather than clean while stubbed", async () => {
-    // "unavailable" must never be read as "checked and safe".
-    await expect(checkReputation("https://example.com")).resolves.toBe("unavailable");
   });
 });

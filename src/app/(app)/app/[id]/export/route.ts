@@ -1,4 +1,4 @@
-import { auth } from "@/lib/auth/server";
+import { resolveScope } from "@/lib/resolve-scope";
 import {
   canExportCsv,
   canSeeInsights,
@@ -12,7 +12,7 @@ import {
   parseCodeId,
   scanRows,
 } from "@/lib/user-codes";
-import { csvCell, DETAIL_TABLES, isTable, tableCsv } from "@/lib/csv-export";
+import { csvCell, csvResponse, DETAIL_TABLES, isTable, tableCsv } from "@/lib/csv-export";
 
 
 
@@ -34,15 +34,15 @@ export async function GET(
 ) {
   const { id: raw } = await params;
 
-  const { data: session } = await auth.getSession();
-  if (!session?.user) return new Response("Not signed in", { status: 401 });
+  const scope = await resolveScope();
+  if (!scope) return new Response("Not signed in", { status: 401 });
 
   const id = parseCodeId(raw);
   if (!id) return new Response("Not found", { status: 404 });
 
   const [code, entitlement] = await Promise.all([
-    getCode(session.user.id, id),
-    getEntitlement(session.user.id),
+    getCode(scope, id),
+    getEntitlement(scope.accountId),
   ]);
   if (!code) return new Response("Not found", { status: 404 });
 
@@ -66,11 +66,11 @@ export async function GET(
     if (DETAIL_TABLES.has(table) && !insights) {
       return new Response("That table is not part of your plan.", { status: 403 });
     }
-    const data = await codeAnalytics(session.user.id, id, window, { detail: insights });
+    const data = await codeAnalytics(scope, id, window, { detail: insights });
     return csvResponse(tableCsv(table, data, insights), `${code.shortCode}-${table}-${window}d.csv`);
   }
 
-  const rows = await scanRows(session.user.id, id, days);
+  const rows = await scanRows(scope, id, days);
 
   const header = "scanned_at,country,device,os,browser";
   const lines = rows.map((row) =>
@@ -84,14 +84,4 @@ export async function GET(
   );
 
   return csvResponse([header, ...lines].join("\r\n"), `${code.shortCode}-scans.csv`);
-}
-
-function csvResponse(body: string, filename: string): Response {
-  return new Response(body, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${filename}"`,
-      "Cache-Control": "private, no-store",
-    },
-  });
 }

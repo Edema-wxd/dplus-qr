@@ -83,7 +83,9 @@ export async function lookupDestination(
   shortCode: string
 ): Promise<{ destination: Destination | null; cacheSource: string }> {
   const result = await cached<Destination>(NAMESPACE, shortCode, async () => {
-    const row = await queryOne<Row>(LOOKUP_SQL, [shortCode]);
+    // One connection attempt only: a scanner gets the status page after one
+    // 5-second wait, never two. See `connect()` in db.ts.
+    const row = await queryOne<Row>(LOOKUP_SQL, [shortCode], { failFast: true });
     if (!row) return null;
 
     return {

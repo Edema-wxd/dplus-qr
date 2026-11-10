@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { query, queryOne } from "@/lib/db";
+import { access, accessArgs, type AccountScope } from "@/lib/account-scope";
 import { LINK_KINDS, type LinkKind } from "@/lib/qr-types";
 import {
   buildFunnel,
@@ -11,16 +12,24 @@ import {
 } from "@/lib/onboarding-steps";
 
 /**
- * Reads and writes for the first-code onboarding (migration 025). The screens
+ * Reads and writes for the first-code onboarding (migration 029). The screens
  * and their rules are in `onboarding-steps.ts`.
  *
- * Every query filters by the session's user id, which the callers take from
- * the session and never from a form.
+ * **Onboarding is the person's own account's, never a team's.** Every
+ * function takes the `AccountScope` from `resolveScope()` and does nothing
+ * (reads null, writes nothing) unless that scope is the signed-in person's
+ * own account. A member working in a team is never walked through making
+ * the team's first code, and nothing they do there is counted as their
+ * setup. Each statement still carries `access()` like every other dashboard
+ * query (`scope-guard.test.ts`); for one's own account that is `$1 = $n`
+ * and reads no members table. The one exception is sign-up
+ * (`startOnboardingAtSignUp`), which runs before a session can be read and
+ * takes the id of the account created in that same request.
  *
  * **Onboarding never stands between someone and their dashboard.** Recording
  * a step is best-effort: a failure is logged and the person carries on. The
  * dashboard's check treats an unreadable state as "no onboarding", so a
- * preview build ahead of migration 025 still opens `/app`.
+ * preview build ahead of migration 029 still opens `/app`.
  */
 
 export type OnboardingDraft = { kind: LinkKind; destination: string };
@@ -52,56 +61,89 @@ type StateRow = {
   reached: string[] | null;
 };
 
+/** Whether a scope is the signed-in person's own account, where onboarding lives. */
+export function isOwnAccount(scope: AccountScope): boolean {
+  return scope.role === "owner" && scope.accountId === scope.actorId;
+}
+
 export function progressOf(state: OnboardingState): OnboardingProgress {
   return { reached: state.reached, hasCode: state.codeId !== null, hasDraft: state.draft !== null };
 }
 
 /**
- * Open an account's onboarding. Once per account: a second call, from a
- * reload or a second tab, changes nothing, so the first origin and start time
- * stand.
+ * Open the onboarding of an account created by this sign-up, and record its
+ * first step (`account_created`).
+ *
+ * The only function here without a scope: the sign-up action has just made
+ * the account and cannot read a session in the same request. The id is the
+ * one Neon Auth returned for that account, never anything from the form.
+ * Once per account: a repeat changes nothing.
  */
-export async function startOnboarding(
-  userId: string,
-  origin: "signup" | "existing"
-): Promise<void> {
+export async function startOnboardingAtSignUp(userId: string): Promise<void> {
   await query(
-    `insert into qr_onboarding (user_id, origin) values ($1, $2)
+    `-- scope: sign-up, for the account created in this same request
+     insert into qr_onboarding (user_id, origin) values ($1, 'signup')
      on conflict (user_id) do nothing`,
-    [userId, origin]
+    [userId]
+  );
+  await query(
+    `-- scope: sign-up, for the account created in this same request
+     insert into qr_onboarding_steps (user_id, step)
+     select user_id, 'account_created' from qr_onboarding where user_id = $1
+     on conflict (user_id, step) do nothing`,
+    [userId]
+  );
+}
+
+/**
+ * Open the onboarding of an account that predates it, or whose sign-up
+ * write failed, as `origin = 'existing'`, which the funnel leaves out. Once
+ * per account: a second call, from a reload or a second tab, changes
+ * nothing, so the first origin and start time stand.
+ */
+export async function startOnboarding(scope: AccountScope): Promise<void> {
+  if (!isOwnAccount(scope)) return;
+  await query(
+    `insert into qr_onboarding (user_id, origin)
+     select $1, 'existing' where ${access(2)}
+     on conflict (user_id) do nothing`,
+    [scope.accountId, ...accessArgs(scope, "write")]
   );
 }
 
 /**
  * Record that an account reached a step, the first time only.
  *
- * Writes only for an account whose onboarding is open, so the download route
- * can call this for every download without logging a step for accounts that
- * never had an onboarding.
+ * Writes only for an account whose onboarding is open, and only in the
+ * person's own account, so the download route can call this for every
+ * download without logging a step for accounts that never had an
+ * onboarding, or for a team someone is working in.
  */
-export async function recordStep(userId: string, event: OnboardingEvent): Promise<void> {
+export async function recordStep(scope: AccountScope, event: OnboardingEvent): Promise<void> {
+  if (!isOwnAccount(scope)) return;
   await query(
     `insert into qr_onboarding_steps (user_id, step)
-     select user_id, $2 from qr_onboarding where user_id = $1
+     select user_id, $2 from qr_onboarding where user_id = $1 and ${access(3)}
      on conflict (user_id, step) do nothing`,
-    [userId, event]
+    [scope.accountId, event, ...accessArgs(scope, "write")]
   );
 }
 
 /** The same, for callers that must never fail because of it. */
-export function recordStepQuietly(userId: string, event: OnboardingEvent): Promise<void> {
-  return recordStep(userId, event).catch((error) => {
+export function recordStepQuietly(scope: AccountScope, event: OnboardingEvent): Promise<void> {
+  return recordStep(scope, event).catch((error) => {
     console.error(`[onboarding] could not record ${event}`, error);
   });
 }
 
-export async function getOnboarding(userId: string): Promise<OnboardingState | null> {
+export async function getOnboarding(scope: AccountScope): Promise<OnboardingState | null> {
+  if (!isOwnAccount(scope)) return null;
   const row = await queryOne<StateRow>(
     `select o.origin, o.purpose, o.draft, o.code_id, o.started_at, o.skipped_at, o.completed_at,
             array(select s.step from qr_onboarding_steps s where s.user_id = o.user_id) as reached
      from qr_onboarding o
-     where o.user_id = $1`,
-    [userId]
+     where o.user_id = $1 and ${access(2)}`,
+    [scope.accountId, ...accessArgs(scope, "read")]
   );
   if (!row) return null;
 
@@ -126,30 +168,60 @@ export async function getOnboarding(userId: string): Promise<OnboardingState | n
  * The state the dashboard checks, or null when it cannot be read. Null means
  * "carry on to the dashboard", never "send them to onboarding".
  */
-export async function readOnboardingSafely(userId: string): Promise<OnboardingState | null | "unavailable"> {
+export async function readOnboardingSafely(
+  scope: AccountScope
+): Promise<OnboardingState | null | "unavailable"> {
   try {
-    return await getOnboarding(userId);
+    return await getOnboarding(scope);
   } catch (error) {
     console.error("[onboarding] state unavailable", error);
     return "unavailable";
   }
 }
 
-export async function setPurpose(userId: string, purpose: Purpose): Promise<void> {
+/**
+ * Whether the signed-in person is a live member of anyone's team. Someone
+ * who joined a team and never started the onboarding is not sent to it from
+ * their own empty account: they came to work in the team. The empty
+ * dashboard still offers it. Reads only the person's own memberships, by
+ * the actor id the session's scope carries. An error answers "yes", which
+ * only ever means "do not redirect".
+ */
+export async function belongsToATeamSafely(scope: AccountScope): Promise<boolean> {
+  try {
+    const row = await queryOne<{ member: boolean }>(
+      `select exists (
+         select 1 from qr_account_members m
+         where m.user_id = $1 and m.removed_at is null
+       ) as member`,
+      [scope.actorId]
+    );
+    return row?.member === true;
+  } catch (error) {
+    console.error("[onboarding] team membership unavailable", error);
+    return true;
+  }
+}
+
+export async function setPurpose(scope: AccountScope, purpose: Purpose): Promise<void> {
+  if (!isOwnAccount(scope)) return;
   await query(
-    `update qr_onboarding set purpose = $2, updated_at = now() where user_id = $1`,
-    [userId, purpose]
+    `update qr_onboarding set purpose = $2, updated_at = now()
+     where user_id = $1 and ${access(3)}`,
+    [scope.accountId, purpose, ...accessArgs(scope, "write")]
   );
-  await recordStep(userId, "purpose_chosen");
+  await recordStep(scope, "purpose_chosen");
 }
 
 /** Keep the screened destination until the code is made from it. */
-export async function setDraft(userId: string, draft: OnboardingDraft): Promise<void> {
+export async function setDraft(scope: AccountScope, draft: OnboardingDraft): Promise<void> {
+  if (!isOwnAccount(scope)) return;
   await query(
-    `update qr_onboarding set draft = $2::jsonb, updated_at = now() where user_id = $1`,
-    [userId, JSON.stringify(draft)]
+    `update qr_onboarding set draft = $2::jsonb, updated_at = now()
+     where user_id = $1 and ${access(3)}`,
+    [scope.accountId, JSON.stringify(draft), ...accessArgs(scope, "write")]
   );
-  await recordStep(userId, "destination_set");
+  await recordStep(scope, "destination_set");
 }
 
 /**
@@ -157,36 +229,39 @@ export async function setDraft(userId: string, draft: OnboardingDraft): Promise<
  * destination now lives on the code, and keeping a second copy here would be
  * personal data with no further use.
  */
-export async function attachCode(userId: string, codeId: string): Promise<void> {
+export async function attachCode(scope: AccountScope, codeId: string): Promise<void> {
+  if (!isOwnAccount(scope)) return;
   await query(
     `update qr_onboarding
         set code_id = $2::bigint, draft = '{}'::jsonb, updated_at = now()
-      where user_id = $1
+      where user_id = $1 and ${access(3)}
         and exists (select 1 from qr_codes c where c.id = $2::bigint and c.user_id = $1)`,
-    [userId, codeId]
+    [scope.accountId, codeId, ...accessArgs(scope, "write")]
   );
-  await recordStep(userId, "code_created");
+  await recordStep(scope, "code_created");
 }
 
 /** The first skip, and the screen it was from, are the ones that are kept. */
-export async function skipOnboarding(userId: string, screen: string): Promise<void> {
+export async function skipOnboarding(scope: AccountScope, screen: string): Promise<void> {
+  if (!isOwnAccount(scope)) return;
   await query(
     `update qr_onboarding
         set skipped_at = coalesce(skipped_at, now()),
             skipped_step = coalesce(skipped_step, $2),
             updated_at = now()
-      where user_id = $1 and completed_at is null`,
-    [userId, screen]
+      where user_id = $1 and completed_at is null and ${access(3)}`,
+    [scope.accountId, screen, ...accessArgs(scope, "write")]
   );
 }
 
-export async function completeOnboarding(userId: string): Promise<void> {
+export async function completeOnboarding(scope: AccountScope): Promise<void> {
+  if (!isOwnAccount(scope)) return;
   await query(
     `update qr_onboarding set completed_at = coalesce(completed_at, now()), updated_at = now()
-      where user_id = $1`,
-    [userId]
+      where user_id = $1 and ${access(2)}`,
+    [scope.accountId, ...accessArgs(scope, "write")]
   );
-  await recordStep(userId, "completed");
+  await recordStep(scope, "completed");
 }
 
 export type TestScan = {
@@ -204,7 +279,8 @@ export type TestScan = {
  * answer. Bots are left out for the same reason they are everywhere else: a
  * link preview is not someone scanning.
  */
-export async function latestTestScan(userId: string): Promise<TestScan | null> {
+export async function latestTestScan(scope: AccountScope): Promise<TestScan | null> {
+  if (!isOwnAccount(scope)) return null;
   const row = await queryOne<{
     scanned_at: Date;
     country: string | null;
@@ -216,10 +292,10 @@ export async function latestTestScan(userId: string): Promise<TestScan | null> {
      from qr_onboarding o
      join qr_codes c on c.id = o.code_id and c.user_id = o.user_id
      join qr_scans s on s.qr_id = c.id
-     where o.user_id = $1 and not s.is_bot
+     where o.user_id = $1 and not s.is_bot and ${access(2)}
      order by s.scanned_at desc
      limit 1`,
-    [userId]
+    [scope.accountId, ...accessArgs(scope, "read")]
   );
   return row
     ? {

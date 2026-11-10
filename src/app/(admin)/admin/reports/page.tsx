@@ -7,7 +7,7 @@ import { audit, requireStaff } from "../guard";
 import { AdminShell, Tag, day } from "../AdminShell";
 import { ResolveReport } from "./ResolveReport";
 
-export const metadata: Metadata = { title: "Reports · Admin" };
+export const metadata: Metadata = { title: "Reports" };
 export const instant = false;
 
 function listHref(filters: ReportFilters, change: Partial<ReportFilters>): string {

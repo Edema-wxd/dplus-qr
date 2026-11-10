@@ -10,6 +10,7 @@ import { groupTiers } from "@/lib/plan-tiers";
 import { getPricingContent } from "@/lib/site-content";
 import { SUPPORT_EMAIL } from "@/lib/brand";
 import { DashShell } from "../app/DashShell";
+import { MemberBillingNote } from "../app/TeamNotices";
 import { PlanCards } from "./PlanCards";
 import { CancelPlan } from "./CancelPlan";
 
@@ -84,6 +85,7 @@ export default async function BillingPage() {
 
   return (
     <DashShell heading="Plan and billing">
+      <MemberBillingNote />
       <div className="max-w-5xl space-y-10">
         <section aria-labelledby="current-heading">
           <h2

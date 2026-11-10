@@ -58,7 +58,17 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Both are Neon-managed: `neon env pull` writes them. Never hand-edit.
 - Every change is a new numbered file in `db/migrations/`, additive only. Never
   edit a migration that has run; the runner's checksum check will stop you.
-- Every query touching client data filters by the session's user id.
+- Every query touching client data filters by the account and proves, in the
+  same statement, that the session's user may use it. Dashboard functions
+  take an `AccountScope` from `resolveScope()` (`src/lib/resolve-scope.ts`),
+  never a bare user id, and each statement carries `${access(n)}` from
+  `src/lib/account-scope.ts`. With no team the account is the session user.
+  `src/__tests__/scope-guard.test.ts` fails on a query without it.
+- **Connecting is retried once** (`connect()` in `src/lib/db.ts`): Neon pauses
+  the database when idle, and the first connection after that can outlast the
+  5-second limit. Never a statement, only the connection, so nothing runs
+  twice. The redirect lookup alone passes `{ failFast: true }`: a scanner gets
+  the status page after one wait, never two.
 - `qr_codes.user_id` is `on delete restrict` on purpose. Accounts are suspended
   and codes are paused; neither is deleted.
 
@@ -147,10 +157,11 @@ reliability for a feature, reliability wins. Everything below follows from that.
   read needed. Signed in: it verifies Neon Auth's signed `session_data` cookie
   (`src/lib/session-cookie.ts`) and reads the role from the database. When it
   cannot tell (unreadable cookie, database down) it lets the page decide, so
-  it can only hide the admin, never lock staff out. It never redirects
-  `/admin` to sign-in. Being in the matcher also refreshes the session there:
-  a page cannot write cookies, so a refresh attempted by `requireStaff()`
-  threw.
+  it can only hide the admin, never lock staff out, and then the shell does
+  go out, so no admin page names the admin in its `metadata` title
+  (`src/__tests__/admin-titles.test.ts`). It never redirects `/admin` to
+  sign-in. Being in the matcher also refreshes the session there: a page
+  cannot write cookies, so a refresh attempted by `requireStaff()` threw.
 - Every page view, search and change writes `qr_admin_audit` (`audit()` after
   the response, `recordChange()` awaited).
 
@@ -193,6 +204,11 @@ differs from older training data. What has already bitten this repo:
     shell, streamed detail.
   - A route touching no request API is evaluated at build time — use
     `await connection()` to stop that (see `src/app/health/route.ts`).
+  - **Await `connection()` before `auth.getSession()`** in any page or server
+    component. Otherwise Next prerenders it, and a session read that has to
+    ask Neon Auth starts a fetch that is cut off when the prerender ends
+    ("During prerendering, fetch() rejects…", seen on `/app/[id]`).
+    `src/__tests__/session-before-prerender.test.ts` enforces it.
   - A page whose whole content is per-request, with no useful static shell to
     stream around (an authenticated account page), sets
     `export const instant = false` instead of wrapping everything in Suspense.
@@ -323,7 +339,8 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
   retention and upload sweeps exist but run only with `DELETION_SWEEPS_ENABLED`.
 - Accounts on Neon Auth, the dashboard (sidebar, plan meter, code types and
   hosted pages, logos, colours, custom links, analytics, share-stats links,
-  CSV export), and upgrade prompts on every locked feature.
+  CSV export, bulk creation with zip download, team seats with invitations
+  and an account switcher), and upgrade prompts on every locked feature.
 - Billing: Paystack checkout and webhooks, grace and lapse, the public
   `/pricing` page and `/billing`, both read from `qr_plans`.
 - Staff admin: overview with what needs attention, abuse-report queue,
@@ -331,13 +348,11 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
   (block, pause, archive, re-screen), plans and features, pricing-page copy.
 - Onboarding: sign-up to a first code and a test scan in six steps
   (`/app/start`, never more than seven, enforced by a test), each step
-  recorded, with the drop-off funnel at `/admin/onboarding`.
+  recorded, with the drop-off funnel at `/admin/onboarding`. Only ever in
+  the person's own account, never a team they work in.
 - Production deploys apply pending migrations before building.
-
-Known issue: `npm run scans:rollup` (`scripts/rollup-scans.ts`) fails with
-Postgres `42P10`. It carries its own copy of the rollup SQL that predates
-migration 018's re-keyed `qr_scan_daily`. The nightly cron uses
-`src/lib/rollup.ts`, which is correct, so only the manual command is broken;
-the fix is for the script to call `rollupScans()` instead of duplicating it.
+- Monitoring: server errors emailed to staff (throttled, production only,
+  `src/lib/error-alerts.ts`) and a Monday summary email. The outside uptime
+  check on `/health` is an account still to open (DECISIONS.md, 8 November).
 
 What is still open is listed at the end of DECISIONS.md.

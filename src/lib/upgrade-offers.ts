@@ -1,6 +1,7 @@
 import type { Entitlement } from "@/lib/entitlement";
 import type { Plan } from "@/lib/plans";
 import { historyLabel, naira } from "@/lib/plan-tiers";
+import { hasTeam } from "@/lib/seats";
 
 /**
  * What the dashboard says when a customer reaches for something their plan
@@ -21,6 +22,8 @@ export type Gate =
   | "insights"
   | "share_stats"
   | "video_uploads"
+  | "bulk_creation"
+  | "team_seats"
   | "history"
   | "codes";
 
@@ -69,6 +72,16 @@ const COPY: Record<Exclude<Gate, "history" | "codes">, { title: string; benefit:
     benefit: "Upload a video file to a video page, rather than linking to YouTube or Vimeo.",
     plural: true,
   },
+  team_seats: {
+    title: "Team seats",
+    benefit: "Invite people to work in your account with their own sign-in, as editors or as viewers.",
+    plural: true,
+  },
+  bulk_creation: {
+    title: "Bulk creation",
+    benefit: "Make up to 500 codes at once from a spreadsheet, then download every QR image in one zip.",
+    plural: false,
+  },
 };
 
 /**
@@ -106,6 +119,15 @@ function whyNot(entitlement: Entitlement | null, title: string, plural: boolean)
   return `${title} ${verb} not part of your ${entitlement.planName} plan.`;
 }
 
+/**
+ * Whether a plan has the feature a gate asks for. Flags are `true`; team
+ * seats are a count, and a plan has a team when it allows more than one
+ * person (`hasTeam`).
+ */
+function holds(features: Plan["features"], gate: Exclude<Gate, "history" | "codes">): boolean {
+  return gate === "team_seats" ? hasTeam(features) : features[gate] === true;
+}
+
 /** The prompt for a feature flag in `qr_plans.features`. */
 export function featureOffer(
   gate: Exclude<Gate, "history" | "codes">,
@@ -118,8 +140,24 @@ export function featureOffer(
     title,
     benefit,
     why: whyNot(entitlement, title, plural),
-    unlock: priced(candidates(plans).find((plan) => plan.features[gate] === true)),
+    unlock: priced(candidates(plans).find((plan) => holds(plan.features, gate))),
   };
+}
+
+/**
+ * An offer as one sentence, for a refusal with no prompt to open: an upload
+ * the server turned away. "Video uploads are not part of your Free plan. They
+ * come with Pro." and then what to do instead.
+ */
+export function offerRefusal(offer: UpgradeOffer, instead?: string): string {
+  const unlock = offer.unlock ? ` ${comesWith(offer)} ${offer.unlock.name}.` : "";
+  return `${offer.why}${unlock}${instead ? ` ${instead}` : ""}`;
+}
+
+function comesWith(offer: UpgradeOffer): string {
+  return offer.gate !== "history" && offer.gate !== "codes" && COPY[offer.gate].plural
+    ? "They come with"
+    : "It comes with";
 }
 
 /** The prompt for a chart window longer than the plan's scan history. */
@@ -127,8 +165,8 @@ export function historyOffer(days: number, entitlement: Entitlement | null, plan
   const kept = entitlement?.historyDays;
   return {
     gate: "history",
-    title: `${days} days of scans`,
-    benefit: `Look back over the last ${days} days of scans, and keep scan history for longer.`,
+    title: `${historyLabel(days)} of scans`,
+    benefit: `Look back over the last ${historyLabel(days)} of scans, and keep scan history for longer.`,
     why: kept
       ? `Your ${entitlement!.planName} plan keeps ${historyLabel(kept)} of scan history.`
       : "Your account has no active plan, so scan history is not kept.",

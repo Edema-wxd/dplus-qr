@@ -150,3 +150,85 @@ export async function allowFeedback(key: string | null): Promise<boolean> {
     return true;
   }
 }
+
+/**
+ * Bulk-creation limiter: 10 batches an hour per account.
+ *
+ * Not the real ceiling, which is the plan's code limit, checked under a lock
+ * for every batch. This only stops a script from hammering the one action
+ * that screens and inserts hundreds of rows per call. Fails open like the
+ * others: a Redis outage does not stop a customer making codes.
+ */
+const BULK_LIMIT = 10;
+
+let bulkRl: Ratelimit | null | undefined;
+
+function bulkLimiter(): Ratelimit | null {
+  if (bulkRl !== undefined) return bulkRl;
+
+  const client = redis();
+  bulkRl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(BULK_LIMIT, "1 h"),
+        prefix: "rl:bulk",
+        analytics: false,
+      })
+    : null;
+
+  return bulkRl;
+}
+
+export async function allowBulkImport(userId: string): Promise<boolean> {
+  const rl = bulkLimiter();
+  if (!rl) return true;
+
+  try {
+    const { success } = await rl.limit(userId);
+    return success;
+  } catch (error) {
+    console.error("[ratelimit] bulk check failed", error);
+    return true;
+  }
+}
+
+/**
+ * Invite limiter: 20 invitations a day per account.
+ *
+ * Every invite is an email from the onboarding address, the one whose
+ * reputation password resets depend on, so a script hammering the invite
+ * form is the thing to stop. The seat limit is the real ceiling on members;
+ * this caps the mail. Fails open like the others.
+ */
+const INVITE_LIMIT = 20;
+
+let inviteRl: Ratelimit | null | undefined;
+
+function inviteLimiter(): Ratelimit | null {
+  if (inviteRl !== undefined) return inviteRl;
+
+  const client = redis();
+  inviteRl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(INVITE_LIMIT, "1 d"),
+        prefix: "rl:invite",
+        analytics: false,
+      })
+    : null;
+
+  return inviteRl;
+}
+
+export async function allowInvite(accountId: string): Promise<boolean> {
+  const rl = inviteLimiter();
+  if (!rl) return true;
+
+  try {
+    const { success } = await rl.limit(accountId);
+    return success;
+  } catch (error) {
+    console.error("[ratelimit] invite check failed", error);
+    return true;
+  }
+}

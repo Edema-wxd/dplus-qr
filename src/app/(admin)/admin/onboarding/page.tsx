@@ -5,7 +5,7 @@ import { biggestDrop, formatDuration, PURPOSES } from "@/lib/onboarding-steps";
 import { audit, requireStaff } from "../guard";
 import { AdminShell, SectionHeading, Stat, tableClass, tdClass, thClass } from "../AdminShell";
 
-export const metadata: Metadata = { title: "Onboarding · Admin" };
+export const metadata: Metadata = { title: "Onboarding" };
 
 // Per-request figures for one staff member, with nothing useful to stream around.
 export const instant = false;

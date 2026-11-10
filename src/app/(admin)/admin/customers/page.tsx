@@ -16,7 +16,7 @@ import { audit, requireStaff } from "../guard";
 import { AdminShell, Tag, day, tableClass, tdClass, thClass } from "../AdminShell";
 import { SubscriptionStatus } from "./SubscriptionStatus";
 
-export const metadata: Metadata = { title: "Customers · Admin" };
+export const metadata: Metadata = { title: "Customers" };
 export const instant = false;
 
 /** The list's URL with some filters changed, for the pager and "clear". */
@@ -136,6 +136,7 @@ export default async function AdminCustomers({
                 </div>
                 <p className="mt-1 text-xs text-[var(--paper-soft)]">
                   <PlanName customer={customer} /> · {customer.codes} {customer.codes === 1 ? "code" : "codes"}
+                  {customer.teamMembers > 0 ? ` · team of ${customer.teamMembers + 1}` : ""}
                   {customer.currentPeriodEnd ? ` · renews ${day(customer.currentPeriodEnd)}` : ""}
                 </p>
               </li>
@@ -162,6 +163,11 @@ export default async function AdminCustomers({
                     </td>
                     <td className={tdClass}>
                       <PlanName customer={customer} />
+                      {customer.teamMembers > 0 ? (
+                        <span className="block text-xs text-[var(--paper-soft)]">
+                          Team of {customer.teamMembers + 1}
+                        </span>
+                      ) : null}
                     </td>
                     <td className={tdClass}>
                       <SubscriptionStatus

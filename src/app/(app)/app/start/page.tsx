@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
+import { resolveScope } from "@/lib/resolve-scope";
+import type { AccountScope } from "@/lib/account-scope";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { listCodes, getCode, type OwnedCode } from "@/lib/user-codes";
 import { listLogos } from "@/lib/logos";
@@ -11,6 +13,7 @@ import { uploadsEnabled } from "@/lib/uploads";
 import { qrStyleVars } from "@/lib/qr-style";
 import {
   getOnboarding,
+  isOwnAccount,
   latestTestScan,
   progressOf,
   startOnboarding,
@@ -55,6 +58,10 @@ const BACK_LABELS: Record<StartScreen, string> = {
  * a reload keeps the person where they were, and the back button behaves.
  * Which screens a person may open is decided by `screenFor`, from what they
  * have saved, never from the URL alone.
+ *
+ * Only in the person's own account: someone working in a team is sent to
+ * the dashboard, which is the team's. Onboarding is never about making a
+ * team's first code (DECISIONS.md, 10 November 2026).
  */
 export default async function StartPage({
   searchParams,
@@ -67,16 +74,21 @@ export default async function StartPage({
   if (!user) redirect("/auth/sign-in");
 
   await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  const scope = await resolveScope();
+  if (!scope) redirect("/auth/sign-in");
+  if (!isOwnAccount(scope)) redirect("/app");
 
-  const [params, codes] = await Promise.all([searchParams, listCodes(user.id)]);
+  const [params, codes] = await Promise.all([searchParams, listCodes(scope)]);
 
-  let state = await getOnboarding(user.id);
+  let state = await getOnboarding(scope);
   if (!state) {
-    // An account that never had one: sign-up's write failed, or it predates
-    // the onboarding. An account that already has codes has no use for it.
+    // An account that never had one: sign-up's write failed, it predates
+    // the onboarding, or it signed up to join a team and has now asked for
+    // it from the empty dashboard. An account that already has codes has no
+    // use for it.
     if (codes.length > 0) redirect("/app");
-    await startOnboarding(user.id, "existing");
-    state = await getOnboarding(user.id);
+    await startOnboarding(scope);
+    state = await getOnboarding(scope);
     if (!state) redirect("/app");
   }
 
@@ -84,7 +96,7 @@ export default async function StartPage({
 
   // The code this onboarding made. Gone (archived by staff, say) means there
   // is nothing left to walk through.
-  const code = state.codeId ? await getCode(user.id, state.codeId) : null;
+  const code = state.codeId ? await getCode(scope, state.codeId) : null;
   if (state.codeId && !code) redirect("/app");
   // Codes made on the dashboard instead: the onboarding has nothing to add.
   if (!code && codes.length > 0) redirect("/app");
@@ -117,7 +129,7 @@ export default async function StartPage({
         </OnboardingShell>
       );
     case "create":
-      return <CreateScreen userId={user.id} state={state} back={back} />;
+      return <CreateScreen scope={scope} state={state} back={back} />;
     case "download":
     case "scan":
       // `screenFor` only offers these once the code exists.
@@ -125,7 +137,7 @@ export default async function StartPage({
       return screen === "download" ? (
         <DownloadScreen code={code} reveal={params.made === "1"} back={back} />
       ) : (
-        <ScanScreen userId={user.id} code={code} back={back} />
+        <ScanScreen scope={scope} code={code} back={back} />
       );
   }
 }
@@ -177,15 +189,15 @@ function PurposeScreen({
 
 /** Screen 4: the colour picked here previews on the outline beside it. */
 async function CreateScreen({
-  userId,
+  scope,
   state,
   back,
 }: {
-  userId: string;
+  scope: AccountScope;
   state: OnboardingState;
   back: { href: string; label: string } | null;
 }) {
-  const library = await listLogos(userId);
+  const library = await listLogos(scope);
   const suggested = state.purpose ? PURPOSES[state.purpose].codeName : "My first code";
 
   return (
@@ -275,17 +287,17 @@ function DownloadScreen({
 
 /** Screen 6: scan it, and see the scan arrive. */
 async function ScanScreen({
-  userId,
+  scope,
   code,
   back,
 }: {
-  userId: string;
+  scope: AccountScope;
   code: OwnedCode;
   back: { href: string; label: string } | null;
 }) {
   // A scan made before this screen opened (from the printed proof, say)
   // counts: the screen opens on it rather than waiting for another.
-  const scan = await latestTestScan(userId).catch(() => null);
+  const scan = await latestTestScan(scope).catch(() => null);
 
   return (
     <OnboardingShell

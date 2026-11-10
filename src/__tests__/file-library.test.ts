@@ -1,4 +1,14 @@
-import { attachUses, fileKind, formatBytes } from "@/lib/files";
+const query = jest.fn();
+jest.mock("@/lib/db", () => ({
+  query: (...args: unknown[]) => query(...args),
+  queryOne: jest.fn(),
+}));
+
+import { attachUses, fileKind, formatBytes, resolveFiles } from "@/lib/files";
+import { parsePageContent } from "@/lib/page-content";
+import { scopeFor } from "@/lib/account-scope";
+
+const owner = scopeFor("user-1", "user-1", "owner");
 
 /**
  * The Files page pairs each upload with the codes that show it, by the same
@@ -54,6 +64,57 @@ describe("attachUses", () => {
       { id: "12", name: "Site", shortCode: "Site123", kind: "url", content: null },
     ]);
     expect(orphan.usedBy).toEqual([]);
+  });
+});
+
+describe("a menu dish's photo", () => {
+  const STORED = "https://fmctfyekk3.ufs.sh/f/dish";
+  const menu = (photo: unknown) => ({
+    name: "Mama Put",
+    sections: [{ name: "Mains", items: [{ name: "Jollof" }, { name: "Suya", photo }] }],
+  });
+
+  beforeEach(() => query.mockReset());
+
+  it("is checked against the account's own uploads and rewritten from them", async () => {
+    query.mockResolvedValueOnce([{ id: "42", url: STORED, name: "suya.jpg", mime_type: "image/jpeg" }]);
+    const result = await resolveFiles(
+      owner,
+      menu({ fileId: "42", url: "https://evil.example/x.jpg", name: "x", mime: "image/jpeg" })
+    );
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("user_id = $1"), [
+      "user-1",
+      ["42"],
+      "user-1",
+      ["admin", "editor", "viewer"],
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const parsed = parsePageContent("menu", result.content);
+    expect(parsed.ok && parsed.content.sections[0]!.items[1]!.photo?.url).toBe(STORED);
+  });
+
+  it("refuses a photo the account did not upload", async () => {
+    query.mockResolvedValueOnce([]);
+    const result = await resolveFiles(
+      owner,
+      menu({ fileId: "43", url: STORED, name: "x", mime: "image/jpeg" })
+    );
+    expect(result).toEqual({ ok: false, reason: "That file could not be found. Upload it again." });
+  });
+
+  it("refuses a malformed file id without asking the database", async () => {
+    const result = await resolveFiles(owner, menu({ fileId: "1 or 1=1", url: STORED, name: "x", mime: "" }));
+    expect(result.ok).toBe(false);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("is counted as a use on the Files page", () => {
+    const [photo] = attachUses([file("42")], [
+      { id: "10", name: "Menu", shortCode: "Menu123", kind: "menu", content: menu(ref("42")) },
+    ]);
+    expect(photo.usedBy.map((c) => c.codeId)).toEqual(["10"]);
   });
 });
 

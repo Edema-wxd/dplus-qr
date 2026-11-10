@@ -1,7 +1,7 @@
--- 025: the first-code onboarding, and how far each account got through it.
+-- 029: the first-code onboarding, and how far each account got through it.
 --
 -- A new account is walked from sign-up to its first code and a test scan in
--- at most seven steps (`ONBOARDING_STEPS` in src/lib/onboarding.ts, held to
+-- at most seven steps (`ONBOARDING_STEPS` in src/lib/onboarding-steps.ts, held to
 -- that by a test). Each step an account reaches is written here once, with
 -- the time, so staff can see where people stop.
 --

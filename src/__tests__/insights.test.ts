@@ -1,4 +1,6 @@
 import { lookupLocation, readCity } from "@/lib/geo";
+import { scanContext, scanLocation } from "@/lib/scans";
+import { feedbackOrigin } from "@/lib/public-page";
 import { canSeeInsights, chartDaysAllowed, type Entitlement } from "@/lib/entitlement";
 
 function headers(values: Record<string, string>): Headers {
@@ -41,6 +43,47 @@ describe("lookupLocation", () => {
   });
 });
 
+describe("scanLocation", () => {
+  it("carries the city from the request into the recorded scan", () => {
+    const context = scanContext(
+      1,
+      headers({ "x-vercel-ip-country": "ng", "x-vercel-ip-city": "Port%20Harcourt" })
+    );
+    expect(scanLocation(context)).toEqual({ country: "NG", city: "Port Harcourt" });
+  });
+
+  it("records a country without a city when only the country is known", () => {
+    expect(scanLocation(scanContext(1, headers({ "x-vercel-ip-country": "GH" })))).toEqual({
+      country: "GH",
+      city: null,
+    });
+  });
+
+  it("records nothing when the host sends no location", () => {
+    expect(scanLocation(scanContext(1, headers({})))).toEqual({ country: null, city: null });
+  });
+});
+
+describe("feedbackOrigin", () => {
+  it("reads location and device the way a scan does, and never the address", () => {
+    const origin = feedbackOrigin(
+      headers({
+        "x-vercel-ip-country": "ng",
+        "x-vercel-ip-city": "Lagos",
+        "x-forwarded-for": "102.89.0.1",
+        "user-agent":
+          "Mozilla/5.0 (Linux; Android 14; SM-A546E) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36",
+      })
+    );
+    expect(origin).toEqual({ country: "NG", city: "Lagos", device: "mobile", os: "Android" });
+    expect(JSON.stringify(origin)).not.toContain("102.89");
+  });
+
+  it("records nulls when the request carries none of it", () => {
+    expect(feedbackOrigin(headers({}))).toEqual({ country: null, city: null, device: null, os: null });
+  });
+});
+
 describe("plan gates for analytics", () => {
   const free: Entitlement = {
     planName: "Free",
@@ -49,7 +92,7 @@ describe("plan gates for analytics", () => {
     historyDays: 30,
     codesUsed: 0,
     features: {},
-    active: true,
+    active: true, seats: 1, seatsUsed: 1,
   };
 
   it("keeps the detailed analytics for plans with the insights flag", () => {

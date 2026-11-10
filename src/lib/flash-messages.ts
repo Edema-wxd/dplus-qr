@@ -16,6 +16,16 @@ export const FLASH_MESSAGES = {
     title: "Code created",
     description: "Download the artwork when you are ready to print.",
   },
+  "bulk-created": {
+    title: "Codes created",
+    description: "Download them all as one zip when you are ready to print.",
+  },
+  "team-joined": {
+    title: "You joined the team",
+    description: "Switch between your own account and the team from the menu.",
+  },
+  "team-left": { title: "You left the team" },
+  "account-switched": { title: "Switched account" },
   "setup-finished": {
     title: "Your first code is set up",
     description: "Every scan of it appears on this page.",

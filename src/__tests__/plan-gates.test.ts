@@ -7,23 +7,20 @@ const plan = (features: Entitlement["features"], planName = "Free"): Entitlement
   historyDays: 30,
   codesUsed: 0,
   features,
-  active: true,
+  active: true, seats: 1, seatsUsed: 1,
 });
 
 describe("canMakeHostedPages", () => {
-  it("keeps Free to link codes, and says where pages come from", () => {
-    const free = canMakeHostedPages(plan({}));
-    if (free.ok) throw new Error("expected refusal");
-    expect(free.reason).toMatch(/Starter and up/);
-    expect(free.reason).toMatch(/link codes are included/);
+  it("keeps Free to link codes", () => {
+    expect(canMakeHostedPages(plan({}))).toBe(false);
   });
 
   it("allows a plan with the flag", () => {
-    expect(canMakeHostedPages(plan({ hosted_pages: true }, "Starter"))).toEqual({ ok: true });
+    expect(canMakeHostedPages(plan({ hosted_pages: true }, "Starter"))).toBe(true);
   });
 
   it("refuses an account with no plan", () => {
-    expect(canMakeHostedPages(null).ok).toBe(false);
+    expect(canMakeHostedPages(null)).toBe(false);
   });
 });
 
