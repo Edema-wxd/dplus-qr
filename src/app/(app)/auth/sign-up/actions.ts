@@ -3,9 +3,10 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
-import { afterAuthPath, INVITE_PARAM } from "@/lib/team-invite";
+import { afterAuthPath, INVITE_PARAM, isInviteToken } from "@/lib/team-invite";
 import { ensureProfile } from "@/lib/profile";
 import { parseSignupRef, recordSignupSource, SIGNUP_REF_PARAM } from "@/lib/signup-source";
+import { startOnboardingAtSignUp } from "@/lib/onboarding";
 
 const schema = z.object({
   name: z.string().trim().min(2, "Enter the business or contact name."),
@@ -73,6 +74,8 @@ export async function signUpAction(
   }
 
   const { name, email, password } = parsed.data;
+  const invite = formData.get(INVITE_PARAM);
+  const invited = isInviteToken(invite);
 
   const { data, error } = await auth.signUp.email({ email, name, password });
   if (error) {
@@ -100,8 +103,21 @@ export async function signUpAction(
         console.error("[sign-up] could not record the referring page", sourceError);
       });
     }
+
+    // Step 1 of the onboarding is this form. Recorded here, where the account
+    // is known to be new, so the funnel counts only real sign-ups. Never
+    // allowed to fail the sign-up: the dashboard opens the onboarding anyway.
+    // Not for someone signing up to accept a team invitation: they came to
+    // work in that team, and counting them would show a drop-off that is
+    // not one (DECISIONS.md, 10 November 2026).
+    if (profiled && !invited) {
+      await startOnboardingAtSignUp(data.user.id).catch((onboardingError) => {
+        console.error("[sign-up] could not open the onboarding", onboardingError);
+      });
+    }
   }
 
-  // Back to the invitation, when the form carried one (checked in afterAuthPath).
-  redirect(afterAuthPath(formData.get(INVITE_PARAM)));
+  // Back to the invitation, when the form carried one (checked in
+  // afterAuthPath); otherwise straight into the first-code setup.
+  redirect(invited ? afterAuthPath(invite) : "/app/start");
 }

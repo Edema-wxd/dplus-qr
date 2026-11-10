@@ -8,6 +8,8 @@ import { ensureProfile } from "@/lib/profile";
 import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
 import { roleAllows } from "@/lib/account-scope";
 import { listCodes } from "@/lib/user-codes";
+import { belongsToATeamSafely, isOwnAccount, readOnboardingSafely } from "@/lib/onboarding";
+import { shouldOnboard } from "@/lib/onboarding-steps";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { qrStyleVars } from "@/lib/qr-style";
 import { dynamicType, isPageKind } from "@/lib/qr-types";
@@ -54,11 +56,40 @@ export default async function CodesPage({
   const scope = await resolveScope();
   if (!scope) redirect("/auth/sign-in");
 
-  const [codes, entitlement, params] = await Promise.all([
+  // Onboarding is the person's own account's, never a team's: in a team
+  // there is nothing to read and nobody is sent anywhere.
+  const ownAccount = isOwnAccount(scope);
+  const [codes, entitlement, params, onboarding] = await Promise.all([
     listCodes(scope),
     getEntitlement(scope.accountId),
     searchParams,
+    ownAccount ? readOnboardingSafely(scope) : null,
   ]);
+
+  // An account with no codes is walked to its first one, unless it already
+  // finished or chose to skip. An onboarding that cannot be read sends nobody
+  // anywhere: the dashboard always opens. Someone who never started it and
+  // belongs to a team is not sent either: they came to work in the team, and
+  // the empty dashboard below still offers the setup.
+  if (
+    ownAccount &&
+    onboarding !== "unavailable" &&
+    shouldOnboard(codes.length, onboarding) &&
+    (onboarding !== null || !(await belongsToATeamSafely(scope)))
+  ) {
+    redirect("/app/start");
+  }
+
+  // Made the first code in the onboarding but left before scanning it: one
+  // line pointing back, until they scan, finish or skip.
+  const untested =
+    ownAccount &&
+    onboarding !== "unavailable" &&
+    onboarding !== null &&
+    onboarding.codeId !== null &&
+    onboarding.completedAt === null &&
+    onboarding.skippedAt === null &&
+    !onboarding.reached.has("test_scanned");
 
   const listQuery = parseListQuery(params);
   const shown = applyListQuery(codes, listQuery);
@@ -113,6 +144,16 @@ export default async function CodesPage({
 
       {lapsed && hasCodes ? <LapsedNotice /> : null}
 
+      {untested && hasCodes ? (
+        <p className="mb-6 rounded-lg border border-[var(--paper-rule)] bg-white px-4 py-3 text-sm leading-relaxed">
+          Your first code has not been scanned yet.{" "}
+          <Link href="/app/start?step=scan" className="underline underline-offset-4">
+            Test it with your phone
+          </Link>{" "}
+          before it goes to print.
+        </p>
+      ) : null}
+
       {/*
         A free account is prompted only when there is a reason it would care:
         its codes are being scanned, or it is one code from the limit.
@@ -132,7 +173,7 @@ export default async function CodesPage({
       ) : null}
 
       {codes.length === 0 ? (
-        <EmptyState canWrite={canWrite} />
+        <EmptyState canWrite={canWrite} offerSetup={ownAccount} />
       ) : shown.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-10 text-center text-sm text-[var(--paper-soft)]">
           No codes match.{" "}
@@ -425,7 +466,7 @@ function NewCodeButton() {
   );
 }
 
-function EmptyState({ canWrite }: { canWrite: boolean }) {
+function EmptyState({ canWrite, offerSetup }: { canWrite: boolean; offerSetup: boolean }) {
   return (
     <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-14 text-center">
       <p className="mx-auto max-w-[42ch] text-[15px] leading-relaxed text-[var(--paper-soft)]">
@@ -433,8 +474,14 @@ function EmptyState({ canWrite }: { canWrite: boolean }) {
         as long as the printed thing exists.
       </p>
       {canWrite ? (
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
           <NewCodeButton />
+          {/* The setup makes a code in the person's own account only. */}
+          {offerSetup ? (
+            <Link href="/app/start" className="text-sm underline underline-offset-4">
+              Set up your first code step by step
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </div>
