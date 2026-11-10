@@ -41,6 +41,11 @@ export type FeatureDef =
       help: string;
       /** Said on the price table for a plan that has a value; absent: never listed. */
       advertise?: (value: number) => string;
+      /**
+       * How the product-wide feature list (homepage structured data, llms.txt)
+       * names it, where no plan's value is known. Absent: never listed there.
+       */
+      summary?: string;
     };
 
 /**
@@ -110,6 +115,7 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     min: 2,
     max: 50,
     advertise: (people) => `Up to ${people} people, with their own sign-in`,
+    summary: "Team accounts, each person with their own sign-in",
     help: "People who can use the account, the owner included: the owner invites the rest as editors or viewers. Empty means no team. Lowering it below a team's size locks out the latest to join; nobody is removed.",
   },
   {
@@ -160,6 +166,22 @@ export function advertisedFeatures(features: PlanFeatures): string[] {
     } else if (def.advertise && typeof value === "number" && Number.isInteger(value) && value >= def.min) {
       lines.push(def.advertise(value));
     }
+  }
+  return lines;
+}
+
+/**
+ * What the product offers on some plan, with no plan in view: the homepage's
+ * structured data and `/llms.txt`. Built yes/no flags by their label, and
+ * numeric ones that carry a `summary`. Choices (support level) and
+ * `months_free` describe a plan, not the product, so they are left out.
+ */
+export function productFeatures(): string[] {
+  const lines: string[] = [];
+  for (const def of PLAN_FEATURES) {
+    if (!def.built) continue;
+    if (def.kind === "boolean") lines.push(def.label);
+    else if (def.kind === "number" && def.summary) lines.push(def.summary);
   }
   return lines;
 }

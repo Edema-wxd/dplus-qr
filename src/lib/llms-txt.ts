@@ -1,5 +1,5 @@
 import { CODE_ORIGIN, MAIN_SITE, PRODUCT_NAME, COMPANY_NAME, SUPPORT_EMAIL } from "@/lib/brand";
-import { PLAN_FEATURES } from "@/lib/plan-features";
+import { productFeatures } from "@/lib/plan-features";
 import type { Tier } from "@/lib/plan-tiers";
 
 /**
@@ -8,17 +8,15 @@ import type { Tier } from "@/lib/plan-tiers";
  * Every line is a claim someone may act on, so nothing here is typed by hand
  * that the product already knows. Tier names, prices, limits and per-tier
  * features come from `qr_plans` via `groupTiers`, and the general feature list
- * is the built entries of `PLAN_FEATURES` -- so a `built: false` flag (bulk
- * creation, team seats) is never described, and moving a flag between plans
- * in `/admin/plans` changes this file without a deploy.
+ * is `productFeatures()` -- so a `built: false` flag is never described,
+ * and moving a flag between plans in `/admin/plans` changes this file
+ * without a deploy.
  *
  * `tiers` is null when the plan read failed: the file then points at the
  * pricing page rather than guessing a figure.
  */
 export function llmsTxt(tiers: Tier[] | null): string {
-  const features = PLAN_FEATURES.filter(
-    (f) => f.built && f.kind === "boolean"
-  ).map((f) => f.label);
+  const features = productFeatures();
 
   const lines = [
     `# ${PRODUCT_NAME}`,
