@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { CODE_ORIGIN } from "@/lib/brand";
+import { CODE_HOST, CODE_ORIGIN } from "@/lib/brand";
 
 /**
  * Serves /robots.txt.
@@ -13,25 +13,40 @@ import { CODE_ORIGIN } from "@/lib/brand";
  * `/robots` and `/sitemap` are already in RESERVED_CODES, and a generated code
  * can never contain a dot, so neither path can collide with a printed code.
  */
+const DISALLOW = [
+  "/auth/",
+  "/account",
+  "/api/",
+  "/report",
+  "/paused",
+  "/blocked",
+  "/unavailable",
+  "/not-found-code",
+];
+
+/**
+ * AI crawlers named outright, so the welcome is unambiguous. They get the same
+ * disallow list as `*`, not a bare `Allow: /`: a crawler obeys only the most
+ * specific group that names it, so a group of their own without the list
+ * would open the sign-in and status pages to exactly these bots.
+ */
+const AI_CRAWLERS = [
+  "ClaudeBot",
+  "GPTBot",
+  "OAI-SearchBot",
+  "PerplexityBot",
+  "Google-Extended",
+  "Applebot-Extended",
+];
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: [
-      {
-        userAgent: "*",
-        allow: "/",
-        disallow: [
-          "/auth/",
-          "/account",
-          "/api/",
-          "/report",
-          "/paused",
-          "/blocked",
-          "/unavailable",
-          "/not-found-code",
-        ],
-      },
+      { userAgent: "*", allow: "/", disallow: DISALLOW },
+      { userAgent: AI_CRAWLERS, allow: "/", disallow: DISALLOW },
     ],
     sitemap: `${CODE_ORIGIN}/sitemap.xml`,
-    host: CODE_ORIGIN,
+    // `Host` takes a bare hostname, not an origin.
+    host: CODE_HOST,
   };
 }

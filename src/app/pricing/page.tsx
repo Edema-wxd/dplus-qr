@@ -18,14 +18,41 @@ import { getPricingContent } from "@/lib/site-content";
 import { POLICY_KEYS, type PricingContent } from "@/lib/pricing-content";
 import { PricingTiers } from "./PricingTiers";
 
-export const metadata: Metadata = {
-  title: "Pricing",
-  description: `${PRODUCT_NAME} plans from ₦${priceFrom()} a month, billed in naira through Paystack, monthly or annually.`,
-  alternates: { canonical: `${CODE_ORIGIN}/pricing` },
-  // The root layout marks the host noindex; this page wants to be found, for
-  // the same reason the landing page does.
-  robots: { index: true, follow: true },
-};
+/**
+ * Title and description name each tier's price and code limit, so they are
+ * read from the same `qr_plans` rows as the table: staff can reprice or rename
+ * a tier from `/admin/plans` and the search snippet follows without a deploy.
+ * A failed read falls back to the brand-level "from" figure rather than
+ * failing the page.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  await connection();
+  let from = priceFrom();
+  let description = `${PRODUCT_NAME} plans from NGN ${from} a month, billed in naira through Paystack. Free static codes on all.`;
+  try {
+    const tiers = groupTiers(await listPublicPlans()).filter((t) => t.monthly);
+    if (tiers.length > 0) {
+      from = tiers[0].monthly!.priceNgn;
+      const list = tiers
+        .map((t) => `${t.name} NGN ${t.monthly!.priceNgn}/mo for ${t.maxCodes.toLocaleString("en-NG")} codes`)
+        .join(", ")
+        // "for 10 codes, ... for 50 codes" reads as a list; drop the repeats.
+        .replace(/ codes(?=, )/g, "")
+        .replace(/ codes$/, "");
+      description = `${PRODUCT_NAME} plans: ${list}. Naira billing. Free static codes on all.`;
+    }
+  } catch {
+    // Metadata must never take the pricing page down with the database.
+  }
+  return {
+    title: { absolute: `${PRODUCT_NAME} Pricing - Dynamic QR Codes from NGN ${from}/mo` },
+    description,
+    alternates: { canonical: `${CODE_ORIGIN}/pricing` },
+    // The root layout marks the host noindex; this page wants to be found, for
+    // the same reason the landing page does.
+    robots: { index: true, follow: true },
+  };
+}
 
 /**
  * The public pricing page.
