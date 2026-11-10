@@ -155,14 +155,19 @@ export function previousScreen(screen: StartScreen, progress: OnboardingProgress
  *
  * Only an account with no codes that has neither finished nor skipped. Once
  * someone skips they are never sent back; the empty dashboard offers a link
- * instead. An account with codes never sees it, however it got them.
+ * instead. An account with codes never sees it, however it got them, and
+ * nor does one whose onboarding code has since gone.
  */
 export function shouldOnboard(
   codeCount: number,
-  state: { skippedAt: Date | null; completedAt: Date | null } | null
+  state: { skippedAt: Date | null; completedAt: Date | null; codeId: string | null } | null
 ): boolean {
   if (codeCount > 0) return false;
   if (!state) return true;
+  // The onboarding already made its code and the account now has none: that
+  // code is gone (archived by staff, say). `/app/start` sends anyone whose
+  // code is gone back to `/app`, so sending them there again would loop.
+  if (state.codeId !== null) return false;
   return state.skippedAt === null && state.completedAt === null;
 }
 

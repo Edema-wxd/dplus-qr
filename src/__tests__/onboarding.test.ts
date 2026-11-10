@@ -155,13 +155,15 @@ describe("where someone picks up", () => {
 describe("who the dashboard sends to the onboarding", () => {
   it("sends an account with no codes that has not finished or skipped", () => {
     expect(shouldOnboard(0, null)).toBe(true);
-    expect(shouldOnboard(0, { skippedAt: null, completedAt: null })).toBe(true);
+    expect(shouldOnboard(0, { skippedAt: null, completedAt: null, codeId: null })).toBe(true);
   });
 
   it("never sends someone who skipped, finished, or already has a code", () => {
-    expect(shouldOnboard(0, { skippedAt: new Date(), completedAt: null })).toBe(false);
-    expect(shouldOnboard(0, { skippedAt: null, completedAt: new Date() })).toBe(false);
+    expect(shouldOnboard(0, { skippedAt: new Date(), completedAt: null, codeId: null })).toBe(false);
+    expect(shouldOnboard(0, { skippedAt: null, completedAt: new Date(), codeId: null })).toBe(false);
     expect(shouldOnboard(1, null)).toBe(false);
+    // Its code was archived: /app/start would send them straight back.
+    expect(shouldOnboard(0, { skippedAt: null, completedAt: null, codeId: "c1" })).toBe(false);
   });
 });
 
