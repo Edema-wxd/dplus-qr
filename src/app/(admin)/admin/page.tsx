@@ -54,6 +54,14 @@ export default async function AdminOverview() {
       cta: "Review reports",
     },
     {
+      count: attention.finalWarningsDue,
+      title: attention.finalWarningsDue === 1 ? "final warning past due" : "final warnings past due",
+      detail:
+        "Nothing happens on its own when the date passes. Suspend the account, or close the warning if they put it right.",
+      href: "/admin/monitor#due-heading",
+      cta: "Decide",
+    },
+    {
       count: attention.overdueAccounts,
       title: attention.overdueAccounts === 1 ? "account overdue" : "accounts overdue",
       detail: soonestPause
@@ -95,7 +103,7 @@ export default async function AdminOverview() {
           {todo.length === 0 ? (
             <p className="mt-4 flex items-center gap-2 text-sm text-[var(--paper-soft)]">
               <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-[var(--live-ink)]" />
-              Nothing is waiting on you. No open reports, nobody overdue, every payment applied.
+              Nothing is waiting on you. No open reports, no final warning due, nobody overdue, every payment applied.
             </p>
           ) : (
             <ul className="mt-4 divide-y divide-[var(--paper-rule)] overflow-hidden rounded-lg border border-[var(--paper-rule)] bg-white">
