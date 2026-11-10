@@ -47,7 +47,22 @@ describe("checkQrStyle", () => {
   it("refuses an inverted code even at full contrast, because many scanners cannot read one", () => {
     const result = checkQrStyle(pair("#FFFFFF", "#000000"));
     if (result.ok) throw new Error("expected refusal");
-    expect(result.reason).toMatch(/darker than the background/i);
+    expect(result.inverted).toBe(true);
+    expect(result.reason).toMatch(/must be the darker one/i);
+  });
+
+  it("quotes each inverted pair's own contrast, so a new pick reads as a new check", () => {
+    const a = checkQrStyle({ dark: "#FFFFFF", light: "#000000" });
+    const b = checkQrStyle({ dark: "#FFFFFF", light: "#555555" });
+    if (a.ok || b.ok) throw new Error("expected refusal");
+    expect(a.reason).toContain("21.0:1");
+    expect(b.reason).not.toEqual(a.reason);
+  });
+
+  it("does not call a dull pair inverted", () => {
+    const result = checkQrStyle({ dark: "#808080", light: "#FFFFFF" });
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.inverted).toBe(false);
   });
 
   it("refuses identical colours", () => {
@@ -164,6 +179,16 @@ describe("patterns and corners", () => {
     if (!result.ok) expect(result.reason).toMatch(/corner dot/);
   });
 
+  it("calls a corner colour lighter than the ground inverted, and one too close not", () => {
+    const light = checkQrStyle({ ...DEFAULT_QR_STYLE, light: "#EEEEEE", cornerFrameColor: "#FFFFFF" });
+    const close = checkQrStyle({ ...DEFAULT_QR_STYLE, cornerFrameColor: "#999999" });
+    if (light.ok || close.ok) throw new Error("expected refusal");
+    expect(light.inverted).toBe(true);
+    expect(light.reason).toMatch(/corner frame/);
+    expect(close.inverted).toBe(false);
+    expect(close.reason).toMatch(/corner frame/);
+  });
+
   it("quotes the weakest contrast among the inks", () => {
     const style = { ...DEFAULT_QR_STYLE, dark: "#000000", cornerFrameColor: "#767676" };
     expect(weakestContrast(style)).toBeCloseTo(contrastRatio("#767676", "#FFFFFF"));
@@ -204,6 +229,11 @@ describe("pageBrand", () => {
     expect(pageBrand(DEFAULT_QR_STYLE)).toBeNull();
   });
 
+  it("judges the colours only, so a new pattern alone does not rebrand the page", () => {
+    const patterned: QrStyle = { ...DEFAULT_QR_STYLE, pattern: "dots", cornerFrame: "circle" };
+    expect(pageBrand(patterned)).toBeNull();
+  });
+
   it("fills buttons with the code colour", () => {
     expect(pageBrand(pair("#0B3D5C", "#FFFFFF"))?.fill).toBe("#0B3D5C");
   });
@@ -225,4 +255,13 @@ describe("pageBrand", () => {
       expect(contrastRatio(brand.fill, brand.ink)).toBeGreaterThanOrEqual(4.5);
     }
   );
+});
+
+describe("checkQrStyle on identical colours", () => {
+  it("calls them too close, not inverted", () => {
+    const result = checkQrStyle({ dark: "#FFFFFF", light: "#FFFFFF" });
+    if (result.ok) throw new Error("expected refusal");
+    expect(result.inverted).toBe(false);
+    expect(result.reason).toMatch(/too close/);
+  });
 });

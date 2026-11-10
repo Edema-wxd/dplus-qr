@@ -17,6 +17,8 @@ function entitlement(overrides: Partial<Entitlement> = {}): Entitlement {
     codesUsed: 0,
     features: {},
     active: true,
+    seats: 1,
+    seatsUsed: 1,
     ...overrides,
   };
 }
@@ -56,7 +58,7 @@ describe("analyticsWindow", () => {
     expect(analyticsWindow(days)).toBe(days);
   });
 
-  it.each([0, -1, 31, 365, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+  it.each([0, -1, 31, 364, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
     "collapses %p to 30, because this value is interpolated into SQL",
     (days) => {
       expect(analyticsWindow(days)).toBe(30);

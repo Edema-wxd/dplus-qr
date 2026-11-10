@@ -7,9 +7,11 @@ import { inputClass, primaryButtonClass } from "@/components/controls";
 import { LogoPicker, type PickerLogo } from "../LogoPicker";
 import { ContentEditor, emptyDraft, type Draft } from "../ContentEditor";
 import { CustomLinkField } from "./CustomLinkField";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
+import { ACCOUNT_PIN_FIELD } from "@/lib/account-scope";
 import { DesignFields, DesignPreview } from "../DesignPanel";
 import { DEFAULT_QR_STYLE, checkQrStyle, type QrStyle } from "@/lib/qr-style";
-import type { QrMatrix } from "@/lib/qr-artwork";
+import type { QrMatrix } from "@/lib/qr-draw";
 
 /** What the destination field asks for, per link type. */
 const LINK_FIELD: Record<LinkKind, { label: string; placeholder: string; hint: string }> = {
@@ -42,18 +44,30 @@ const LINK_FIELD: Record<LinkKind, { label: string; placeholder: string; hint: s
  * from the final code's; the design, colours and logo placement do not.
  */
 export function CreateCodeForm({
+  accountId,
   kind,
   logos,
   uploads,
+  videoUploads,
+  videoOffer,
   customLinks,
+  customOffer,
   sample,
 }: {
+  /** The account this form was drawn for; see `pinMismatch`. */
+  accountId: string;
   kind: DynamicKind;
   /** The account's logo library, offered so a logo is uploaded only once. */
   logos: PickerLogo[];
   uploads: boolean;
-  /** Whether the plan includes custom links, and why not when it does not. */
-  customLinks: { ok: true } | { ok: false; reason: string };
+  /** Whether the plan includes uploading video files. */
+  videoUploads: boolean;
+  /** What clicking the locked video upload explains, when it is locked. */
+  videoOffer?: UpgradeOffer;
+  /** Whether the plan includes custom links. */
+  customLinks: boolean;
+  /** What clicking the locked custom link field explains. */
+  customOffer?: UpgradeOffer;
   /** A sample code link encoded at both levels, for the preview with and without a logo. */
   sample: { Q: QrMatrix; H: QrMatrix };
 }) {
@@ -67,6 +81,7 @@ export function CreateCodeForm({
     <form action={action} className="grid gap-10 lg:grid-cols-[minmax(0,42rem)_minmax(0,17rem)] lg:gap-12">
       <div className="min-w-0 space-y-6">
         <input type="hidden" name="kind" value={kind} />
+        <input type="hidden" name={ACCOUNT_PIN_FIELD} value={accountId} />
 
         <div>
           <label htmlFor="new-code-name" className="mb-1 block text-sm">
@@ -110,15 +125,19 @@ export function CreateCodeForm({
             <p className="mb-4 text-sm text-[var(--paper-soft)]">
               This is the page people see when they scan. You can edit it at any time after printing.
             </p>
-            <ContentEditor kind={kind} value={draft} uploads={uploads} onChange={setDraft} />
+            <ContentEditor
+              kind={kind}
+              value={draft}
+              uploads={uploads}
+              videoUploads={videoUploads}
+              videoOffer={videoOffer}
+              onChange={setDraft}
+            />
             <input type="hidden" name="content" value={JSON.stringify(draft)} />
           </section>
         )}
 
-        <CustomLinkField
-          allowed={customLinks.ok}
-          reason={customLinks.ok ? undefined : customLinks.reason}
-        />
+        <CustomLinkField allowed={customLinks} offer={customOffer} />
 
         {/*
           Shown when there is anything to pick or a way to add something. With
@@ -129,7 +148,7 @@ export function CreateCodeForm({
             logos={logos}
             uploads={uploads}
             idPrefix="new-code-logo"
-            onChange={(_logoId, url) => setLogoUrl(url)}
+            onChange={(_logoId, logo) => setLogoUrl(logo?.url ?? null)}
           />
         ) : null}
 

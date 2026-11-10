@@ -10,6 +10,7 @@ import { z } from "zod";
  */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import { getPlanById, getPlanBySlug } from "@/lib/plans";
+import { flash } from "@/lib/flash";
 import {
   assignPlan,
   connectPlanToPaystack,
@@ -112,6 +113,7 @@ export async function createPlanAction(_prev: AdminFormState, form: FormData): P
 
   await record(staff, "plan.create", "plan", parsed.data.slug, { ...parsed.data, features });
   revalidatePath("/admin/plans");
+  await flash("plan-created");
   redirect(`/admin/plans/${result.planId}`);
 }
 

@@ -1,6 +1,6 @@
 import QRCode from "qrcode";
 import { qrMatrix, type QrLevel, type QrMatrix } from "@/lib/qr-render";
-import { inksFor, qrArtwork, type ArtworkInks } from "@/lib/qr-artwork";
+import { inksFor, qrArtwork, type ArtworkInks } from "@/lib/qr-draw";
 import { DEFAULT_QR_STYLE, type QrStyle } from "@/lib/qr-style";
 import { QrArtworkSvg } from "@/components/QrArtworkSvg";
 

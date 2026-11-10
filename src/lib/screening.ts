@@ -1,7 +1,7 @@
 /**
- * Destination screening. Phase 1-2 enforces URL rules only; the reputation
- * check is a declared interface with a stub, so Google Web Risk drops in at
- * Phase 3 once its licence and pricing are confirmed.
+ * Destination screening: the URL rules, with no network. Pure, so the page
+ * editor runs the same rules in the browser. Whether a link is on a list of
+ * unsafe sites is the server's job, in `reputation.ts`.
  */
 
 const BLOCKED_SCHEMES = ["javascript:", "data:", "vbscript:", "file:", "blob:"];
@@ -125,17 +125,4 @@ export function screenUrl(input: string): ScreenResult {
   }
 
   return { ok: true, normalised: url.toString() };
-}
-
-/**
- * Reputation check. Phase 3 replaces the body with a Google Web Risk lookup
- * (threat types MALWARE, SOCIAL_ENGINEERING, UNWANTED_SOFTWARE).
- *
- * Returns `unavailable` rather than `clean` when no provider is configured, so
- * no caller can mistake "not checked" for "checked and safe".
- */
-export type ReputationVerdict = "clean" | "flagged" | "unavailable";
-
-export async function checkReputation(_url: string): Promise<ReputationVerdict> {
-  return "unavailable";
 }

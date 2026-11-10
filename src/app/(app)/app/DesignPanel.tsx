@@ -12,7 +12,7 @@ import {
   type QrPattern,
   type QrStyle,
 } from "@/lib/qr-style";
-import { QUIET_ZONE, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-artwork";
+import { QUIET_ZONE, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-draw";
 import { QrArtworkSvg } from "@/components/QrArtworkSvg";
 
 /**

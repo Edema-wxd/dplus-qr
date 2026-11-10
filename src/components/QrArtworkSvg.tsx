@@ -1,4 +1,4 @@
-import type { Artwork } from "@/lib/qr-artwork";
+import type { Artwork } from "@/lib/qr-draw";
 
 /**
  * An `Artwork` as an inline SVG element: the same shapes `artworkSvg` writes

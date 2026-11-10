@@ -1,16 +1,16 @@
 import QRCode from "qrcode";
 import type { QrStyle } from "@/lib/qr-style";
-import { artworkSvg, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-artwork";
+import { artworkSvg, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-draw";
 
-export { LOGO_FRACTION, QUIET_ZONE, logoBox, type QrMatrix } from "@/lib/qr-artwork";
+export { LOGO_FRACTION, QUIET_ZONE, logoBox, type QrMatrix } from "@/lib/qr-draw";
 
 /**
- * Encoding a code's content into a module matrix, and the downloadable SVG.
+ * Encoding a code's content into modules, and the artwork as an SVG.
  *
- * The drawing itself is `qr-artwork.ts`, which the dashboard specimens and the
+ * The drawing itself is `qr-draw.ts`, which the dashboard specimens and the
  * live design preview use too, so the grid an owner sees is the grid they
  * print: same content, same error-correction level, same shapes, same logo
- * box.
+ * box. Downloads reach this through `renderArtwork` (`qr-artwork.ts`).
  *
  * Without a logo, codes stay at level Q. With one, they move to H, which can
  * rebuild about 30% of the symbol, and the logo covers at most
@@ -21,12 +21,44 @@ export { LOGO_FRACTION, QUIET_ZONE, logoBox, type QrMatrix } from "@/lib/qr-artw
  * changes the artwork and never where a scan goes.
  */
 
-export type QrLevel = "Q" | "H";
+/**
+ * "M" is for static codes only, which carry their whole content in the
+ * symbol and so stay one level lower without a logo; see `static-artwork.ts`.
+ */
+export type QrLevel = "M" | "Q" | "H";
 
-export function levelFor(hasLogo: boolean): QrLevel {
+export function levelFor(hasLogo: boolean): "Q" | "H" {
   return hasLogo ? "H" : "Q";
 }
 
+export type Geometry = {
+  /** One path covering every dark module, in module units. */
+  path: string;
+  /** Modules per side, quiet zone excluded. */
+  size: number;
+  /** One byte per module, row by row, non-zero for dark. */
+  modules: Uint8Array;
+};
+
+/** The plain module grid, for the static code painter in the browser. */
+export function qrGeometry(content: string, level: QrLevel): Geometry {
+  const qr = QRCode.create(content, { errorCorrectionLevel: level });
+  const n = qr.modules.size;
+  const data = qr.modules.data;
+
+  let path = "";
+  for (let y = 0; y < n; y += 1) {
+    for (let x = 0; x < n; x += 1) {
+      if (data[y * n + x]) path += `M${x} ${y}h1v1h-1z`;
+    }
+  }
+  return { path, size: n, modules: data };
+}
+
+/**
+ * The modules as a plain string, which crosses from a server component to the
+ * live preview as a prop. The browser never runs a QR encoder.
+ */
 export function qrMatrix(content: string, level: QrLevel): QrMatrix {
   const qr = QRCode.create(content, { errorCorrectionLevel: level });
   const n = qr.modules.size;
@@ -39,7 +71,8 @@ export function qrMatrix(content: string, level: QrLevel): QrMatrix {
  * The full artwork as an SVG document, in the code's saved style.
  *
  * `logoHref` is whatever an `<image>` can load. Downloads pass a data URI so
- * the file stands alone once it leaves the dashboard.
+ * the file stands alone once it leaves the dashboard: a print shop opening it
+ * offline still gets the logo.
  */
 export function renderQrSvg(options: {
   content: string;
@@ -47,9 +80,11 @@ export function renderQrSvg(options: {
   /** Output width and height in pixels. */
   px: number;
   logoHref?: string;
+  /** Overrides `levelFor`. Static codes pass their own; see `static-artwork.ts`. */
+  level?: QrLevel;
 }): string {
   const hasLogo = Boolean(options.logoHref);
-  const matrix = qrMatrix(options.content, levelFor(hasLogo));
+  const matrix = qrMatrix(options.content, options.level ?? levelFor(hasLogo));
   const art = qrArtwork(matrix, options.style, inksFor(options.style), hasLogo);
   return artworkSvg(art, options.px, options.logoHref);
 }

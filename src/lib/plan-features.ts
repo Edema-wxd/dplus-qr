@@ -39,7 +39,23 @@ export type FeatureDef =
       min: number;
       max: number;
       help: string;
+      /** Said on the price table for a plan that has a value; absent: never listed. */
+      advertise?: (value: number) => string;
     };
+
+/**
+ * Keys that once meant something and must never be reused.
+ *
+ * `analytics` ("basic" or "trends") was seeded on six plan rows by migration
+ * 013 for a long-range chart that did not exist yet. When it was built (7 Nov
+ * 2026) the chart length came from `history_days` instead, since a separate
+ * flag could only contradict it ("trends" with 30 days of history, or two
+ * years of history and a 90-day chart). The stored values were left in place,
+ * inert: `featuresFromForm` keeps keys the catalogue does not list, and
+ * deleting them would change paid plan rows for nothing. Reusing the key
+ * would silently switch a new feature on for every plan that still holds it.
+ */
+export const RETIRED_FEATURE_KEYS = ["analytics"] as const;
 
 export const PLAN_FEATURES: readonly FeatureDef[] = [
   {
@@ -48,14 +64,60 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     kind: "boolean",
     built: true,
     absent: "No CSV export",
-    help: "Download raw scan rows for a code. Enforced by canExportCsv.",
+    help: "Customers can download every scan of a code as a spreadsheet. Without it, the export button explains which plans include it.",
   },
   {
     key: "custom_codes",
     label: "Custom links, like /yourname",
     kind: "boolean",
     built: true,
-    help: "Choose a short code instead of a generated one. Enforced by canUseCustomCodes.",
+    help: "Customers can pick their own link, like qriateplus.com/yourname, instead of a random one.",
+  },
+  {
+    key: "insights",
+    label: "Unique scans, phones and cities",
+    kind: "boolean",
+    built: true,
+    help: "Customers see unique scans, operating systems, cities and the change against the previous period on each code. Without it those panels show what upgrading unlocks.",
+  },
+  {
+    key: "share_stats",
+    label: "Shareable stats links",
+    kind: "boolean",
+    built: true,
+    help: "Customers can publish a read-only stats page for a code, for someone without an account. It never shows the code's destination.",
+  },
+  {
+    key: "hosted_pages",
+    label: "Hosted pages: menus, PDFs, profile cards and more",
+    kind: "boolean",
+    built: true,
+    absent: "Link codes only",
+    help: "Customers can make page codes (menu, PDF, profile card, links page and the rest). Without it they make link codes only; pages they already have keep working.",
+  },
+  {
+    key: "video_uploads",
+    label: "Video uploads",
+    kind: "boolean",
+    built: true,
+    help: "Customers can upload video files to a video page. Without it they can still show a YouTube or Vimeo link; videos already uploaded keep playing.",
+  },
+  {
+    key: "team_seats",
+    label: "Team seats",
+    kind: "number",
+    built: true,
+    min: 2,
+    max: 50,
+    advertise: (people) => `Up to ${people} people, with their own sign-in`,
+    help: "People who can use the account, the owner included: the owner invites the rest as editors or viewers. Empty means no team. Lowering it below a team's size locks out the latest to join; nobody is removed.",
+  },
+  {
+    key: "bulk_creation",
+    label: "Bulk creation from a spreadsheet",
+    kind: "boolean",
+    built: true,
+    help: "Customers can make up to 500 link codes at once from a CSV or pasted rows, and download a batch's QR images as one zip. Their code limit still applies. Without it, the bulk button explains which plans include it.",
   },
   {
     key: "support",
@@ -67,7 +129,7 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
       whatsapp_priority: "Priority WhatsApp support",
       priority: "Priority support",
     },
-    help: "Shown on the price table. Delivered by people, not code.",
+    help: "Listed on the price table. This is a promise the team keeps by hand; nothing in the app changes.",
   },
   {
     key: "months_free",
@@ -76,29 +138,7 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     built: true,
     min: 0,
     max: 11,
-    help: "For an annual plan: how many of its twelve months the price leaves out. Display only; the price is the amount.",
-  },
-  {
-    key: "analytics",
-    label: "Analytics",
-    kind: "choice",
-    built: false,
-    options: { basic: "Basic", trends: "Trends" },
-    help: "Every plan currently gets the same charts.",
-  },
-  {
-    key: "team_seats",
-    label: "Team seats",
-    kind: "boolean",
-    built: false,
-    help: "Not built yet. Stored, never advertised.",
-  },
-  {
-    key: "bulk_creation",
-    label: "Bulk creation",
-    kind: "boolean",
-    built: false,
-    help: "Not built yet. Stored, never advertised.",
+    help: "Annual plans only: the saving the price table mentions. It does not change the price; set that above.",
   },
 ];
 
@@ -117,6 +157,8 @@ export function advertisedFeatures(features: PlanFeatures): string[] {
       else if (def.absent) lines.push(def.absent);
     } else if (def.kind === "choice") {
       if (typeof value === "string" && def.options[value]) lines.push(def.options[value]);
+    } else if (def.advertise && typeof value === "number" && Number.isInteger(value) && value >= def.min) {
+      lines.push(def.advertise(value));
     }
   }
   return lines;

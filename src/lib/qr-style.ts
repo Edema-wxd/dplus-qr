@@ -110,7 +110,14 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-export type StyleCheck = { ok: true } | { ok: false; reason: string };
+export type StyleCheck = { ok: true } | { ok: false; reason: string; inverted: boolean };
+
+/**
+ * The colours the scan rule judges. Corner colours are optional so a caller
+ * with only a pair, such as the static code form, can be checked as it is.
+ */
+export type QrColours = Pick<QrStyle, "dark" | "light"> &
+  Partial<Pick<QrStyle, "cornerFrameColor" | "cornerDotColor">>;
 
 /**
  * Whether a pair will scan once printed.
@@ -119,28 +126,42 @@ export type StyleCheck = { ok: true } | { ok: false; reason: string };
  * modules on a dark ground) has the same ratio, but a share of scanner apps,
  * older Android ones especially, only look for dark finder patterns and never
  * read it at all.
+ *
+ * Every reason quotes the pair's contrast. White on black is 21:1, the best
+ * there is, and refused anyway; a reason that read the same for every
+ * inverted pair looked to owners like a check that had stopped re-running.
  */
-export function checkQrStyle(style: QrStyle): StyleCheck {
+export function checkQrStyle(style: QrColours): StyleCheck {
   // Every colour a scanner has to tell from the ground is held to the same
   // rule. The corner squares matter most of all: they are how a scanner
   // finds the code in the first place.
   const inks: { colour: string; name: string }[] = [
-    { colour: style.dark, name: "The code colour" },
-    ...(style.cornerFrameColor ? [{ colour: style.cornerFrameColor, name: "The corner frame colour" }] : []),
-    ...(style.cornerDotColor ? [{ colour: style.cornerDotColor, name: "The corner dot colour" }] : []),
+    { colour: style.dark, name: "code" },
+    ...(style.cornerFrameColor ? [{ colour: style.cornerFrameColor, name: "corner frame" }] : []),
+    ...(style.cornerDotColor ? [{ colour: style.cornerDotColor, name: "corner dot" }] : []),
   ];
   for (const ink of inks) {
-    if (luminance(ink.colour) >= luminance(style.light)) {
+    const ratio = contrastRatio(ink.colour, style.light);
+    // Strictly lighter: two equally bright colours are not inverted, just too
+    // close, and the contrast check below refuses them as that.
+    if (luminance(ink.colour) > luminance(style.light)) {
       return {
         ok: false,
-        reason: `${ink.name} must be darker than the background. Many scanners cannot read a light code on a dark ground.`,
+        inverted: true,
+        reason:
+          ink.name === "code"
+            ? `Contrast ${ratio.toFixed(1)}:1, but the code is lighter than its background. The code colour must be the darker one: many scanners cannot read a light code on a dark ground.`
+            : `Contrast ${ratio.toFixed(1)}:1, but the ${ink.name} colour is lighter than the background. It must be the darker one: many scanners cannot read a light code on a dark ground.`,
       };
     }
-    const ratio = contrastRatio(ink.colour, style.light);
     if (ratio < MIN_QR_CONTRAST) {
       return {
         ok: false,
-        reason: `${ink.name} is too close to the background to scan reliably once printed (contrast ${ratio.toFixed(1)}:1, minimum ${MIN_QR_CONTRAST}:1). Darken it or lighten the background.`,
+        inverted: false,
+        reason:
+          ink.name === "code"
+            ? `Those two colours are too close to scan reliably once printed (contrast ${ratio.toFixed(1)}:1, minimum ${MIN_QR_CONTRAST}:1). Darken the code colour or lighten the background.`
+            : `The ${ink.name} colour is too close to the background to scan reliably once printed (contrast ${ratio.toFixed(1)}:1, minimum ${MIN_QR_CONTRAST}:1). Darken it or lighten the background.`,
       };
     }
   }
@@ -148,10 +169,10 @@ export function checkQrStyle(style: QrStyle): StyleCheck {
 }
 
 /** The weakest contrast among the style's inks, for the form to quote. */
-export function weakestContrast(style: QrStyle): number {
+export function weakestContrast(style: QrColours): number {
   return Math.min(
     ...[style.dark, style.cornerFrameColor, style.cornerDotColor]
-      .filter((colour): colour is string => colour !== null)
+      .filter((colour): colour is string => typeof colour === "string")
       .map((colour) => contrastRatio(colour, style.light))
   );
 }
@@ -202,7 +223,7 @@ export function sameQrStyle(a: QrStyle, b: QrStyle): boolean {
  * on a symbol that was rendered on the server.
  */
 export function qrStyleVars(
-  style: QrStyle
+  style: Pick<QrStyle, "dark" | "light">
 ): Record<"--qr-ink" | "--qr-ground" | "--qr-ground-solid", string> {
   // `--qr-ground-solid` is what a logo box paints with. It is separate because
   // the dashboard's default `--qr-ground` is transparent, and a transparent
@@ -224,8 +245,12 @@ export function qrStyleVars(
  * because the site's own foreground also flips for dark mode and a fixed
  * near-black would not.
  */
-export function pageBrand(style: QrStyle): { fill: string; ink: string } | null {
-  if (isDefaultQrStyle(style)) return null;
+export function pageBrand(
+  style: Pick<QrStyle, "dark" | "light">
+): { fill: string; ink: string } | null {
+  // Colours only: a code with a new pattern but the default colours keeps
+  // the site's own buttons, as it did before patterns existed.
+  if (style.dark === DEFAULT_QR_STYLE.dark && style.light === DEFAULT_QR_STYLE.light) return null;
   const ink =
     contrastRatio(style.dark, "#FFFFFF") >= contrastRatio(style.dark, "#000000")
       ? "#FFFFFF"
