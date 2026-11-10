@@ -12,6 +12,9 @@ import { recordFile } from "@/lib/files";
 import { canUploadVideo, getEntitlement } from "@/lib/entitlement";
 import { UPLOAD_LIMITS, uploadRefusal, type UploadEndpoint } from "@/lib/upload-limits";
 import { videoRefusal } from "@/lib/user-codes";
+import { auth } from "@/lib/auth/server";
+import { isAdmin } from "@/lib/admin";
+import { recordBlogImage } from "@/lib/blog";
 
 /**
  * Every customer upload goes through here: logos, and the files hosted pages
@@ -112,6 +115,19 @@ async function recordPageFile({
 }
 
 const photo = limits("pageImage");
+const blogImage = limits("blogImage");
+
+/**
+ * Blog images are the site's, not an account's: only staff may upload one,
+ * checked the way the admin checks, by the role read from the database on
+ * this request. Everyone else is refused before a URL is handed out.
+ */
+async function staffUploader() {
+  const { data: session } = await auth.getSession();
+  const user = session?.user;
+  if (!user || !(await isAdmin(user.id))) throw new UploadThingError("Only staff can upload blog images.");
+  return { staffId: user.id };
+}
 
 export const uploadRouter = {
   logo: f({ "image/png": image, "image/jpeg": image, "image/webp": image })
@@ -176,6 +192,28 @@ export const uploadRouter = {
   pageAudio: f({ audio: limits("pageAudio") })
     .middleware(pageFileOwner)
     .onUploadComplete(recordPageFile),
+
+  // Staff only. Recorded in `blog_images`, which the upload cleanup never
+  // sweeps, so a cover cannot be deleted for not belonging to a code.
+  blogImage: f({ "image/png": blogImage, "image/jpeg": blogImage, "image/webp": blogImage })
+    .middleware(staffUploader)
+    .onUploadComplete(async ({ metadata, file }) => {
+      try {
+        await recordBlogImage({
+          key: file.key,
+          url: file.ufsUrl,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          staffId: metadata.staffId,
+        });
+      } catch (error) {
+        console.error("[uploads] blog image not recorded", error);
+        await new UTApi().deleteFiles(file.key).catch(() => {});
+        throw error;
+      }
+      return { url: file.ufsUrl, name: file.name };
+    }),
 } satisfies FileRouter;
 
 export type UploadRouter = typeof uploadRouter;
