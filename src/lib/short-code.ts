@@ -59,6 +59,8 @@ export const RESERVED_CODES: ReadonlySet<string> = new Set([
   "favicon",
   "robots",
   "sitemap",
+  "llms",
+  "llms.txt",
   // Hosted pages for page-type codes live under `/p/{code}`.
   "p",
   // Public, read-only stats links live under `/s/{token}`.

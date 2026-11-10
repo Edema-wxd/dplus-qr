@@ -35,6 +35,7 @@ import { QrSymbol, moduleCount } from "./_landing/QrSymbol";
 import { DepartureBoard } from "./_landing/DepartureBoard";
 import { Flaps, type FlapTone } from "./_landing/Flaps";
 import { LegalLinks } from "@/components/LegalLinks";
+import { PLAN_FEATURES } from "@/lib/plan-features";
 
 /**
  * The landing page at the root of qriateplus.com.
@@ -50,11 +51,8 @@ import { LegalLinks } from "@/components/LegalLinks";
  * build, which is why they cost a visitor nothing.
  */
 export const metadata: Metadata = {
-  title: {
-    absolute: `${PRODUCT_NAME} — dynamic QR codes you can change after printing`,
-  },
-  description:
-    "Print a QR code once and change where it goes whenever you need to. Pause it, track every scan, turn it into a menu or PDF. Billed in naira through Paystack. A De Sign Plus product.",
+  title: { absolute: `Dynamic QR Code Generator for Nigeria | ${PRODUCT_NAME}` },
+  description: `Print a QR code once and change where it leads any time. Dynamic QR codes from NGN ${priceFrom()}/month, billed in naira through Paystack. A De Sign Plus product.`,
   alternates: { canonical: CODE_ORIGIN },
   robots: { index: true, follow: true },
   openGraph: {
@@ -81,6 +79,59 @@ const oldModules = moduleCount(retiredUrl);
 const weekPeak = Math.max(...DEMO_WEEK.map((day) => day.scans));
 
 const SIGN_UP = "/auth/sign-up";
+
+/**
+ * Structured data for search engines and AI assistants.
+ *
+ * Built from the same constants the page renders, never typed separately:
+ * the FAQ markup is the visible FAQ (Google requires the two to match), the
+ * feature list is the built entries of `PLAN_FEATURES`, and the price is
+ * `PRICE_FROM_NGN`. No high price or offer count: this page is static, has no
+ * database at build time, and per-plan figures belong to `/pricing`.
+ */
+const STRUCTURED_DATA = [
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: PRODUCT_NAME,
+    url: CODE_ORIGIN,
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    description: `Dynamic QR code generator for Nigerian businesses. Print a QR code once and change where it leads at any time. Billed in naira through Paystack.`,
+    ...(PRICE_FROM_NGN === null
+      ? {}
+      : {
+          offers: {
+            "@type": "AggregateOffer",
+            priceCurrency: "NGN",
+            lowPrice: String(PRICE_FROM_NGN),
+            url: `${CODE_ORIGIN}/pricing`,
+          },
+        }),
+    creator: { "@type": "Organization", name: COMPANY_NAME, url: MAIN_SITE },
+    featureList: [
+      "Dynamic QR codes you can re-point after printing",
+      "Scan counts and charts for every code",
+      ...PLAN_FEATURES.filter((f) => f.built && f.kind === "boolean").map((f) => f.label),
+      "Free static codes for WhatsApp, Wi-Fi, contacts and calls",
+      "Naira billing through Paystack",
+    ],
+    inLanguage: "en",
+    areaServed: { "@type": "Country", name: "Nigeria" },
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
+  },
+];
+
+/** `<` escaped so no string in the data can close the script element. */
+const structuredDataJson = JSON.stringify(STRUCTURED_DATA).replace(/</g, "\\u003c");
 
 /** Every section shares one set of gutters and one maximum width. */
 const frame = "mx-auto w-full max-w-[86rem] px-5 sm:px-10 lg:px-16";
@@ -157,6 +208,10 @@ const NAV: ReadonlyArray<{ href: string; label: string; dot?: string }> = [
 export default function Home() {
   return (
     <div className="lp min-h-dvh">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: structuredDataJson }}
+      />
       <a
         href="#start"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-(--chalk) focus:px-4 focus:py-2 focus:text-sm focus:text-(--ink)"
