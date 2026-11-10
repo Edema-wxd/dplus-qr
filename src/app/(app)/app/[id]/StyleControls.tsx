@@ -9,6 +9,7 @@ import {
   type QrStyle,
 } from "@/lib/qr-style";
 import type { QrMatrix } from "@/lib/qr-draw";
+import type { PresetLogoId } from "@/lib/preset-logos";
 import { setStyleAction, type CodeState } from "../actions";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { useSuccessToast } from "@/components/notify";
@@ -53,10 +54,12 @@ export function StyleScope({
 export function LiveSymbol({
   matrix,
   logoUrl,
+  presetLogo,
   title,
 }: {
   matrix: QrMatrix;
   logoUrl?: string | null;
+  presetLogo?: PresetLogoId | null;
   title: string;
 }) {
   const { style } = useScope();
@@ -65,6 +68,7 @@ export function LiveSymbol({
       matrix={matrix}
       style={style}
       logoUrl={logoUrl}
+      presetLogo={presetLogo}
       px={248}
       title={title}
       className="mx-auto block h-auto w-full max-w-[248px]"

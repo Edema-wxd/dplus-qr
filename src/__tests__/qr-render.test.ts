@@ -8,7 +8,8 @@ import {
   RGBLuminanceSource,
 } from "@zxing/library";
 import { codeUrl } from "@/lib/brand";
-import { CORNER_DOTS, CORNER_FRAMES, DEFAULT_QR_STYLE, QR_PATTERNS, readQrStyle, type QrStyle } from "@/lib/qr-style";
+import { CORNER_DOTS, CORNER_FRAMES, DEFAULT_QR_STYLE, QR_FRAMES, QR_PATTERNS, readQrStyle, type QrStyle } from "@/lib/qr-style";
+import { PRESET_LOGOS } from "@/lib/preset-logos";
 import { LOGO_FRACTION, QUIET_ZONE, levelFor, logoBox, qrMatrix, renderQrSvg } from "@/lib/qr-render";
 import { eyeShape, frameShape, inksFor, qrArtwork } from "@/lib/qr-draw";
 import { renderArtwork } from "@/lib/qr-artwork";
@@ -260,6 +261,62 @@ describe("every pattern and corner combination scans", () => {
   });
 });
 
+describe("every frame and ready-made logo scans", () => {
+  const FRAMED = QR_FRAMES.filter((frame) => frame !== "none").flatMap((frame) =>
+    QR_PATTERNS.map((pattern): QrStyle => ({
+      ...DEFAULT_QR_STYLE,
+      frame,
+      pattern,
+      frameColor: "#1A4F8A",
+      frameText: "Scan for our menu ₦",
+    }))
+  );
+
+  it.each(FRAMED.map((style) => [`${style.frame} around ${style.pattern}`, style] as const))(
+    "%s",
+    async (_name, style) => {
+      expect(await decodeZxing(renderQrSvg({ content: CONTENT, style, px: 500, presetLogo: "instagram" }))).toBe(CONTENT);
+    }
+  );
+
+  it.each(QR_FRAMES)("%s, square, even by the strict reader", async (frame) => {
+    const style: QrStyle = { ...DEFAULT_QR_STYLE, frame, frameText: "See our menu" };
+    expect(await decode(renderQrSvg({ content: CONTENT, style, px: 500 }))).toBe(CONTENT);
+  });
+
+  it.each(QR_FRAMES)("%s keeps the quiet zone light on a transparent style", async (frame) => {
+    const style: QrStyle = { ...DEFAULT_QR_STYLE, frame, transparent: true };
+    expect(await decodeZxing(renderQrSvg({ content: CONTENT, style, px: 500 }))).toBe(CONTENT);
+  });
+
+  it.each(PRESET_LOGOS.flatMap((preset) => QR_PATTERNS.map((pattern) => [preset, pattern] as const)))(
+    "the %s mark on %s",
+    async (preset, pattern) => {
+      const style: QrStyle = { ...DEFAULT_QR_STYLE, pattern };
+      expect(await decodeZxing(renderQrSvg({ content: CONTENT, style, px: 500, presetLogo: preset }))).toBe(CONTENT);
+    }
+  );
+
+  it("draws a preset mark as vector shapes, with nothing to fetch", () => {
+    const svg = renderQrSvg({ content: CONTENT, style: DEFAULT_QR_STYLE, px: 500, presetLogo: "whatsapp" });
+    expect(svg).toContain('fill="#25D366"');
+    expect(svg).not.toContain("<image");
+  });
+
+  it("prefers the preset mark when an uploaded logo is also passed", () => {
+    const svg = renderQrSvg({ content: CONTENT, style: DEFAULT_QR_STYLE, px: 500, presetLogo: "x", logoHref: "data:image/png;base64,AAAA" });
+    expect(svg).not.toContain("<image");
+  });
+
+  it("makes a framed download taller than wide, at the width asked for", () => {
+    const svg = renderQrSvg({ content: CONTENT, style: { ...DEFAULT_QR_STYLE, frame: "banner-below" }, px: 1000 });
+    const width = Number(/ width="(\d+)"/.exec(svg)![1]);
+    const height = Number(/ height="(\d+)"/.exec(svg)![1]);
+    expect(width).toBe(1000);
+    expect(height).toBeGreaterThan(1100);
+  });
+});
+
 describe("downloads (renderArtwork)", () => {
   const code = (stored: unknown) => ({ shortCode: "Ab3kQ9x", style: readQrStyle(stored), logo: null });
 
@@ -298,6 +355,24 @@ describe("downloads (renderArtwork)", () => {
     const stored = { dark: "#0B3D5C", light: "#FFFFFF", pattern: "classy-rounded", cornerFrame: "circle", cornerDot: "dot" };
     const svg = (await renderArtwork(code(stored), "svg", 1024)) as string;
     expect(svg).toBe(renderQrSvg({ content: CONTENT, style: readQrStyle(stored), px: 1024 }));
+    expect(await decodeZxing(svg)).toBe(CONTENT);
+  });
+
+  it("draws a preset mark and a frame with nothing fetched", async () => {
+    const { loadLogo } = jest.requireMock("@/lib/logos") as { loadLogo: jest.Mock };
+    loadLogo.mockClear();
+    const artwork = {
+      shortCode: "Ab3kQ9x",
+      style: readQrStyle({ dark: "#1A1A1A", light: "#FFFFFF", pattern: "rounded", frame: "banner-below", frameText: "Menu" }),
+      // A stale upload beside the mark must not be fetched: the mark wins.
+      logo: { url: "https://x.ufs.sh/f/logo.png" },
+      presetLogo: "whatsapp" as const,
+    };
+    const svg = (await renderArtwork(artwork, "svg", 1024)) as string;
+    expect(loadLogo).not.toHaveBeenCalled();
+    expect(svg).not.toContain("<image");
+    expect(svg).toContain('fill="#25D366"');
+    expect(Number(/ height="(\d+)"/.exec(svg)![1])).toBeGreaterThan(1024);
     expect(await decodeZxing(svg)).toBe(CONTENT);
   });
 

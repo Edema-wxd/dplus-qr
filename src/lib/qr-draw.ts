@@ -1,4 +1,6 @@
 import type { CornerFrame, QrPattern, QrStyle } from "@/lib/qr-style";
+import { presetLogo, type PresetLogoId } from "@/lib/preset-logos";
+import { frameLayout, type FrameLayout } from "@/lib/frames";
 
 /**
  * Drawing a symbol's modules in a chosen pattern, from a module matrix.
@@ -70,8 +72,11 @@ export type Artwork = {
   ground: string | null;
   /** Painted in order. `evenodd` paths are rings. */
   layers: { d: string; fill: string; evenOdd?: boolean }[];
-  /** Where a logo goes, in the same units, when there is one. */
-  logo: { x: number; y: number; side: number } | null;
+  /**
+   * Where a logo goes, in the same units, when there is one. A preset mark
+   * carries its own drawing; an uploaded logo is an image the caller supplies.
+   */
+  logo: { x: number; y: number; side: number; preset: { hex: string; path: string; label: string } | null } | null;
 };
 
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -137,10 +142,16 @@ const SEAM = 0.02;
 /**
  * The whole symbol, ready to paint.
  *
- * `logo` reserves the logo box; the matrix should then be the level-H one,
- * which is the caller's job, since only it knows what was encoded.
+ * `logo` reserves the logo box: `true` for an uploaded image, or a preset's
+ * id to draw that mark. The matrix should then be the level-H one, which is
+ * the caller's job, since only it knows what was encoded.
  */
-export function qrArtwork(matrix: QrMatrix, shape: ArtworkShape, inks: ArtworkInks, logo = false): Artwork {
+export function qrArtwork(
+  matrix: QrMatrix,
+  shape: ArtworkShape,
+  inks: ArtworkInks,
+  logo: boolean | PresetLogoId = false
+): Artwork {
   const n = matrix.size;
   const q = QUIET_ZONE;
   const dark = (x: number, y: number) => x >= 0 && y >= 0 && x < n && y < n && matrix.bits.charCodeAt(y * n + x) === 49;
@@ -216,29 +227,75 @@ export function qrArtwork(matrix: QrMatrix, shape: ArtworkShape, inks: ArtworkIn
     ],
     // One module of clear ground between the logo and the nearest module, so
     // the edge of the logo is never mistaken for part of the pattern.
-    logo: box ? { x: box.offset + q + 1, y: box.offset + q + 1, side: box.side - 2 } : null,
+    logo: box
+      ? {
+          x: box.offset + q + 1,
+          y: box.offset + q + 1,
+          side: box.side - 2,
+          preset: typeof logo === "string" ? presetLogo(logo) : null,
+        }
+      : null,
   };
 }
 
 /**
- * The artwork as an SVG document. `logoHref` is whatever an `<image>` can
- * load; downloads pass a data URI so the file stands alone once it leaves the
- * dashboard, and a print shop opening it offline still gets the logo.
+ * A symbol with its frame around it: the frame's own canvas, and where the
+ * symbol sits on it. Without a frame the canvas is just the symbol.
  */
-export function artworkSvg(art: Artwork, px: number, logoHref?: string): string {
-  const square = art.layers.every((layer) => !/[Aa]/.test(layer.d));
+export type Composition = { art: Artwork; frame: FrameLayout };
+
+export function composeArtwork(
+  art: Artwork,
+  style: Pick<QrStyle, "frame" | "frameText" | "frameColor" | "dark" | "light">
+): Composition {
+  const frame = frameLayout(style.frame, art.span, style.frameText, style.frameColor ?? style.dark, art.ground, style.light);
+  return { art, frame };
+}
+
+/** A preset mark: the brand colour as a disc, the mark in white at its centre. */
+function presetSvg(logo: NonNullable<Artwork["logo"]>): string {
+  const preset = logo.preset!;
+  const r = logo.side / 2;
+  const mark = logo.side * 0.6;
+  const at = (logo.side - mark) / 2;
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${art.span} ${art.span}"` +
-    ` width="${px}" height="${px}"${square ? ' shape-rendering="crispEdges"' : ""}>` +
+    `<circle cx="${logo.x + r}" cy="${logo.y + r}" r="${r}" fill="${preset.hex}"/>` +
+    `<svg x="${logo.x + at}" y="${logo.y + at}" width="${mark}" height="${mark}" viewBox="0 0 24 24">` +
+    `<path d="${preset.path}" fill="#FFFFFF"/></svg>`
+  );
+}
+
+const pathSvg = (layer: { d: string; fill: string; evenOdd?: boolean }) =>
+  layer.d ? `<path d="${layer.d}" fill="${layer.fill}"${layer.evenOdd ? ' fill-rule="evenodd"' : ""}/>` : "";
+
+/**
+ * The artwork as an SVG document, `px` wide; a frame below or above makes it
+ * taller than wide. `logoHref` is whatever an `<image>` can load; downloads
+ * pass a data URI so the file stands alone once it leaves the dashboard, and
+ * a print shop opening it offline still gets the logo.
+ */
+export function artworkSvg(composition: Composition, px: number, logoHref?: string): string {
+  const { art, frame } = composition;
+  const square = frame.back.length + frame.front.length === 0 && !art.logo?.preset && art.layers.every((layer) => !/[Aa]/.test(layer.d));
+  const height = Math.round((px * frame.height) / frame.width);
+  const logo = art.logo
+    ? art.logo.preset
+      ? presetSvg(art.logo)
+      : logoHref
+        ? `<image x="${art.logo.x}" y="${art.logo.y}" width="${art.logo.side}" height="${art.logo.side}"` +
+          ` preserveAspectRatio="xMidYMid meet" href="${escapeAttribute(logoHref)}"/>`
+        : ""
+    : "";
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${frame.width} ${frame.height}"` +
+    ` width="${px}" height="${height}"${square ? ' shape-rendering="crispEdges"' : ""}>` +
+    frame.back.map(pathSvg).join("") +
+    `<g transform="translate(${frame.qr.x} ${frame.qr.y})">` +
     (art.ground ? `<rect width="${art.span}" height="${art.span}" fill="${art.ground}"/>` : "") +
-    art.layers
-      .filter((layer) => layer.d)
-      .map((layer) => `<path d="${layer.d}" fill="${layer.fill}"${layer.evenOdd ? ' fill-rule="evenodd"' : ""}/>`)
-      .join("") +
-    (art.logo && logoHref
-      ? `<image x="${art.logo.x}" y="${art.logo.y}" width="${art.logo.side}" height="${art.logo.side}"` +
-        ` preserveAspectRatio="xMidYMid meet" href="${escapeAttribute(logoHref)}"/>`
-      : "") +
+    art.layers.map(pathSvg).join("") +
+    logo +
+    `</g>` +
+    frame.front.map(pathSvg).join("") +
     `</svg>`
   );
 }

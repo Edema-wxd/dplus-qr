@@ -46,6 +46,7 @@ export function LogoForm({
         defaultSelected={current ?? ""}
         uploads={uploads}
         idPrefix="code-logo"
+        presets
         onChange={(logoId) => setChoice(logoId)}
       />
       <div className="mt-3">

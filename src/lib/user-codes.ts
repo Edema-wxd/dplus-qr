@@ -25,6 +25,7 @@ import { listPublicPlans } from "@/lib/plans";
 import { featureOffer, offerRefusal } from "@/lib/upgrade-offers";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
+import { readPresetLogo, type PresetLogoId } from "@/lib/preset-logos";
 import { featureRefusal } from "@/lib/refusals";
 import { firstFlagged, flaggedReason, pageLinks } from "@/lib/reputation";
 import {
@@ -88,6 +89,8 @@ export type OwnedCode = {
   style: QrStyle;
   /** The logo drawn in the middle, if any. Still shown if since archived. */
   logo: { id: string; url: string } | null;
+  /** A ready-made mark in place of an uploaded logo. The two never coexist. */
+  presetLogo: PresetLogoId | null;
   createdAt: Date;
   updatedAt: Date;
   scansToday: number;
@@ -132,6 +135,7 @@ function toOwnedCode(row: CodeRow): OwnedCode {
       row.logo_id && row.logo_url
         ? { id: String(row.logo_id), url: row.logo_url }
         : null,
+    presetLogo: readPresetLogo(row.style),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     scansToday: Number(row.scans_today),
@@ -233,6 +237,8 @@ export type CreateInput =
       customCode?: string | null;
       /** Already checked by the caller with `checkQrStyle`. */
       style?: QrStyle;
+      /** A ready-made mark; `logoId` must then be null. */
+      presetLogo?: PresetLogoId | null;
     }
   | {
       kind: PageKind;
@@ -242,6 +248,8 @@ export type CreateInput =
       customCode?: string | null;
       /** Already checked by the caller with `checkQrStyle`. */
       style?: QrStyle;
+      /** A ready-made mark; `logoId` must then be null. */
+      presetLogo?: PresetLogoId | null;
     };
 
 /**
@@ -374,7 +382,10 @@ export async function createCode(
             destination ?? pagePath(shortCode),
             content === null ? null : JSON.stringify(content),
             logoId,
-            JSON.stringify(input.style ?? {}),
+            JSON.stringify({
+              ...(input.style ?? {}),
+              ...(input.presetLogo && !logoId ? { presetLogo: input.presetLogo } : {}),
+            }),
           ]
         );
         // A fresh code has no history row: there is no previous destination to

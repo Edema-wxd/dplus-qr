@@ -273,4 +273,15 @@ describe("GET /app/imports/[id]/zip", () => {
     expect((await call("7")).status).toBe(503);
     spy.mockRestore();
   });
+
+  it("draws a ready-made mark without fetching anything", async () => {
+    getBatch.mockResolvedValue({
+      id: "7",
+      codes: [{ ...codes[0], logo: { id: "9", url: "https://files.example/logo.png" }, presetLogo: "instagram" }],
+    });
+    loadLogo.mockClear();
+    loadLogo.mockRejectedValue(new Error("down"));
+    expect((await call("7")).status).toBe(200);
+    expect(loadLogo).not.toHaveBeenCalled();
+  });
 });

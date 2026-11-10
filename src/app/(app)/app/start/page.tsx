@@ -228,6 +228,7 @@ function CodeArt({ code, reveal, px }: { code: OwnedCode; reveal?: boolean; px: 
         px={px}
         title={`QR code for ${code.name}`}
         logoUrl={code.logo?.url}
+        presetLogo={code.presetLogo}
         style={code.style}
         className="block h-auto w-full"
       />

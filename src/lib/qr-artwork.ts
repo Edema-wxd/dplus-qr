@@ -3,6 +3,7 @@ import { codeUrl } from "@/lib/brand";
 import { loadLogo } from "@/lib/logos";
 import { renderQrSvg } from "@/lib/qr-render";
 import type { QrStyle } from "@/lib/qr-style";
+import type { PresetLogoId } from "@/lib/preset-logos";
 
 /**
  * The downloadable artwork for one dynamic code, as SVG text or PNG bytes.
@@ -33,6 +34,8 @@ export type ArtworkCode = {
   shortCode: string;
   style: QrStyle;
   logo: { url: string } | null;
+  /** A ready-made mark, drawn from bundled outlines with nothing to fetch. */
+  presetLogo?: PresetLogoId | null;
 };
 
 /** The logo could not be fetched; the caller refuses rather than drawing without it. */
@@ -51,6 +54,13 @@ export async function renderArtwork(
   logos: LogoCache = new Map()
 ): Promise<string | Buffer> {
   const content = codeUrl(code.shortCode);
+
+  if (code.presetLogo) {
+    // Never fetched: a preset is drawn from outlines shipped with the app, so
+    // it cannot fail to load.
+    const svg = renderQrSvg({ content, style: code.style, px: size, presetLogo: code.presetLogo });
+    return format === "png" ? sharp(Buffer.from(svg)).png().toBuffer() : svg;
+  }
 
   if (code.logo) {
     // Fetched and embedded, never linked: an SVG that points at a URL loses
