@@ -1,36 +1,36 @@
 "use client";
 
+import { createContext, useActionState, useContext, useState } from "react";
 import {
-  createContext,
-  useActionState,
-  useContext,
-  useState,
-  type CSSProperties,
-} from "react";
-import {
-  checkQrStyle,
   DEFAULT_QR_STYLE,
+  checkQrStyle,
   isDefaultQrStyle,
-  qrStyleVars,
+  sameQrStyle,
   type QrStyle,
 } from "@/lib/qr-style";
+import type { QrMatrix } from "@/lib/qr-draw";
 import { setStyleAction, type CodeState } from "../actions";
-import { ColourPicker } from "../ColourPicker";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { useSuccessToast } from "@/components/notify";
+import { DesignFields, DesignPreview } from "../DesignPanel";
 
 /**
- * Live colour preview for the code page.
+ * Live design preview for the code page.
  *
- * The specimen is rendered on the server and paints with CSS custom
- * properties, so previewing a change needs no second QR encoder in the
- * browser: this scope sets the properties on a wrapper and the server-rendered
- * symbol inside it recolours as the owner picks. The form below reads and
- * writes the same state.
+ * The scope holds the style being previewed, so the specimen in one column
+ * redraws as the form in the other changes. The specimen draws from the
+ * matrix the server encoded for this code, with the same function the
+ * download uses: what the owner previews is what they print.
  */
 type Scope = { style: QrStyle; setStyle: (style: QrStyle) => void };
 
 const StyleContext = createContext<Scope | null>(null);
+
+function useScope(): Scope {
+  const scope = useContext(StyleContext);
+  if (!scope) throw new Error("Design controls must sit inside StyleScope");
+  return scope;
+}
 
 export function StyleScope({
   initial,
@@ -42,76 +42,74 @@ export function StyleScope({
   children: React.ReactNode;
 }) {
   const [style, setStyle] = useState(initial);
-
   return (
     <StyleContext.Provider value={{ style, setStyle }}>
-      <div className={className} style={qrStyleVars(style) as CSSProperties}>
-        {children}
-      </div>
+      <div className={className}>{children}</div>
     </StyleContext.Provider>
   );
 }
 
+/** The code's specimen, in the style being previewed. */
+export function LiveSymbol({
+  matrix,
+  logoUrl,
+  title,
+}: {
+  matrix: QrMatrix;
+  logoUrl?: string | null;
+  title: string;
+}) {
+  const { style } = useScope();
+  return (
+    <DesignPreview
+      matrix={matrix}
+      style={style}
+      logoUrl={logoUrl}
+      px={248}
+      title={title}
+      className="mx-auto block h-auto w-full max-w-[248px]"
+    />
+  );
+}
+
 /**
- * Pick the code's colours.
- *
- * The contrast check here is the same function the Server Action runs, so the
- * form refuses exactly what the server would refuse, before a round trip. It
- * is a convenience; the server's check is the one that counts.
+ * The design form. The colour check here is the one the Server Action runs
+ * again, so the form refuses exactly what the server would, before a round
+ * trip. It is a convenience; the server's check is the one that counts.
  */
-export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
-  const scope = useContext(StyleContext);
-  if (!scope) throw new Error("StyleForm must sit inside StyleScope");
-  const { style, setStyle } = scope;
-
-  const [state, action, pending] = useActionState(
-    setStyleAction,
-    {} as CodeState
-  );
+export function StyleForm({ id, saved, matrix }: { id: string; saved: QrStyle; matrix: QrMatrix }) {
+  const { style, setStyle } = useScope();
+  const [state, action, pending] = useActionState(setStyleAction, {} as CodeState);
   useSuccessToast(state, "style", (s) =>
-    s.saved
-      ? { title: "Colours saved", description: "Downloads now use these colours." }
-      : null
+    s.saved ? { title: "Design saved", description: "Downloads now use this design." } : null
   );
 
-  const check = checkQrStyle(style);
-  // An inverted pair is usually the right two colours the wrong way round.
-  const swapped = { dark: style.light, light: style.dark };
-  const canSwap = !check.ok && check.inverted && checkQrStyle(swapped).ok;
-  const dirty = style.dark !== saved.dark || style.light !== saved.light;
+  const ok = checkQrStyle(style).ok;
+  const dirty = !sameQrStyle(style, saved);
 
-  // The pair the last save was about. A server message describes those
-  // colours, so it is hidden as soon as the owner picks different ones rather
-  // than sitting under a pair it no longer applies to.
+  // The style the last save was about. A server message describes that
+  // style, so it is hidden as soon as the owner changes anything.
   const [submitted, setSubmitted] = useState<QrStyle | null>(null);
-  const current =
-    submitted !== null && submitted.dark === style.dark && submitted.light === style.light;
+  const current = submitted !== null && sameQrStyle(submitted, style);
 
   return (
     <form action={action} onSubmit={() => setSubmitted(style)}>
       <input type="hidden" name="id" value={id} />
-      <ColourPicker style={style} onChange={setStyle} />
+      <input type="hidden" name="style" value={JSON.stringify(style)} />
+      <DesignFields style={style} onChange={setStyle} matrix={matrix} idPrefix="code-design" />
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button
-          type="submit"
-          disabled={pending || !dirty || !check.ok}
-          className={primaryButtonClass}
-        >
-          {pending ? "Saving…" : "Save colours"}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="submit" disabled={pending || !dirty || !ok} className={primaryButtonClass}>
+          {pending ? "Saving…" : "Save design"}
         </button>
-        {canSwap ? (
-          <button type="button" onClick={() => setStyle(swapped)} className={secondaryButtonClass}>
-            Swap colours
+        {dirty ? (
+          <button type="button" onClick={() => setStyle(saved)} className={secondaryButtonClass}>
+            Undo changes
           </button>
         ) : null}
         {isDefaultQrStyle(style) ? null : (
-          <button
-            type="button"
-            onClick={() => setStyle(DEFAULT_QR_STYLE)}
-            className={secondaryButtonClass}
-          >
-            Reset to black on white
+          <button type="button" onClick={() => setStyle(DEFAULT_QR_STYLE)} className={secondaryButtonClass}>
+            Reset to plain black on white
           </button>
         )}
       </div>
@@ -121,10 +119,10 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
           {state.error}
         </p>
       ) : (
-        <p className="mt-2 max-w-[44ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+        <p className="mt-2 max-w-[48ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           {dirty
-            ? "Previewing. Downloads use the saved colours until you save."
-            : "Colours change the artwork only. Codes already printed keep working whatever you pick here."}
+            ? "Previewing. Downloads use the saved design until you save."
+            : "The design changes the artwork only. Codes already printed keep working whatever you pick here."}
         </p>
       )}
     </form>

@@ -2255,6 +2255,77 @@ erasure deletes the account's warnings and leaves others', and an erased
 account cannot be warned. Not checked in a browser: signing in needs Neon
 Auth credentials this environment does not have.
 
+## Code design: patterns, corners and colours, 10 November 2026
+
+Written 27 October on a branch (PR #17) and brought up to date with `main`
+on 10 November, after bulk creation, static code colours and team seats had
+landed; this entry describes the design as merged.
+
+Owners can design a code's artwork when they create it and on its page
+afterwards (Francis, 27 Oct 2026: every plan; frames with custom text and
+preset logos follow in a second PR).
+
+- **Six patterns** (square, dots, rounded, extra-rounded, classy,
+  classy-rounded), **corner frames** (match the pattern, square, rounded,
+  circle), **corner dots** (match, square, dot), separate colours for the
+  dots, background, corner frames and corner dots, a swap button and a
+  transparent background.
+- **No migration.** It all lives in `qr_codes.style`. Every new key is
+  optional and defaults, so a code saved before this reads, previews and
+  downloads exactly as it did. `readQrStyle` keeps each key only if it is
+  valid and the whole still scans, so one bad key costs that key, not the
+  design. A test rasterises the download of a colours-only row and checks
+  every module, centre and corner, against the level-Q matrix.
+- **One drawing for everything.** `src/lib/qr-draw.ts` is pure and
+  encoder-free: it turns a module matrix and a style into shapes.
+  `renderQrSvg` (`qr-render.ts`) encodes and draws with it, and
+  `renderArtwork` (`qr-artwork.ts`, from bulk creation) now calls
+  `renderQrSvg` for every download, logo or not, rasterising with sharp for
+  PNG. So the single download, the bulk zip, the dashboard specimens (the
+  codes list, a code's page and the first-code onboarding) and the live
+  preview in the browser all draw with the one module; the browser never
+  runs a QR encoder, it is sent the matrix. A plain code's download used to
+  come straight from the `qrcode` package; it is now the same modules drawn
+  by the shared renderer, so its bytes differ while every module is where it
+  was. The zip is still byte for byte the single download (tested).
+- **Every colour is held to the scan rule**: darker than the background and
+  at least 4.5:1, corner colours included, since the corners are how a
+  scanner finds the code. A refusal names the colour, quotes its contrast and
+  says whether it is inverted, as the code colour's already did. The swap
+  button is disabled when swapping would make the code light on dark.
+- **A transparent background** is checked against the background colour,
+  which the form says is then the surface the owner must print on. A
+  transparent PNG keeps its alpha (tested).
+- **Hosted pages judge colours only.** `pageBrand` returns null for the
+  default colours whatever the pattern, so picking a pattern alone does not
+  restyle a code's page buttons.
+- **Static codes stay on the plain design**: two colours and a logo, as
+  since 6 November. Their PNG is painted module by module on a canvas in the
+  browser, which draws squares only, so `staticSvg` passes `plainStyle()` and
+  the SVG cannot drift from the PNG. Offering patterns there would need a
+  path-drawing painter and its own decode tests; not done.
+- **Bulk codes** are created plain and take whatever design is saved on
+  them later; the zip reads each code's style like the single download.
+- Saving the design is a toast ("Design saved"); a refusal stays inline.
+  The save carries `access(n)` like every other code write.
+
+**Scan testing, and the choice of reader.** Every pattern × corner frame ×
+corner dot combination (72) is rendered and decoded in the test suite: small
+and plain, with a deliberately hostile checkerboard logo, in four brand
+colours with a long custom link, and transparent. The gate is **ZXing**
+(`@zxing/library`, test-only), the engine many Android scanner apps are built
+on, which reads all of them. **jsQR**, which the suite already used, failed
+130 of 504 styled cases: it is far stricter about non-square corner shapes
+than phone cameras, and is kept for the default artwork only, which it reads
+as before. Apple's and Google's camera readers cannot be run here, so a
+phone test of a styled code before a large print run is still advised. If
+real scans of a combination ever fail, remove it from `QR_PATTERNS` /
+`CORNER_FRAMES` / `CORNER_DOTS` and the tests follow.
+
+The one size where ZXing failed was 300px with the checkerboard logo, and it
+fails there for the default style too: an artefact of that test logo's fine
+pattern, not of any design.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.

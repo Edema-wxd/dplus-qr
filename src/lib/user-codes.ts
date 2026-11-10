@@ -231,6 +231,8 @@ export type CreateInput =
       destinationUrl: string;
       logoId?: string | null;
       customCode?: string | null;
+      /** Already checked by the caller with `checkQrStyle`. */
+      style?: QrStyle;
     }
   | {
       kind: PageKind;
@@ -238,6 +240,8 @@ export type CreateInput =
       content: unknown;
       logoId?: string | null;
       customCode?: string | null;
+      /** Already checked by the caller with `checkQrStyle`. */
+      style?: QrStyle;
     };
 
 /**
@@ -358,8 +362,8 @@ export async function createCode(
         const rows = await run<{ id: string }>(
           `-- scope: proved by withCodeSlots, in this transaction
            insert into qr_codes
-             (user_id, short_code, name, kind, destination_url, content, logo_id)
-           values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint)
+             (user_id, short_code, name, kind, destination_url, content, logo_id, style)
+           values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint, $8::jsonb)
            on conflict (short_code) do nothing
            returning id`,
           [
@@ -370,6 +374,7 @@ export async function createCode(
             destination ?? pagePath(shortCode),
             content === null ? null : JSON.stringify(content),
             logoId,
+            JSON.stringify(input.style ?? {}),
           ]
         );
         // A fresh code has no history row: there is no previous destination to
@@ -461,10 +466,10 @@ export async function renameCode(
 }
 
 /**
- * Save the colours a code's artwork is drawn in.
+ * Save a code's design: colours, pattern and corners.
  *
- * Merged into the `style` object rather than replacing it, so a later key
- * (a logo's placement, say) is not wiped by a colour change. The caller has
+ * Merged into the `style` object rather than replacing it, so a key this form
+ * does not own (a frame, say) is not wiped by a design change. The caller has
  * already run `checkQrStyle`; this only writes.
  *
  * No cache purge: `style` is never read by the redirect path, and changing it
@@ -477,11 +482,11 @@ export async function setCodeStyle(
 ): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_codes
-       set style = style || jsonb_build_object('dark', $3::text, 'light', $4::text),
+       set style = style || $3::jsonb,
            updated_at = now()
-     where user_id = $1 and id = $2 and ${access(5)}
+     where user_id = $1 and id = $2 and ${access(4)}
      returning id`,
-    [scope.accountId, id, style.dark, style.light, ...accessArgs(scope, "write")]
+    [scope.accountId, id, JSON.stringify(style), ...accessArgs(scope, "write")]
   );
   return row !== null;
 }

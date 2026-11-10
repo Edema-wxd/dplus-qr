@@ -1,4 +1,4 @@
-import { checkQrStyle, type QrStyle } from "@/lib/qr-style";
+import { checkQrStyle, DEFAULT_QR_STYLE, type QrStyle } from "@/lib/qr-style";
 import {
   levelFor,
   logoBox,
@@ -40,6 +40,12 @@ export function staticLevel(hasLogo: boolean): QrLevel {
   return hasLogo ? levelFor(true) : STATIC_PLAIN_LEVEL;
 }
 
+/**
+ * What a static code is styled with: two colours, nothing else. See
+ * `plainStyle`.
+ */
+export type StaticColours = Pick<QrStyle, "dark" | "light">;
+
 /** A logo ready to draw: a same-origin data URL and its pixel size. */
 export type StaticLogo = { href: string; width: number; height: number };
 
@@ -52,7 +58,7 @@ export type LogoState =
 
 export type StaticArtwork = {
   content: string;
-  style: QrStyle;
+  style: StaticColours;
   level: QrLevel;
   geometry: Geometry;
   /** Null when drawn without a logo, whether by choice or by fallback. */
@@ -97,7 +103,7 @@ function encode(content: string, level: QrLevel): Geometry | null {
  */
 export function planStaticArtwork(
   content: string,
-  style: QrStyle,
+  style: StaticColours,
   logo: LogoState
 ): StaticPlan {
   const styleOk = checkQrStyle(style).ok;
@@ -135,11 +141,24 @@ export function planStaticArtwork(
   };
 }
 
+/**
+ * A static code's style: its two colours on the plain square design.
+ *
+ * Static codes are not offered patterns, corner shapes, corner colours or a
+ * transparent ground. The PNG is painted module by module onto a canvas
+ * (`paintStaticArtwork`), which draws squares only, so the SVG is held to the
+ * same plain design and the two files stay one picture whatever the style
+ * object carries.
+ */
+export function plainStyle(style: StaticColours): QrStyle {
+  return { ...DEFAULT_QR_STYLE, dark: style.dark, light: style.light };
+}
+
 /** The artwork as a standalone SVG document; the logo is embedded, not linked. */
 export function staticSvg(artwork: StaticArtwork, px: number): string {
   return renderQrSvg({
     content: artwork.content,
-    style: artwork.style,
+    style: plainStyle(artwork.style),
     px,
     level: artwork.level,
     logoHref: artwork.logo?.href,
