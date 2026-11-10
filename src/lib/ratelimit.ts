@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { Ratelimit } from "@upstash/ratelimit";
+import { env } from "@/lib/env";
 import { redis } from "@/lib/redis";
 
 /**
@@ -63,7 +65,8 @@ export async function shouldCountScan(ip: string | null): Promise<boolean> {
  *
  * Five an hour is far above what a genuine reporter needs and far below what a
  * flood looks like. Everything else behind a session is bounded by the account
- * it needs, and auth itself is rate limited by Managed Auth, not here.
+ * it needs; signing in, signing up and password resets have their own limits
+ * below (`allowAuth`).
  */
 const REPORT_LIMIT = 5;
 
@@ -229,6 +232,96 @@ export async function allowInvite(accountId: string): Promise<boolean> {
     return success;
   } catch (error) {
     console.error("[ratelimit] invite check failed", error);
+    return true;
+  }
+}
+
+/**
+ * Sign-in, sign-up and password-reset limits.
+ *
+ * Managed Auth has its own per-IP limit, but it never sees the visitor's IP:
+ * the Neon Auth SDK calls it from this server and forwards only the cookie and
+ * the origin, so every attempt arrives from Vercel's addresses. Its limit is
+ * therefore keyed on infrastructure, not on whoever is guessing passwords
+ * (security audit, 10 November 2026). These are the limits that see the
+ * visitor.
+ *
+ *   - sign-in, per visitor: every attempt counts. Stops one machine running a
+ *     leaked password list across many accounts.
+ *   - sign-in, per account: failures only, checked before trying. Stops one
+ *     account's password being guessed from many machines. Someone can use it
+ *     to keep an account's sign-in shut for its window by failing on purpose;
+ *     a password reset still works, and that is the usual price of the check.
+ *   - sign-up, per visitor: throwaway accounts are how a free QR host gets
+ *     used for phishing links.
+ *   - reset, per visitor and per address: each request is an email from the
+ *     onboarding address, whose reputation verification mail depends on.
+ *
+ * Fail open, like the others: a Redis outage must not lock everyone out.
+ */
+export const AUTH_LIMITS = {
+  "sign-in-visitor": { limit: 30, window: "15 m" },
+  "sign-in-account": { limit: 10, window: "15 m" },
+  "sign-up-visitor": { limit: 5, window: "1 h" },
+  "reset-visitor": { limit: 5, window: "1 h" },
+  "reset-account": { limit: 3, window: "1 h" },
+} as const satisfies Record<string, { limit: number; window: `${number} ${"m" | "h"}` }>;
+
+export type AuthLimit = keyof typeof AUTH_LIMITS;
+
+const authLimiters = new Map<AuthLimit, Ratelimit | null>();
+
+function authLimiter(kind: AuthLimit): Ratelimit | null {
+  if (authLimiters.has(kind)) return authLimiters.get(kind)!;
+  const client = redis();
+  const { limit, window } = AUTH_LIMITS[kind];
+  const rl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(limit, window),
+        prefix: `rl:auth:${kind}`,
+        analytics: false,
+      })
+    : null;
+  authLimiters.set(kind, rl);
+  return rl;
+}
+
+/**
+ * A rate-limiting key for an email address, never the address itself: the key
+ * is stored in Redis, and no address is kept there. Lowercased, so `A@b` and
+ * `a@B` share one budget.
+ */
+export function emailRateKey(email: string): string {
+  const salt = env().SCAN_IP_SALT ?? "";
+  return createHash("sha256")
+    .update(`ratelimit-email${email.trim().toLowerCase()}${salt}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/** Spend one attempt; true when it is allowed. A null key is not limited. */
+export async function allowAuth(kind: AuthLimit, key: string | null): Promise<boolean> {
+  if (!key) return true;
+  const rl = authLimiter(kind);
+  if (!rl) return true;
+  try {
+    return (await rl.limit(key)).success;
+  } catch (error) {
+    console.error("[ratelimit] auth check failed", kind, error);
+    return true;
+  }
+}
+
+/** True while attempts remain, without spending one. For failure-only limits. */
+export async function authBudgetLeft(kind: AuthLimit, key: string | null): Promise<boolean> {
+  if (!key) return true;
+  const rl = authLimiter(kind);
+  if (!rl) return true;
+  try {
+    return (await rl.getRemaining(key)).remaining > 0;
+  } catch (error) {
+    console.error("[ratelimit] auth check failed", kind, error);
     return true;
   }
 }
