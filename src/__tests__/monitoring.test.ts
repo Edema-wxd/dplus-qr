@@ -213,7 +213,7 @@ describe("the weekly summary", () => {
     safetyCheckOn: true,
     liveCodes: 1234,
     revenue: { mrrKobo: 12_000_000, paidActive: 8, nonRenewing: 1, pastDue: 1, atRiskKobo: 400_000 },
-    attention: { openReports: 1, overdueAccounts: 1, unappliedPayments: 0, unpurchasablePlans: 0, signInsToRemove: 0 },
+    attention: { openReports: 1, overdueAccounts: 1, unappliedPayments: 0, unpurchasablePlans: 0, signInsToRemove: 0, finalWarningsDue: 0 },
     errors: 5,
     ...over,
   });
@@ -240,12 +240,22 @@ describe("the weekly summary", () => {
     expect(text).toContain("Details: https://qriateplus.com/admin");
   });
 
+  it("lists final warnings past due among what is waiting", () => {
+    const { text } = summaryEmail(
+      figures({
+        attention: { openReports: 1, overdueAccounts: 0, unappliedPayments: 0, unpurchasablePlans: 0, signInsToRemove: 0, finalWarningsDue: 2 },
+      }),
+      "https://qriateplus.com/admin"
+    );
+    expect(text).toContain("- 1 open abuse report\n- 2 final warnings past due");
+  });
+
   it("says plainly when a check is off or nothing is waiting", () => {
     const { text } = summaryEmail(
       figures({
         safetyCheckOn: false,
         errors: null,
-        attention: { openReports: 0, overdueAccounts: 0, unappliedPayments: 0, unpurchasablePlans: 0, signInsToRemove: 0 },
+        attention: { openReports: 0, overdueAccounts: 0, unappliedPayments: 0, unpurchasablePlans: 0, signInsToRemove: 0, finalWarningsDue: 0 },
       }),
       "https://qriateplus.com/admin"
     );

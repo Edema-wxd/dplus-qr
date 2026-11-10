@@ -8,6 +8,7 @@ import { hasSignInAccount, staffActions } from "@/lib/moderation";
 import { getEntitlement } from "@/lib/entitlement";
 import { batchesForStaff } from "@/lib/bulk-create";
 import { teamForStaff } from "@/lib/team";
+import { accountWarnings } from "@/lib/warnings";
 import { listAllPlans } from "@/lib/plans";
 import { naira } from "@/lib/plan-tiers";
 import { CODE_HOST } from "@/lib/brand";
@@ -19,6 +20,8 @@ import { AssignPlan } from "../AssignPlan";
 import { AccountActions } from "../AccountActions";
 import { EraseAccount, RetryRemoveSignIn } from "../EraseAccount";
 import { TeamControl } from "../TeamControls";
+import { WarnForm } from "../WarnForm";
+import { WarningList } from "../WarningList";
 
 export const metadata: Metadata = { title: "Customer" };
 export const instant = false;
@@ -43,7 +46,7 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
   const parsed = idSchema.safeParse((await params).id);
   if (!parsed.success) notFound();
 
-  const [customer, entitlement, plans, actions, signIn, staffAccount, batches, team] = await Promise.all([
+  const [customer, entitlement, plans, actions, signIn, staffAccount, batches, team, warnings] = await Promise.all([
     getCustomer(parsed.data),
     getEntitlement(parsed.data),
     listAllPlans(),
@@ -52,6 +55,11 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
     isAdmin(parsed.data),
     batchesForStaff(parsed.data, 10),
     teamForStaff(parsed.data),
+    // Its own failure: a preview ahead of migration 030 still shows the account.
+    accountWarnings(parsed.data).catch((error) => {
+      console.error("[admin] warnings unavailable", error);
+      return null;
+    }),
   ]);
   if (!customer) notFound();
   const erased = customer.erasedAt !== null;
@@ -326,6 +334,35 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
             </ul>
           </section>
         ) : null}
+
+        {erased ? null : (
+          <section aria-labelledby="warnings-heading">
+            <SectionHeading id="warnings-heading">Warnings</SectionHeading>
+            {warnings === null ? (
+              <p className="mt-4 text-sm text-[var(--paper-soft)]">Warnings could not be read just now.</p>
+            ) : (
+              <>
+                <p className="mt-3 max-w-[70ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+                  Emailed from support@ and shown on the account&apos;s dashboard, to the owner and, read-only, to
+                  anyone in their team. A final warning falling due changes nothing by itself: suspend from it, or
+                  close it.
+                </p>
+                <WarningList warnings={warnings} />
+                {isSelf ? null : (
+                  <div className="mt-6">
+                    <h3 className="mb-3 text-sm font-medium">Send a warning</h3>
+                    <WarnForm
+                      userId={customer.id}
+                      codes={customer.codes
+                        .filter((code) => !code.archived)
+                        .map((code) => ({ id: code.id, label: `${code.name} · ${CODE_HOST}/${code.shortCode}` }))}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        )}
 
         <section aria-labelledby="staff-heading">
           <SectionHeading id="staff-heading">Staff changes</SectionHeading>

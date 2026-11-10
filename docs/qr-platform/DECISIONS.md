@@ -2159,6 +2159,102 @@ member opening the setup from their own account got an `existing` row; the
 staff funnel counted only sign-ups and read made / scanned / verified
 correctly; erasure deleted the onboarding and its steps.
 
+## Staff warnings and the watch lists, 10 November 2026
+
+The last part of staff moderation (27 October entry: "warnings and monitoring
+follow"). First written on 27 October as PR #16, with its own abuse-report
+queue and overview box; by the time it was brought up to date, `main` had the
+reports queue and the overview's "Needs attention" (28 October), team seats
+and the weekly summary. So this adds only what `main` lacked, folded into the
+pages that already exist: **staff warnings** and **`/admin/monitor`**. PR #16's
+reports page, report buttons and "most reported" list were dropped as
+duplicates.
+
+**Warnings have three levels**: a notice, a warning, and a final warning that
+gives the owner 3, 7 or 14 days. **A final warning falling due changes
+nothing on its own** (Francis, 27 Oct 2026: "final suspension needs an admin
+tied to it"). It appears under "Needs attention" on the overview, as a badge
+on Watch lists in the sidebar, among what is waiting in the Monday summary,
+and at the top of `/admin/monitor`. A staff member then suspends the account
+from the warning, which closes it with the suspension as its reason and
+records who did it, or closes it as put right, or withdraws it. Suspending
+before the date is allowed behind a confirmation and audited as early.
+
+- **Sent from** the customer page (about the account or one of its codes) or
+  a code's page (about that code). Emailed from `support@`, replies to the
+  apex inbox. If the email fails the warning is still recorded and shown, and
+  staff are told; the audit row says the email was not sent.
+- **Migration `030`** adds `qr_account_warnings`, keyed on the account (the
+  owner's id) like every account table. Constraints: a date exactly when the
+  level is final, a resolution exactly when it is closed. Additive only, and
+  `if not exists`, because the PR #16 draft (numbered 018) predates migrations
+  applying on deploy and might have been run by hand somewhere; the shape is
+  unchanged. Numbered 030 because another change has 029; the runner applies
+  whatever is pending by name, so the gap and a later 029 are both fine
+  (tested on a scratch database: 029 applied after 030). Nothing on the
+  redirect path reads the table.
+- **The audit row keeps the level and id, never the text, and erasure deletes
+  the warnings** (`eraseAccountData`, staff and retention sweep alike), so no
+  copy of the message outlives an erasure.
+- **The dashboard says when an account is suspended**, which it never did.
+  Owners only: a member never works in a suspended owner's account, because
+  `resolveAccess` already sends them home with its own notice.
+
+**Who sees a warning on a team account** (decided 10 Nov 2026): the owner,
+with "I've read this"; and every member, editor or viewer, read-only, with
+"Sent to {owner}, who manages this account". Members work on the codes a
+warning is usually about, and an editor may be the one to fix it, so hiding
+it from them would hide the problem from the person able to solve it. Only
+the owner's reading counts, because the owner is answerable for the account
+(Terms, "Teams"), and a member marking it read would take it off the owner's
+dashboard. The dashboard side is `src/lib/dashboard-warnings.ts`, scoped with
+`access()` and read by `scope-guard.test.ts`; marking read uses `access()`
+with no member roles, so only `$1 = actor`, the owner, passes. The warning
+email goes to the owner only.
+
+**`/admin/monitor`** ("Watch lists"; no admin page names the admin in its
+title). Each list is a prompt to look, never a verdict:
+
+- Final warnings past due, each with its suspend / put right / withdraw.
+- **Scan spikes**: at least 50 human scans since midnight UTC and 5× the
+  code's daily average over the previous seven days. Today's partial count
+  against a full day's average can only understate, so a spike flagged at
+  noon is real.
+- **Live link codes failing today's screening rules**, over the newest 5,000
+  on each page load: how destinations saved before a rule (such as the
+  userinfo rule of PR #15) are found. Threat-list matches are not repeated
+  here; the weekly Web Risk re-check blocks those itself.
+- **Accounts under 14 days old that re-pointed a code this week.**
+
+Not added, because `main` has them: the abuse-report queue (`/admin/reports`),
+codes with open reports (its "N open on this code" tag and the Codes filter),
+and the overview's attention list, which gains one line rather than a second
+box.
+
+**Previews.** They share the production database and never apply migrations,
+so until 030 ships a preview has no `qr_account_warnings`. The overview and
+nav count, the customer page and the codes list each read warnings with their
+own failure, and show the page without them; only the Watch lists page and
+sending a warning need the table.
+
+Tested: `npm test` with new unit tests for validation, email wording, the
+reply address, the spike rule, the scoped dashboard statements and the
+summary line. On a local Postgres 14 with every migration and real rows (42
+checks): a code from another account is refused; the database refuses a
+final warning with no date, a date on a notice and a resolution with no time;
+the owner, an editor and a viewer of the owner's team each see the open
+warnings, an outsider with a forged scope sees none; the editor, the viewer
+and the outsider cannot mark one read, the owner can, once; a read notice
+leaves every dashboard while a read final warning stays; nothing is due
+before the date, and falling due suspends nothing; suspending from a due
+warning suspends the account, closes the warning as suspended by that staff
+member, refuses a repeat, and sends team members home; suspending early is
+reported as early; a closed warning cannot be closed twice; the three watch
+lists flag exactly the seeded spike, userinfo look-alike and new account;
+erasure deletes the account's warnings and leaves others', and an erased
+account cannot be warned. Not checked in a browser: signing in needs Neon
+Auth credentials this environment does not have.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.

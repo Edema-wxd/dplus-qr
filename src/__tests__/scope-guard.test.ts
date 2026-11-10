@@ -21,11 +21,12 @@ const MODULES = [
   "src/lib/files.ts",
   "src/lib/stat-shares.ts",
   "src/lib/bulk-create.ts",
+  "src/lib/dashboard-warnings.ts",
   "src/lib/onboarding.ts",
 ];
 
 const CUSTOMER_TABLES =
-  /\b(qr_codes|qr_logos|qr_files|qr_stat_shares|qr_feedback|qr_scans|qr_scan_daily|qr_scan_daily_visitors|qr_destination_history|qr_bulk_imports|qr_bulk_import_codes|qr_onboarding|qr_onboarding_steps)\b/;
+  /\b(qr_codes|qr_logos|qr_files|qr_stat_shares|qr_feedback|qr_scans|qr_scan_daily|qr_scan_daily_visitors|qr_destination_history|qr_bulk_imports|qr_bulk_import_codes|qr_account_warnings|qr_onboarding|qr_onboarding_steps)\b/;
 const SQL = /\b(select|insert|update|delete)\b/i;
 
 /** Functions without a scope, each authorised another way. */

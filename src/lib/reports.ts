@@ -158,6 +158,8 @@ export type AttentionCounts = {
   unpurchasablePlans: number;
   /** Erased accounts whose Neon Auth sign-in still exists. */
   signInsToRemove: number;
+  /** Final warnings past their date and still open: a staff member decides. */
+  finalWarningsDue: number;
 };
 
 /**
@@ -184,7 +186,27 @@ export async function attentionCounts(): Promise<AttentionCounts> {
     unappliedPayments: Number(row?.unapplied ?? 0),
     unpurchasablePlans: Number(row?.unpurchasable ?? 0),
     signInsToRemove: await erasedWithSignIn(),
+    finalWarningsDue: await finalWarningsDue(),
   };
+}
+
+/**
+ * Final warnings whose date has passed and that no one has closed. Its own
+ * query and its own failure, like the count below: a preview build shares
+ * the production database and runs before migration 030 reaches it, and the
+ * overview and the nav badges must not fail on a table that is not there yet.
+ */
+async function finalWarningsDue(): Promise<number> {
+  try {
+    const row = await queryOne<{ n: string }>(
+      `select count(*) as n from qr_account_warnings
+       where level = 'final' and resolved_at is null and respond_by <= now()`
+    );
+    return Number(row?.n ?? 0);
+  } catch (error) {
+    console.error("[admin] could not count final warnings due", error);
+    return 0;
+  }
 }
 
 /**
