@@ -2392,6 +2392,67 @@ Facebook, Netflix, and a plain email envelope.
 - Every mark on every pattern decodes in the test suite.
 - A preset mark on a phishing code is handled like any other abuse: blocked.
 
+## Billing events name their subscription, 10 November 2026
+
+From the security audit of 10 November. An upgrade is a new Paystack
+subscription (Paystack has no plan swap), but nothing ever stopped the old
+one, and every webhook write matched *any* live row of the account. So an
+upgrader was billed for both plans, and the old subscription's events landed
+on the new plan:
+
+- cancelling the leftover Starter subscription, or its card failing, lapsed
+  the paid Business row, and the account's codes paused;
+- a Starter renewal cleared a failed Business payment's grace, so an account
+  could keep Business while paying the Starter price.
+
+What changed (`src/lib/billing.ts`, `src/lib/billing-events.ts`):
+
+- **Every write names its row.** `invoice.payment_failed`,
+  `subscription.not_renew` and `subscription.disable` match on
+  `paystack_subscription_code`, read from the top of `data` or from
+  `data.subscription`, where invoice events nest it. One that names no
+  subscription is deferred to staff instead of guessed at. `charge.success`
+  renews only the live row on the charge's plan (and on its subscription when
+  the charge names one). An event that matches no live row changes nothing
+  and sends no email: that is the replaced subscription's own events arriving.
+- **An upgrade stops the subscription it replaces.** `activate` returns the
+  rows it superseded and, after the commit, calls `disableSubscription` for
+  each one still renewing. A failure there leaves the new plan live and
+  emails staff, since the customer is then billed twice until someone
+  disables it in the Paystack dashboard.
+- **Activation must have been asked for.** `subscription.create` carries no
+  metadata, so the account comes from the customer email, and anyone can pay
+  with someone else's address through Paystack Inline. Since activating now
+  also stops the account's current subscription, a forged one would cancel a
+  real customer's plan. So `startCheckout` records each checkout in
+  `qr_checkout_intents` (migration 031), with a reference of our own passed
+  to `transaction/initialize`, *before* calling Paystack. An activation is
+  applied only when it matches an unused checkout for that account and plan
+  from the last seven days, or when the subscription is already this
+  account's (Paystack re-sending it). Anything else is deferred, alerted and
+  left unprocessed. The checkout is marked used in the same transaction.
+
+Consequences:
+
+- A subscription created by hand in the Paystack dashboard no longer
+  activates on its own. It is deferred, and staff assign the plan from
+  `/admin/customers`.
+- Narrow residual: within seven days of someone starting, and not finishing,
+  a checkout for plan X, a payment for plan X made with their email still
+  activates. It needs the victim's own recent, abandoned checkout for that
+  exact plan.
+- Still open from the same audit: matching by email and `metadata.user_id` at
+  all (charges should be accepted only for a reference we issued, with the
+  plan's amount), retrying an unprocessed event, and a period-end backstop.
+
+Checked against a local Postgres with every migration applied: a forged
+`subscription.create` deferred with the Starter row untouched; the real
+upgrade cancelled Starter, activated Business, used up the checkout and tried
+to stop `SUB_old`; the old subscription's disable and renewal then changed
+nothing; the new subscription's failure and renewal applied to it alone.
+`src/__tests__/billing-apply.test.ts` covers the same decisions without a
+database.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.
