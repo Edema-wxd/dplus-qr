@@ -8,10 +8,11 @@ import {
   sameQrStyle,
   type QrStyle,
 } from "@/lib/qr-style";
-import type { QrMatrix } from "@/lib/qr-artwork";
+import type { QrMatrix } from "@/lib/qr-draw";
 import type { PresetLogoId } from "@/lib/preset-logos";
 import { setStyleAction, type CodeState } from "../actions";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
+import { useSuccessToast } from "@/components/notify";
 import { DesignFields, DesignPreview } from "../DesignPanel";
 
 /**
@@ -83,6 +84,9 @@ export function LiveSymbol({
 export function StyleForm({ id, saved, matrix }: { id: string; saved: QrStyle; matrix: QrMatrix }) {
   const { style, setStyle } = useScope();
   const [state, action, pending] = useActionState(setStyleAction, {} as CodeState);
+  useSuccessToast(state, "style", (s) =>
+    s.saved ? { title: "Design saved", description: "Downloads now use this design." } : null
+  );
 
   const ok = checkQrStyle(style).ok;
   const dirty = !sameQrStyle(style, saved);
@@ -122,9 +126,7 @@ export function StyleForm({ id, saved, matrix }: { id: string; saved: QrStyle; m
         <p className="mt-2 max-w-[48ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           {dirty
             ? "Previewing. Downloads use the saved design until you save."
-            : state.saved
-              ? "Saved. Downloads now use this design."
-              : "The design changes the artwork only. Codes already printed keep working whatever you pick here."}
+            : "The design changes the artwork only. Codes already printed keep working whatever you pick here."}
         </p>
       )}
     </form>

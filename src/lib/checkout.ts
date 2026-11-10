@@ -1,5 +1,6 @@
 import { query, queryOne } from "@/lib/db";
 import { env } from "@/lib/env";
+import { seatRefusal, seatsHeldSql } from "@/lib/seats";
 import { getPlanBySlug, type Plan } from "@/lib/plans";
 import { disableSubscription, initializeTransaction } from "@/lib/paystack";
 
@@ -30,7 +31,7 @@ export type CheckoutStart = {
  * money and then deciding for them which printed codes go dark is the one
  * outcome that is actually unacceptable.
  */
-export function planRefusal(plan: Plan, codesHeld: number): CheckoutRefusal | null {
+export function planRefusal(plan: Plan, codesHeld: number, seatsHeld = 1): CheckoutRefusal | null {
   if (!plan.isActive) {
     return { ok: false, reason: "That plan is no longer available." };
   }
@@ -49,6 +50,10 @@ export function planRefusal(plan: Plan, codesHeld: number): CheckoutRefusal | nu
         "please contact support to move down a plan.",
     };
   }
+  // People are not taken off a team to fit a plan any more than codes are:
+  // the owner removes members (or cancels invites) first.
+  const seats = seatRefusal(plan.name, plan.features, seatsHeld);
+  if (seats) return { ok: false, reason: seats };
   return null;
 }
 
@@ -61,15 +66,16 @@ export async function startCheckout(input: {
 
   // Read the email from our own row rather than the form: a form value would
   // let someone start a checkout against another account's address.
-  const owner = await queryOne<{ email: string; codes_held: string }>(
+  const owner = await queryOne<{ email: string; codes_held: string; seats_held: string }>(
     `select u.email,
-            (select count(*) from qr_codes where user_id = u.id and archived_at is null) as codes_held
+            (select count(*) from qr_codes where user_id = u.id and archived_at is null) as codes_held,
+            ${seatsHeldSql(1)} as seats_held
      from qr_users u where u.id = $1`,
     [input.userId]
   );
   if (!owner) return { ok: false, reason: "We could not find your account." };
 
-  const refusal = planRefusal(plan, Number(owner.codes_held));
+  const refusal = planRefusal(plan, Number(owner.codes_held), Number(owner.seats_held));
   if (refusal) return refusal;
 
   const started = await initializeTransaction({

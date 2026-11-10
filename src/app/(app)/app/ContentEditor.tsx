@@ -1,12 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { PageKind } from "@/lib/qr-types";
 import { SOCIAL_NETWORKS, type FileRef } from "@/lib/page-content";
 import { EVENT_OFFSETS } from "@/lib/page-helpers";
 import { toProfileFields } from "@/lib/vcard-import";
 import { useUploadThing } from "./uploadthing";
+import {
+  UPLOAD_LIMITS,
+  batches,
+  checkPicked,
+  clientUploadMessage,
+  unsavedUploadMessage,
+} from "@/lib/upload-limits";
 import { ContactImport } from "./ContactImport";
+import { LockIcon, LockedButton } from "./UpgradePrompt";
+import type { UpgradeOffer } from "@/lib/upgrade-offers";
 import { inputClass, secondaryButtonClass } from "@/components/controls";
 
 /**
@@ -58,11 +68,15 @@ const ACCEPT: Record<Endpoint, string> = {
   pageAudio: "audio/*",
 };
 
+/** The most a gallery and a playlist hold, as their schemas in `page-content.ts` allow. */
+const MAX_IMAGES = 20;
+const MAX_TRACKS = 30;
+
 const LIMITS: Record<Endpoint, string> = {
-  pageImage: "PNG, JPEG, WebP or GIF, up to 4MB each.",
-  pagePdf: "A PDF up to 16MB.",
-  pageVideo: "MP4, WebM or MOV, up to 64MB.",
-  pageAudio: "MP3 or other audio, up to 16MB each.",
+  pageImage: `PNG, JPEG, WebP or GIF, up to ${UPLOAD_LIMITS.pageImage.maxFileSize} each.`,
+  pagePdf: `A PDF up to ${UPLOAD_LIMITS.pagePdf.maxFileSize}.`,
+  pageVideo: `MP4, WebM or MOV, up to ${UPLOAD_LIMITS.pageVideo.maxFileSize}.`,
+  pageAudio: `MP3 or other audio, up to ${UPLOAD_LIMITS.pageAudio.maxFileSize} each.`,
 };
 
 function list(value: unknown): Row[] {
@@ -73,12 +87,22 @@ export function ContentEditor({
   kind,
   value: draft,
   uploads,
+  videoUploads = true,
+  videoOffer,
   onChange,
 }: {
   kind: PageKind;
   value: Draft;
   /** False when this deployment has no UploadThing token. */
   uploads: boolean;
+  /**
+   * False when the plan does not include uploading video files. A video
+   * already on the page stays; only adding or replacing one is offered as an
+   * upgrade, and the link field works on every plan.
+   */
+  videoUploads?: boolean;
+  /** What clicking the locked upload explains; the page passes the live plan offer. */
+  videoOffer?: UpgradeOffer;
   onChange: Dispatch<SetStateAction<Draft>>;
 }) {
   const prefix = useId();
@@ -136,7 +160,7 @@ export function ContentEditor({
             uploads={uploads}
             value={rows("images") as unknown as FileRef[]}
             onChange={(value) => set("images", value)}
-            onAdd={(files) => append("images", files, 20)}
+            onAdd={(files) => append("images", files, MAX_IMAGES)}
           />
         </Stack>
       );
@@ -149,9 +173,36 @@ export function ContentEditor({
           {text("link", "YouTube or Vimeo link", {
             input: url,
             placeholder: "youtube.com/watch?v=…",
-            hint: "Or upload a file below instead.",
+            hint: videoUploads ? "Or upload a file below instead." : undefined,
           })}
-          {file("file", "Video file", "pageVideo")}
+          {videoUploads ? (
+            file("file", "Video file", "pageVideo")
+          ) : (
+            <div className="space-y-1.5">
+              {videoOffer ? (
+                <LockedButton
+                  offer={videoOffer}
+                  className={`${secondaryButtonClass} gap-1.5 border-dashed`}
+                >
+                  <LockIcon />
+                  Upload a video file
+                </LockedButton>
+              ) : null}
+              <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
+                {fileOf("file")
+                  ? "The video you uploaded stays on this page. Uploading a different one is not on your plan."
+                  : "Uploading a video file is not on your plan. A YouTube or Vimeo link works on every plan."}
+                {videoOffer ? null : (
+                  <>
+                    {" "}
+                    <Link href="/billing" className="underline underline-offset-4">
+                      See plans
+                    </Link>
+                  </>
+                )}
+              </p>
+            </div>
+          )}
         </Stack>
       );
 
@@ -245,12 +296,19 @@ export function ContentEditor({
             input: url,
             placeholder: "play.google.com/store/apps/details?id=…",
           })}
+          {text("huawei", "Huawei AppGallery link (optional)", {
+            input: url,
+            placeholder: "appgallery.huawei.com/app/C…",
+            hint: "Huawei phones sold since 2019 have no Google Play.",
+          })}
           {text("website", "Website (optional)", {
             input: url,
             hint: "Shown to anyone scanning on a computer.",
           })}
           <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
-            A phone that scans is sent straight to its own store. Anyone else sees both buttons.
+            A phone that scans is sent straight to its own store: a Huawei phone to AppGallery
+            when you add that link, otherwise to Google Play. Anyone else sees a button for
+            each store. Add at least one store link.
           </p>
         </Stack>
       );
@@ -292,59 +350,11 @@ export function ContentEditor({
           {text("name", "Restaurant name", { required: true })}
           {description}
           {text("currency", "Currency symbol", { hint: "Shown before every price.", input: { maxLength: 4 } })}
-          <Repeater
-            label="Sections"
+          <MenuSections
+            uploads={uploads}
             rows={rows("sections")}
-            max={20}
-            blank={{ name: "", items: [{ name: "", description: "", price: "" }] }}
-            addLabel="Add a section"
             onChange={(value) => set("sections", value)}
-            render={(section, change, i) => (
-              <div className="space-y-3">
-                <input
-                  aria-label={`Section ${i + 1} name`}
-                  value={String(section.name ?? "")}
-                  onChange={(e) => change({ ...section, name: e.target.value })}
-                  placeholder="Starters"
-                  className={`${inputClass} font-medium`}
-                />
-                <Repeater
-                  label="Items"
-                  rows={Array.isArray(section.items) ? (section.items as Row[]) : []}
-                  max={60}
-                  blank={{ name: "", description: "", price: "" }}
-                  addLabel="Add an item"
-                  nested
-                  onChange={(items) => change({ ...section, items })}
-                  render={(item, changeItem, j) => (
-                    <div className="grid gap-2 sm:grid-cols-[1fr_7rem]">
-                      <input
-                        aria-label={`Item ${j + 1} name`}
-                        value={String(item.name ?? "")}
-                        onChange={(e) => changeItem({ ...item, name: e.target.value })}
-                        placeholder="Jollof rice"
-                        className={inputClass}
-                      />
-                      <input
-                        aria-label={`Item ${j + 1} price`}
-                        value={String(item.price ?? "")}
-                        onChange={(e) => changeItem({ ...item, price: e.target.value })}
-                        placeholder="3,500"
-                        inputMode="decimal"
-                        className={inputClass}
-                      />
-                      <input
-                        aria-label={`Item ${j + 1} description`}
-                        value={String(item.description ?? "")}
-                        onChange={(e) => changeItem({ ...item, description: e.target.value })}
-                        placeholder="Description (optional)"
-                        className={`${inputClass} sm:col-span-2`}
-                      />
-                    </div>
-                  )}
-                />
-              </div>
-            )}
+            update={(change) => onChange((prev) => ({ ...prev, sections: change(list(prev.sections)) }))}
           />
         </Stack>
       );
@@ -430,7 +440,7 @@ export function ContentEditor({
               append(
                 "tracks",
                 files.map((file) => ({ title: file.name.replace(/\.[a-z0-9]+$/i, ""), file })),
-                30
+                MAX_TRACKS
               )
             }
           />
@@ -440,6 +450,11 @@ export function ContentEditor({
     case "barcode":
       return (
         <Stack>
+          <p className="text-xs leading-relaxed text-[var(--paper-soft)]">
+            This code opens a product page showing these details. It is not a retail barcode: a
+            shop till cannot read the GTIN from it, so keep your product&rsquo;s own barcode on
+            the pack.
+          </p>
           {text("gtin", "GTIN", {
             required: true,
             input: { inputMode: "numeric", className: `${inputClass} font-mono` },
@@ -643,34 +658,76 @@ function LinkRows({
   );
 }
 
-/** Upload through one of the page-file endpoints; resolves to what the server recorded. */
-function useUpload(endpoint: Endpoint, onDone: (files: FileRef[]) => void) {
+/**
+ * Upload through one of the page-file endpoints, adding what the server
+ * recorded to the draft.
+ *
+ * The pick is checked against the endpoint's limits first, so an oversized
+ * file is named before anything is sent and the files that fit still go.
+ * A pick larger than one request allows is sent in batches. A file that
+ * comes back without server data uploaded but was not recorded, and is
+ * reported rather than silently left out.
+ *
+ * `room` is how many more files the field takes.
+ */
+function useUpload(endpoint: Endpoint, room: number, onDone: (files: FileRef[]) => void) {
   const [error, setError] = useState<string | null>(null);
-  const { startUpload, isUploading } = useUploadThing(endpoint, {
-    onClientUploadComplete: (results) => {
-      const files = results
-        .map((result) => result.serverData)
-        .filter((data): data is FileRef => Boolean(data));
-      onDone(files);
-      setError(null);
-    },
+  const [busy, setBusy] = useState(false);
+  const refusal = useRef<string | null>(null);
+  const { startUpload } = useUploadThing(endpoint, {
     onUploadError: (uploadError) => {
-      setError(uploadError.message || "That upload did not finish. Please try again.");
+      refusal.current = clientUploadMessage(uploadError);
     },
   });
-  return { startUpload, isUploading, error, setError };
+
+  async function upload(picked: File[]) {
+    const { accepted, problem } = checkPicked(endpoint, picked, room);
+    setError(problem);
+    if (accepted.length === 0) return;
+
+    const { noun, maxFileCount } = UPLOAD_LIMITS[endpoint];
+    let unsaved = 0;
+    refusal.current = null;
+    setBusy(true);
+    try {
+      for (const batch of batches(accepted, maxFileCount)) {
+        // Resolves to undefined when the batch failed; `onUploadError` has
+        // recorded why.
+        const results = await startUpload(batch);
+        if (!results) continue;
+        const files = results
+          .map((result) => result.serverData)
+          .filter((data): data is FileRef => Boolean(data));
+        unsaved += results.length - files.length;
+        if (files.length) onDone(files);
+      }
+    } finally {
+      setBusy(false);
+    }
+
+    const problems = [problem, refusal.current, unsaved ? unsavedUploadMessage(unsaved, noun) : null];
+    setError(problems.filter(Boolean).join(" ") || null);
+  }
+
+  return { upload, busy, error };
 }
 
 function UploadButton({
   endpoint,
   multiple,
   busy,
+  disabled,
+  ariaLabel,
   onFiles,
   children,
 }: {
   endpoint: Endpoint;
   multiple?: boolean;
   busy: boolean;
+  /** Unavailable without being the one uploading, such as while a sibling is. */
+  disabled?: boolean;
+  /** For a button whose visible text repeats down a list. */
+  ariaLabel?: string;
   onFiles: (files: File[]) => void;
   children: React.ReactNode;
 }) {
@@ -693,7 +750,8 @@ function UploadButton({
       />
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || disabled}
+        aria-label={ariaLabel}
         onClick={() => ref.current?.click()}
         className={`${secondaryButtonClass} text-xs`}
       >
@@ -731,7 +789,7 @@ function FileField({
   value: FileRef | null;
   onChange: (value: FileRef | null) => void;
 }) {
-  const { startUpload, isUploading, error } = useUpload(endpoint, (files) => {
+  const { upload, busy, error } = useUpload(endpoint, 1, (files) => {
     if (files[0]) onChange(files[0]);
   });
 
@@ -741,7 +799,7 @@ function FileField({
       <div className="flex flex-wrap items-center gap-3">
         {value ? <FileChip file={value} onRemove={() => onChange(null)} /> : null}
         {uploads ? (
-          <UploadButton endpoint={endpoint} busy={isUploading} onFiles={(files) => startUpload(files.slice(0, 1))}>
+          <UploadButton endpoint={endpoint} busy={busy} onFiles={(files) => upload(files.slice(0, 1))}>
             {value ? "Replace" : "Upload"}
           </UploadButton>
         ) : null}
@@ -766,7 +824,7 @@ function FileList({
   onChange: (value: FileRef[]) => void;
   onAdd: (files: FileRef[]) => void;
 }) {
-  const { startUpload, isUploading, error } = useUpload(endpoint, onAdd);
+  const { upload, busy, error } = useUpload(endpoint, MAX_IMAGES - value.length, onAdd);
 
   return (
     <div>
@@ -778,14 +836,182 @@ function FileList({
           </li>
         ))}
       </ul>
-      {uploads && value.length < 20 ? (
+      {uploads && value.length < MAX_IMAGES ? (
         <div className="mt-3">
-          <UploadButton endpoint={endpoint} multiple busy={isUploading} onFiles={(files) => startUpload(files)}>
+          <UploadButton endpoint={endpoint} multiple busy={busy} onFiles={upload}>
             {value.length ? "Add more" : "Upload"}
           </UploadButton>
         </div>
       ) : null}
       <UploadNote uploads={uploads} endpoint={endpoint} error={error} />
+    </div>
+  );
+}
+
+/** Marks the dish a photo upload is for. Not in the menu schema, so the server's parse drops it. */
+const UPLOAD_MARK = "uploadMark";
+
+function withoutMark(item: Row): Row {
+  if (!(UPLOAD_MARK in item)) return item;
+  const rest = { ...item };
+  delete rest[UPLOAD_MARK];
+  return rest;
+}
+
+function mapDishes(sections: Row[], change: (item: Row, section: number, index: number) => Row): Row[] {
+  return sections.map((section, i) => ({
+    ...section,
+    items: list(section.items).map((item, j) => change(item, i, j)),
+  }));
+}
+
+/**
+ * A menu's sections and dishes, each dish with an optional photo.
+ *
+ * One uploader for the whole menu rather than one per dish: every uploader
+ * fetches the upload route's config when it mounts, and a menu can hold
+ * hundreds of dishes. The dish a photo is for is marked in the draft when
+ * its upload starts, and the finished file goes to whichever dish carries
+ * that mark, so moving or removing dishes meanwhile cannot put the photo on
+ * the wrong one. The other dishes' buttons wait until it lands. The file is
+ * placed through `update`, a functional change, so typing done meanwhile is
+ * kept.
+ *
+ * Without uploads (no `UPLOADTHING_TOKEN`) a dish shows the photo it already
+ * has, which can still be removed, and the note says uploads are not
+ * available, as every other optional image field does.
+ */
+function MenuSections({
+  uploads,
+  rows,
+  onChange,
+  update,
+}: {
+  uploads: boolean;
+  rows: Row[];
+  onChange: (rows: Row[]) => void;
+  update: (change: (sections: Row[]) => Row[]) => void;
+}) {
+  // A ref for the upload's callback, which runs with the closure it started
+  // with; state for rendering which dish is busy or failed.
+  const pending = useRef<string | null>(null);
+  const [mark, setMark] = useState<string | null>(null);
+  const counter = useRef(0);
+  const { upload, busy, error } = useUpload("pageImage", 1, (files) => {
+    const token = pending.current;
+    const photo = files[0];
+    if (!token || !photo) return;
+    update((sections) =>
+      mapDishes(sections, (item) => (item[UPLOAD_MARK] === token ? { ...withoutMark(item), photo } : item))
+    );
+  });
+
+  const choose = (section: number, index: number, files: File[]) => {
+    counter.current += 1;
+    const token = `dish-${counter.current}`;
+    pending.current = token;
+    setMark(token);
+    update((sections) =>
+      mapDishes(sections, (item, i, j) =>
+        i === section && j === index ? { ...item, [UPLOAD_MARK]: token } : withoutMark(item)
+      )
+    );
+    upload(files.slice(0, 1));
+  };
+
+  return (
+    <div>
+      <Repeater
+        label="Sections"
+        rows={rows}
+        max={20}
+        blank={{ name: "", items: [{ name: "", description: "", price: "" }] }}
+        addLabel="Add a section"
+        onChange={onChange}
+        render={(section, change, i) => (
+          <div className="space-y-3">
+            <input
+              aria-label={`Section ${i + 1} name`}
+              value={String(section.name ?? "")}
+              onChange={(e) => change({ ...section, name: e.target.value })}
+              placeholder="Starters"
+              className={`${inputClass} font-medium`}
+            />
+            <Repeater
+              label="Items"
+              rows={list(section.items)}
+              max={60}
+              blank={{ name: "", description: "", price: "" }}
+              addLabel="Add an item"
+              nested
+              onChange={(items) => change({ ...section, items })}
+              render={(item, changeItem, j) => {
+                const photo = (item.photo as FileRef | null | undefined) ?? null;
+                const marked = mark !== null && item[UPLOAD_MARK] === mark;
+                const dish = String(item.name ?? "").trim() || `item ${j + 1}`;
+                return (
+                  <div className="grid gap-2 sm:grid-cols-[1fr_7rem]">
+                    <input
+                      aria-label={`Item ${j + 1} name`}
+                      value={String(item.name ?? "")}
+                      onChange={(e) => changeItem({ ...item, name: e.target.value })}
+                      placeholder="Jollof rice"
+                      className={inputClass}
+                    />
+                    <input
+                      aria-label={`Item ${j + 1} price`}
+                      value={String(item.price ?? "")}
+                      onChange={(e) => changeItem({ ...item, price: e.target.value })}
+                      placeholder="3,500"
+                      inputMode="decimal"
+                      className={inputClass}
+                    />
+                    <input
+                      aria-label={`Item ${j + 1} description`}
+                      value={String(item.description ?? "")}
+                      onChange={(e) => changeItem({ ...item, description: e.target.value })}
+                      placeholder="Description (optional)"
+                      className={`${inputClass} sm:col-span-2`}
+                    />
+                    {photo || uploads ? (
+                      <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+                        {photo ? (
+                          <FileChip file={photo} onRemove={() => changeItem({ ...item, photo: null })} />
+                        ) : null}
+                        {uploads ? (
+                          <UploadButton
+                            endpoint="pageImage"
+                            busy={busy && marked}
+                            disabled={busy}
+                            ariaLabel={
+                              busy && marked
+                                ? `Uploading a photo for ${dish}`
+                                : `${photo ? "Replace the photo" : "Add a photo"} for ${dish}`
+                            }
+                            onFiles={(files) => choose(i, j, files)}
+                          >
+                            {photo ? "Replace photo" : "Add photo (optional)"}
+                          </UploadButton>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {error && marked ? (
+                      <p role="alert" className="text-sm text-[var(--struck-ink)] sm:col-span-2">
+                        {error}
+                      </p>
+                    ) : null}
+                  </div>
+                );
+              }}
+            />
+          </div>
+        )}
+      />
+      <p className="mt-2 text-xs text-[var(--paper-soft)]">
+        {uploads
+          ? `Each dish can have a photo. ${LIMITS.pageImage}`
+          : "Dish photos need file uploads, which are not available yet."}
+      </p>
     </div>
   );
 }
@@ -801,7 +1027,7 @@ function TrackList({
   onChange: (rows: Row[]) => void;
   onAdd: (files: FileRef[]) => void;
 }) {
-  const { startUpload, isUploading, error } = useUpload("pageAudio", onAdd);
+  const { upload, busy, error } = useUpload("pageAudio", MAX_TRACKS - rows.length, onAdd);
 
   return (
     <div>
@@ -826,9 +1052,9 @@ function TrackList({
           </div>
         )}
       />
-      {uploads && rows.length < 30 ? (
+      {uploads && rows.length < MAX_TRACKS ? (
         <div className="mt-3">
-          <UploadButton endpoint="pageAudio" multiple busy={isUploading} onFiles={(files) => startUpload(files)}>
+          <UploadButton endpoint="pageAudio" multiple busy={busy} onFiles={upload}>
             Upload tracks
           </UploadButton>
         </div>

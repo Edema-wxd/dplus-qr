@@ -65,7 +65,7 @@ export const DYNAMIC_TYPES: readonly TypeInfo<DynamicKind>[] = [
   { kind: "profile", label: "Profile Card", blurb: "Your own contact page" },
   { kind: "links", label: "Multiple Links", blurb: "Share several links" },
   { kind: "social", label: "Social Media", blurb: "All your socials in one place" },
-  { kind: "app", label: "App", blurb: "Download on Android and iOS" },
+  { kind: "app", label: "App", blurb: "Download on iOS, Android or AppGallery" },
   { kind: "instagram", label: "Instagram", blurb: "Share your Instagram profile" },
   { kind: "mp3", label: "MP3", blurb: "Share an audio file" },
   { kind: "business", label: "Business Page", blurb: "Information about your business" },
@@ -75,7 +75,10 @@ export const DYNAMIC_TYPES: readonly TypeInfo<DynamicKind>[] = [
   { kind: "facebook", label: "Facebook", blurb: "Share your Facebook page" },
   { kind: "coupon", label: "Coupon", blurb: "Discounts and offers" },
   { kind: "playlist", label: "Playlist", blurb: "Share your own music" },
-  { kind: "barcode", label: "2D Barcode", blurb: "GS1 product information" },
+  // The kind stays `barcode` (the database's check constraint names it), but
+  // the label is honest: the printed code is our short link to a product
+  // page, not a GS1 barcode a shop till can read a GTIN from.
+  { kind: "barcode", label: "Product Info", blurb: "Product details: GTIN, batch, expiry" },
 ];
 
 export const STATIC_TYPES: readonly TypeInfo<StaticKind>[] = [

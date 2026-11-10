@@ -1,4 +1,4 @@
-import type { Artwork } from "@/lib/qr-artwork";
+import type { Artwork } from "@/lib/qr-draw";
 import type { FrameLayout, Layer } from "@/lib/frames";
 
 /**

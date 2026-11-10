@@ -1,5 +1,6 @@
 import { screenUrl } from "@/lib/screening";
 import { buildVCard } from "@/lib/vcard";
+import { checkBitcoinAddress } from "@/lib/bitcoin-address";
 
 /**
  * What a static code encodes.
@@ -53,17 +54,11 @@ const PHONE_REASON = "Enter a phone number, with country code if you can: +234â€
 export const PAYPAL_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD"] as const;
 
 /**
- * A Bitcoin address, by shape only: legacy and P2SH (base-58, starting 1 or
- * 3) or bech32/bech32m (`bc1`). The checksum is not verified here, so this
- * catches a pasted sentence, not a single wrong character -- the person
- * paying still sees the address in their wallet before sending.
+ * Re-exported from `bitcoin-address.ts`, which verifies the checksum as well
+ * as the shape: a printed static code cannot be corrected, so one wrong
+ * character must be caught here rather than by the person paying.
  */
-export function isBitcoinAddress(value: string): boolean {
-  return (
-    /^[13][1-9A-HJ-NP-Za-km-z]{25,34}$/.test(value) ||
-    /^bc1[02-9ac-hj-np-z]{11,71}$/.test(value)
-  );
-}
+export { isBitcoinAddress } from "@/lib/bitcoin-address";
 
 export function buildStaticPayload(
   kind: StaticKind,
@@ -183,10 +178,9 @@ export function buildStaticPayload(
       break;
     }
     case "bitcoin": {
-      const address = f("address");
-      if (!isBitcoinAddress(address)) {
-        return fail("That does not look like a Bitcoin address.");
-      }
+      const checked = checkBitcoinAddress(f("address"));
+      if (!checked.ok) return fail(checked.reason);
+      const address = checked.address;
       const amount = f("amount");
       if (amount && !/^\d{1,8}(\.\d{1,8})?$/.test(amount)) {
         return fail("Enter the amount in BTC, like 0.0015.");

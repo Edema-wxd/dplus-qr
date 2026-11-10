@@ -22,10 +22,18 @@ export function PlanTiers({
   tiers,
   action,
   initialInterval = "monthly",
+  featured = null,
+  featuredLabel = "Most popular",
+  taglines = {},
 }: {
   tiers: Tier[];
   action: (price: TierPrice, tier: Tier) => React.ReactNode;
   initialInterval?: Interval;
+  /** The tier key to set apart (from `/admin/pricing`), or null for none. */
+  featured?: string | null;
+  featuredLabel?: string;
+  /** One line under a tier's name, by tier key. */
+  taglines?: Record<string, string>;
 }) {
   const [interval, setInterval] = useState<Interval>(initialInterval);
   const hasAnnual = tiers.some((tier) => tier.annual);
@@ -72,13 +80,27 @@ export function PlanTiers({
             (interval === "annual" ? tier.annual : tier.monthly) ?? tier.monthly ?? tier.annual;
           if (!price) return null;
           const annual = price === tier.annual;
+          const isFeatured = featured !== null && featured === tier.key;
+          const tagline = taglines[tier.key];
 
           return (
             <li
               key={tier.key}
-              className="flex flex-col rounded-lg border border-[var(--paper-rule)] bg-white p-5"
+              className={`relative flex flex-col rounded-lg bg-white p-5 ${
+                isFeatured
+                  ? "border-2 border-[var(--paper-ink)]"
+                  : "border border-[var(--paper-rule)]"
+              }`}
             >
+              {isFeatured ? (
+                <span className="absolute -top-3 left-5 rounded-full bg-[var(--paper-ink)] px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-[var(--paper)]">
+                  {featuredLabel}
+                </span>
+              ) : null}
               <h3 className="text-base font-medium">{tier.name}</h3>
+              {tagline ? (
+                <p className="mt-1 text-sm leading-snug text-[var(--paper-soft)]">{tagline}</p>
+              ) : null}
               <p className="mt-2 text-[1.75rem] leading-none tracking-[-0.01em]" style={{ fontVariantNumeric: "tabular-nums" }}>
                 ₦{price.priceNgn}
                 <span className="text-sm tracking-normal text-[var(--paper-soft)]">

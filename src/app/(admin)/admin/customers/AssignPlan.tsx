@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { inputClass, primaryButtonClass } from "@/components/controls";
 import { assignPlanAction, type AdminFormState } from "../actions";
+import { ActionNote } from "../ActionNote";
 
 export type AssignablePlan = { slug: string; label: string };
 
@@ -68,11 +69,7 @@ export function AssignPlan({
         No payment is taken. The plan runs until you assign another or the customer pays through checkout,
         which replaces it. A plan smaller than the codes they hold is refused.
       </p>
-      {state.error ? (
-        <p role="alert" className="mt-2 text-sm text-[var(--struck-ink)]">{state.error}</p>
-      ) : state.notice ? (
-        <p role="status" className="mt-2 text-sm text-[var(--live-ink)]">{state.notice}</p>
-      ) : null}
+      <ActionNote state={state} id="assign-plan" className="mt-2" />
     </form>
   );
 }

@@ -16,7 +16,7 @@ import {
   type QrPattern,
   type QrStyle,
 } from "@/lib/qr-style";
-import { QUIET_ZONE, composeArtwork, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-artwork";
+import { QUIET_ZONE, composeArtwork, inksFor, qrArtwork, type QrMatrix } from "@/lib/qr-draw";
 import type { PresetLogoId } from "@/lib/preset-logos";
 import { QrArtworkSvg } from "@/components/QrArtworkSvg";
 

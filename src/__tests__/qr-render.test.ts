@@ -8,10 +8,14 @@ import {
   RGBLuminanceSource,
 } from "@zxing/library";
 import { codeUrl } from "@/lib/brand";
-import { CORNER_DOTS, CORNER_FRAMES, DEFAULT_QR_STYLE, QR_FRAMES, QR_PATTERNS, type QrStyle } from "@/lib/qr-style";
+import { CORNER_DOTS, CORNER_FRAMES, DEFAULT_QR_STYLE, QR_FRAMES, QR_PATTERNS, readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { PRESET_LOGOS } from "@/lib/preset-logos";
-import { LOGO_FRACTION, levelFor, logoBox, qrMatrix, renderQrSvg } from "@/lib/qr-render";
-import { eyeShape, frameShape, inksFor, qrArtwork } from "@/lib/qr-artwork";
+import { LOGO_FRACTION, QUIET_ZONE, levelFor, logoBox, qrMatrix, renderQrSvg } from "@/lib/qr-render";
+import { eyeShape, frameShape, inksFor, qrArtwork } from "@/lib/qr-draw";
+import { renderArtwork } from "@/lib/qr-artwork";
+
+// The download path fetches logos; these tests draw without one.
+jest.mock("@/lib/logos", () => ({ loadLogo: jest.fn() }));
 
 /**
  * The renderer draws what gets printed. The decode tests are the ones that
@@ -310,5 +314,72 @@ describe("every frame and ready-made logo scans", () => {
     const height = Number(/ height="(\d+)"/.exec(svg)![1]);
     expect(width).toBe(1000);
     expect(height).toBeGreaterThan(1100);
+  });
+});
+
+describe("downloads (renderArtwork)", () => {
+  const code = (stored: unknown) => ({ shortCode: "Ab3kQ9x", style: readQrStyle(stored), logo: null });
+
+  it("draws a style saved before patterns existed as exactly the modules it always did", async () => {
+    // A row holding only the two colours, or nothing at all, is the plain
+    // design: every module of the level-Q matrix, square, in its own colour.
+    for (const stored of [{}, { dark: "#0B3D5C", light: "#FFF8EC" }]) {
+      const style = readQrStyle(stored);
+      const png = (await renderArtwork(code(stored), "png", 1024)) as Buffer;
+      const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const matrix = qrMatrix(CONTENT, "Q");
+      const span = matrix.size + QUIET_ZONE * 2;
+      // Sampled near a corner of each module as well as its centre, so a dot or
+      // a rounded corner would show as a difference, not only a missing module.
+      const at = (mx: number, my: number, inset = 0.5) => {
+        const x = Math.floor(((mx + inset) * info.width) / span);
+        const y = Math.floor(((my + inset) * info.height) / span);
+        const i = (y * info.width + x) * 4;
+        return `#${[data[i], data[i + 1], data[i + 2]].map((v) => v.toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+      };
+      for (let my = 0; my < span; my += 1) {
+        for (let mx = 0; mx < span; mx += 1) {
+          const x = mx - QUIET_ZONE;
+          const y = my - QUIET_ZONE;
+          const dark =
+            x >= 0 && y >= 0 && x < matrix.size && y < matrix.size && matrix.bits[y * matrix.size + x] === "1";
+          expect(at(mx, my)).toBe(dark ? style.dark : style.light);
+          expect(at(mx, my, 0.15)).toBe(dark ? style.dark : style.light);
+        }
+      }
+      expect(jsQR(new Uint8ClampedArray(data), info.width, info.height)?.data).toBe(CONTENT);
+    }
+  });
+
+  it("draws the saved pattern, and the SVG is the one renderer's", async () => {
+    const stored = { dark: "#0B3D5C", light: "#FFFFFF", pattern: "classy-rounded", cornerFrame: "circle", cornerDot: "dot" };
+    const svg = (await renderArtwork(code(stored), "svg", 1024)) as string;
+    expect(svg).toBe(renderQrSvg({ content: CONTENT, style: readQrStyle(stored), px: 1024 }));
+    expect(await decodeZxing(svg)).toBe(CONTENT);
+  });
+
+  it("draws a preset mark and a frame with nothing fetched", async () => {
+    const { loadLogo } = jest.requireMock("@/lib/logos") as { loadLogo: jest.Mock };
+    loadLogo.mockClear();
+    const artwork = {
+      shortCode: "Ab3kQ9x",
+      style: readQrStyle({ dark: "#1A1A1A", light: "#FFFFFF", pattern: "rounded", frame: "banner-below", frameText: "Menu" }),
+      // A stale upload beside the mark must not be fetched: the mark wins.
+      logo: { url: "https://x.ufs.sh/f/logo.png" },
+      presetLogo: "whatsapp" as const,
+    };
+    const svg = (await renderArtwork(artwork, "svg", 1024)) as string;
+    expect(loadLogo).not.toHaveBeenCalled();
+    expect(svg).not.toContain("<image");
+    expect(svg).toContain('fill="#25D366"');
+    expect(Number(/ height="(\d+)"/.exec(svg)![1])).toBeGreaterThan(1024);
+    expect(await decodeZxing(svg)).toBe(CONTENT);
+  });
+
+  it("keeps a transparent PNG transparent", async () => {
+    const png = (await renderArtwork(code({ dark: "#1A1A1A", light: "#FFFFFF", transparent: true }), "png", 1024)) as Buffer;
+    const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    expect(info.channels).toBe(4);
+    expect(data[3]).toBe(0); // the top-left corner is quiet zone, left out
   });
 });

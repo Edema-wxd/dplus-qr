@@ -86,6 +86,10 @@ const schema = z.object({
   // rather than failing the caller.
   RESEND_API_KEY: z.string().min(1).optional(),
 
+  // Google Web Risk (destination reputation, src/lib/reputation.ts). Without
+  // it every lookup answers "unavailable" and saves go through unchecked.
+  WEB_RISK_API_KEY: z.string().min(1).optional(),
+
   PAYSTACK_SECRET_KEY: z.string().min(1).optional(),
 
   // One shared secret for every /api/cron/* route: the scan rollup and
@@ -97,6 +101,21 @@ const schema = z.object({
   // that does not run: it changes billing state and sends mail, and the
   // failure to run is at least visible.
   CRON_SECRET: z.string().min(16).optional(),
+
+  // The nightly deletion sweeps (/api/cron/cleanup): the retention sweep, which
+  // erases accounts six months after they lapse as the Terms promise, and the
+  // upload clean-up, which deletes UploadThing files nothing uses. Anything but
+  // "true" is a dry run that reports what they would do, sending and changing
+  // nothing.
+  DELETION_SWEEPS_ENABLED: z.string().optional(),
+
+  // Set by Vercel on every deployment, never by us. Error alerts
+  // (src/lib/error-alerts.ts) go out only from `production`, since previews
+  // run unmerged code, and name the commit they came from. A plain string:
+  // env() validates the whole contract, so a value Vercel adds later must
+  // never fail every request.
+  VERCEL_ENV: z.string().optional(),
+  VERCEL_GIT_COMMIT_SHA: z.string().optional(),
 
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });

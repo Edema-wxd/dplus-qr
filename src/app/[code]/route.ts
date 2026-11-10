@@ -3,6 +3,7 @@ import { normaliseCode } from "@/lib/short-code";
 import { DEMO_CODE, DEMO_DESTINATION } from "@/lib/demo-code";
 import { lookupDestination, decide } from "@/lib/codes";
 import { recordScan, scanContext } from "@/lib/scans";
+import { reportError } from "@/lib/error-alerts";
 
 /**
  * The redirect. This is the sacred path: one cached lookup, then a response.
@@ -56,11 +57,14 @@ export async function GET(
   // A lookup failure must not reach the scanner as a crash. The database being
   // unreachable is our fault, not a reason to tell someone their printed code
   // does not exist -- which would invite them to discard the printed material.
+  // Staff are alerted after the response, like scan recording, so the alert
+  // never delays the scanner.
   let destination;
   try {
     ({ destination } = await lookupDestination(code));
   } catch (error) {
     console.error("[redirect] lookup failed", error);
+    after(() => reportError(error, { where: "redirect lookup" }));
     return statusRedirect("/unavailable");
   }
 

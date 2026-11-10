@@ -1,11 +1,24 @@
+import { useSuccessToast } from "@/components/notify";
+import { cn } from "@/lib/utils";
 import type { AdminFormState } from "./actions";
 
-/** The answer under a staff form: an error, or what the change did. */
-export function ActionNote({ state }: { state: AdminFormState }) {
+/**
+ * The answer to a staff form: what the change did as a toast, or the error
+ * inline under the form, where it stays until the next attempt.
+ */
+export function ActionNote({
+  state,
+  id,
+  className = "mt-3",
+}: {
+  state: AdminFormState;
+  /** One per form, so a repeated change replaces its own toast. */
+  id: string;
+  className?: string;
+}) {
+  useSuccessToast(state, id, (s) => (s.notice ? { title: s.notice } : null));
   return state.error ? (
-    <p role="alert" className="mt-3 text-sm text-[var(--struck-ink)]">{state.error}</p>
-  ) : state.notice ? (
-    <p role="status" className="mt-3 text-sm text-[var(--live-ink)]">{state.notice}</p>
+    <p role="alert" className={cn(className, "text-sm text-[var(--struck-ink)]")}>{state.error}</p>
   ) : null;
 }
 

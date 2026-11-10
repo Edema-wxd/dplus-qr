@@ -2,7 +2,8 @@ import { z } from "zod";
 import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { isDynamicKind, isPageKind } from "@/lib/qr-types";
-import { checkReputation, screenUrl, type ReputationVerdict } from "@/lib/screening";
+import { screenUrl } from "@/lib/screening";
+import { checkReputation, type ReputationVerdict } from "@/lib/reputation";
 import { likeContains } from "@/lib/admin-billing";
 
 /**
@@ -613,22 +614,33 @@ export type ErasePrecheck = {
   email: string;
   erased: boolean;
   liveViaPaystack: boolean;
+  /** People in this account's team, who lose access to it when it is erased. */
+  teamMembers: number;
 };
 
 export async function erasePrecheck(userId: string): Promise<ErasePrecheck | null> {
-  const row = await queryOne<{ email: string; erased: boolean; live_via_paystack: boolean }>(
+  const row = await queryOne<{ email: string; erased: boolean; live_via_paystack: boolean; team_members: string }>(
     `select u.email, u.erased_at is not null as erased,
             exists (select 1 from qr_subscriptions s
                     where s.user_id = u.id and s.status in ('active', 'past_due')
-                      and s.paystack_subscription_code is not null) as live_via_paystack
+                      and s.paystack_subscription_code is not null) as live_via_paystack,
+            (select count(*) from qr_account_members m
+              where m.account_id = u.id and m.removed_at is null) as team_members
      from qr_users u where u.id = $1`,
     [userId]
   );
-  return row ? { email: row.email, erased: row.erased, liveViaPaystack: row.live_via_paystack } : null;
+  return row
+    ? {
+        email: row.email,
+        erased: row.erased,
+        liveViaPaystack: row.live_via_paystack,
+        teamMembers: Number(row.team_members),
+      }
+    : null;
 }
 
 export type EraseResult =
-  | { ok: true; codes: number; fileKeys: string[] }
+  | { ok: true; codes: number; fileKeys: string[]; teamMembers: number }
   | { ok: false; error: string };
 
 /**
@@ -644,6 +656,10 @@ export type EraseResult =
  * Kept: subscription rows (financial records, with no personal data once the
  * email token is cleared), abuse reports (the reporter's, not the account's)
  * and the staff audit trail.
+ *
+ * Teams: an owner's team is deleted outright; a member's traces in other
+ * teams are deleted or unnamed (see the step below). Members of an erased
+ * owner's team keep their own accounts.
  *
  * Returns the UploadThing keys of the deleted files, for the caller to remove
  * from storage once this has committed. The sign-in account in Neon Auth is
@@ -677,9 +693,53 @@ export async function eraseAccountData(userId: string): Promise<EraseResult> {
     const owned = `select id from qr_codes where user_id = $1`;
     await run(`delete from qr_scans where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_scan_daily where qr_id in (${owned})`, [userId]);
+    await run(`delete from qr_scan_daily_visitors where qr_id in (${owned})`, [userId]);
+    // Bulk batches are the account's record of what it imported: counts and
+    // which codes, nothing more, but still theirs (migration 027).
+    await run(
+      `delete from qr_bulk_import_codes where import_id in (select id from qr_bulk_imports where user_id = $1)`,
+      [userId]
+    );
+    await run(`delete from qr_bulk_imports where user_id = $1`, [userId]);
     await run(`delete from qr_destination_history where qr_id in (${owned})`, [userId]);
     await run(`delete from qr_feedback where qr_id in (${owned})`, [userId]);
     await run(`update qr_destination_history set changed_by = null where changed_by = $1`, [userId]);
+
+    // Teams (migration 028), before the email is blanked: it is how invites
+    // addressed to this person are found.
+    //
+    // As an owner, the whole team goes: who was in it, who was invited, the
+    // log, and anyone's choice to work in it. The members keep their own
+    // accounts, untouched.
+    //
+    // As a member of other teams, every trace of them goes from those teams:
+    // their memberships, invitations sent to their address, their choice of
+    // team, and their name against entries in each team's log (the entries
+    // stay, so the owner's record of their own changes holds). Anything they
+    // made in a team belongs to that team's account and stays.
+    const team = await run<{ removed: string }>(
+      `select count(*) as removed from qr_account_members where account_id = $1 and removed_at is null`,
+      [userId]
+    );
+    await run(`delete from qr_active_accounts where account_id = $1 or user_id = $1`, [userId]);
+    await run(`delete from qr_account_events where account_id = $1`, [userId]);
+    await run(`delete from qr_account_members where account_id = $1 or user_id = $1`, [userId]);
+    await run(
+      `delete from qr_account_invites
+        where account_id = $1
+           or email = (select lower(email) from qr_users where id = $1)`,
+      [userId]
+    );
+    await run(`update qr_account_events set actor_id = null where actor_id = $1`, [userId]);
+    await run(`update qr_account_events set subject_id = null where subject_id = $1`, [userId]);
+    await run(`update qr_account_members set invited_by = null where invited_by = $1`, [userId]);
+    await run(`update qr_account_members set removed_by = null where removed_by = $1`, [userId]);
+    await run(
+      `update qr_account_invites set invited_by = case when invited_by = $1 then null else invited_by end,
+              accepted_by = case when accepted_by = $1 then null else accepted_by end
+        where invited_by = $1 or accepted_by = $1`,
+      [userId]
+    );
 
     const codes = await run<{ short_code: string }>(
       `update qr_codes
@@ -716,10 +776,11 @@ export async function eraseAccountData(userId: string): Promise<EraseResult> {
       ok: true as const,
       shortCodes: codes.map((row) => row.short_code),
       fileKeys: files.map((row) => row.file_key),
+      teamMembers: Number(team[0]?.removed ?? 0),
     };
   });
 
   if (!result.ok) return result;
   await purgeAll(result.shortCodes);
-  return { ok: true, codes: result.shortCodes.length, fileKeys: result.fileKeys };
+  return { ok: true, codes: result.shortCodes.length, fileKeys: result.fileKeys, teamMembers: result.teamMembers };
 }

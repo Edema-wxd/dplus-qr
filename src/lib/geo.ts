@@ -26,7 +26,30 @@ export function lookupLocation(_ip: string | null, headers?: Headers): Location 
     headers?.get("x-vercel-ip-country") ?? headers?.get("cf-ipcountry") ?? null;
 
   if (header && header !== "XX") {
-    return { country: header.toUpperCase(), city: null };
+    return { country: header.toUpperCase(), city: readCity(headers) };
   }
   return EMPTY;
+}
+
+/**
+ * The city Vercel derives from the scanner's IP, from the same edge lookup as
+ * the country, so it costs nothing and needs no licence. The privacy policy
+ * already names "country and city" as what a scan keeps.
+ *
+ * The header is URL-encoded (`S%C3%A3o%20Paulo`). It is decoded defensively:
+ * this runs for every scan, and a malformed value must yield no city, never
+ * an exception. Capped and stripped of control characters because it is
+ * shown back to the owner and written to a CSV.
+ */
+export function readCity(headers?: Headers): string | null {
+  const raw = headers?.get("x-vercel-ip-city");
+  if (!raw) return null;
+  let city: string;
+  try {
+    city = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  city = city.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 80);
+  return city === "" ? null : city;
 }

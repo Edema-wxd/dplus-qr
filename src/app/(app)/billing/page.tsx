@@ -7,8 +7,10 @@ import { ensureProfile } from "@/lib/profile";
 import { getBillingState } from "@/lib/checkout";
 import { listPublicPlans } from "@/lib/plans";
 import { groupTiers } from "@/lib/plan-tiers";
+import { getPricingContent } from "@/lib/site-content";
 import { SUPPORT_EMAIL } from "@/lib/brand";
 import { DashShell } from "../app/DashShell";
+import { MemberBillingNote } from "../app/TeamNotices";
 import { PlanCards } from "./PlanCards";
 import { CancelPlan } from "./CancelPlan";
 
@@ -68,9 +70,10 @@ export default async function BillingPage() {
     name: user.name,
   });
 
-  const [state, plans] = await Promise.all([
+  const [state, plans, content] = await Promise.all([
     getBillingState(profile.id),
     listPublicPlans(),
+    getPricingContent(),
   ]);
 
   // The same tiers the public pricing page shows, from the same rows, so a
@@ -82,6 +85,7 @@ export default async function BillingPage() {
 
   return (
     <DashShell heading="Plan and billing">
+      <MemberBillingNote />
       <div className="max-w-5xl space-y-10">
         <section aria-labelledby="current-heading">
           <h2
@@ -159,7 +163,13 @@ export default async function BillingPage() {
 
           {tiers.length > 0 ? (
             <div className="mt-6">
-              <PlanCards tiers={tiers} currentSlug={state.planSlug} />
+              <PlanCards
+                tiers={tiers}
+                currentSlug={state.planSlug}
+                featured={content.featuredTier || null}
+                featuredLabel={content.featuredLabel}
+                taglines={content.taglines}
+              />
             </div>
           ) : null}
 

@@ -94,7 +94,7 @@ export function AccountActions({
         </form>
       ) : null}
 
-      <ActionNote state={state} />
+      <ActionNote state={state} id="account-action" />
     </div>
   );
 }

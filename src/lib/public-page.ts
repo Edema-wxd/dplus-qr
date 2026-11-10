@@ -3,6 +3,8 @@ import { decide, lookupDestination } from "@/lib/codes";
 import { isPageKind, type PageKind } from "@/lib/qr-types";
 import { readPageContent, type PageContent } from "@/lib/page-content";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
+import { lookupLocation } from "@/lib/geo";
+import { parseAgent } from "@/lib/ua";
 
 /**
  * The read behind `/p/{code}`, the hosted page a page-type code redirects to.
@@ -65,6 +67,24 @@ export async function loadPublicPage(shortCode: string): Promise<PublicPage> {
   };
 }
 
+/** Where an answer came from: what a scan records, minus the hashed visitor. */
+export type FeedbackOrigin = {
+  country: string | null;
+  city: string | null;
+  device: string | null;
+  os: string | null;
+};
+
+/**
+ * Read from the answering request the same way a scan is: the hosting
+ * network's geographic headers and the parsed User-Agent. Never the IP.
+ */
+export function feedbackOrigin(headers: Headers): FeedbackOrigin {
+  const location = lookupLocation(null, headers);
+  const agent = parseAgent(headers.get("user-agent"));
+  return { country: location.country, city: location.city, device: agent.deviceType, os: agent.os };
+}
+
 /**
  * Save one answer to a feedback code. Only a live feedback code accepts one:
  * the kind and status are checked in the insert itself, so a paused code or a
@@ -73,14 +93,15 @@ export async function loadPublicPage(shortCode: string): Promise<PublicPage> {
 export async function saveFeedback(
   shortCode: string,
   rating: number,
-  comment: string | null
+  comment: string | null,
+  origin: FeedbackOrigin
 ): Promise<boolean> {
   const rows = await query<{ id: string }>(
-    `insert into qr_feedback (qr_id, rating, comment)
-     select id, $2, $3 from qr_codes
+    `insert into qr_feedback (qr_id, rating, comment, country, city, device_type, os)
+     select id, $2, $3, $4, $5, $6, $7 from qr_codes
      where short_code = $1 and kind = 'feedback' and status = 'active'
      returning id`,
-    [shortCode, rating, comment]
+    [shortCode, rating, comment, origin.country, origin.city, origin.device, origin.os]
   );
   return rows.length > 0;
 }
