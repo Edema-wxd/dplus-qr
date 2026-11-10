@@ -35,7 +35,7 @@ import { QrSymbol, moduleCount } from "./_landing/QrSymbol";
 import { DepartureBoard } from "./_landing/DepartureBoard";
 import { Flaps, type FlapTone } from "./_landing/Flaps";
 import { LegalLinks } from "@/components/LegalLinks";
-import { PLAN_FEATURES } from "@/lib/plan-features";
+import { productFeatures } from "@/lib/plan-features";
 
 /**
  * The landing page at the root of qriateplus.com.
@@ -85,7 +85,7 @@ const SIGN_UP = "/auth/sign-up";
  *
  * Built from the same constants the page renders, never typed separately:
  * the FAQ markup is the visible FAQ (Google requires the two to match), the
- * feature list is the built entries of `PLAN_FEATURES`, and the price is
+ * feature list is `productFeatures()`, and the price is
  * `PRICE_FROM_NGN`. No high price or offer count: this page is static, has no
  * database at build time, and per-plan figures belong to `/pricing`.
  */
@@ -112,7 +112,7 @@ const STRUCTURED_DATA = [
     featureList: [
       "Dynamic QR codes you can re-point after printing",
       "Scan counts and charts for every code",
-      ...PLAN_FEATURES.filter((f) => f.built && f.kind === "boolean").map((f) => f.label),
+      ...productFeatures(),
       "Free static codes for WhatsApp, Wi-Fi, contacts and calls",
       "Naira billing through Paystack",
     ],
