@@ -406,15 +406,15 @@ export const PRIVACY: LegalDocument = {
           rows: [
             {
               term: "What we hold",
-              detail: `Your business or contact name, your email address, whether that address has been confirmed, and a one-way hash of your password. We never hold the password itself.`,
+              detail: `Your business or contact name, your email address, whether that address has been confirmed, and a one-way hash of your password. We never hold the password itself. When you set up your first code we also keep what you told us it is for and which setup steps you reached, and when.`,
             },
             {
               term: "Why",
-              detail: `To give you an account, to let you sign in, and to reach you about things that affect your printed codes: a failed payment, a blocked code, the end of a grace period.`,
+              detail: `To give you an account, to let you sign in, and to reach you about things that affect your printed codes: a failed payment, a blocked code, the end of a grace period. The setup steps show us, across all accounts, where getting started is hard, so we can make it easier. They are recorded on our own servers, with no cookie and no analytics service.`,
             },
             {
               term: "On what basis",
-              detail: `To perform our contract with you, and to meet legal obligations such as keeping billing records.`,
+              detail: `To perform our contract with you, and to meet legal obligations such as keeping billing records. The setup steps rest on our legitimate interest in making the product easy to start with.`,
             },
           ],
         },

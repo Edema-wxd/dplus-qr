@@ -392,3 +392,45 @@ body {
 .toaster[data-sonner-toaster] [data-type="error"] [data-icon] {
   color: var(--toast-struck);
 }
+
+/*
+ * The onboarding's one orchestrated moment: when the first code is made, the
+ * real symbol is read into place top to bottom, the way a scanner's line
+ * passes over it, replacing the outline that stood in for it. It runs once,
+ * on the screen that follows "Create code", and nowhere else.
+ *
+ * Only `clip-path` and `opacity` animate, both composited. With reduced
+ * motion the symbol is simply there.
+ */
+@keyframes ob-read {
+  from {
+    clip-path: inset(0 0 100% 0);
+    opacity: 0.4;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+/* The scan's record arriving: an answer to something the person just did. */
+@keyframes ob-slip {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-reveal {
+    animation: ob-read 720ms var(--ease-out) 120ms both;
+  }
+
+  .ob-slip {
+    animation: ob-slip 260ms var(--ease-out) both;
+  }
+}

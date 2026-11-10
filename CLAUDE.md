@@ -346,6 +346,10 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
 - Staff admin: overview with what needs attention, abuse-report queue,
   customers (filters, plan assignment, suspend, archive, erase), codes
   (block, pause, archive, re-screen), plans and features, pricing-page copy.
+- Onboarding: sign-up to a first code and a test scan in six steps
+  (`/app/start`, never more than seven, enforced by a test), each step
+  recorded, with the drop-off funnel at `/admin/onboarding`. Only ever in
+  the person's own account, never a team they work in.
 - Production deploys apply pending migrations before building.
 - Monitoring: server errors emailed to staff (throttled, production only,
   `src/lib/error-alerts.ts`) and a Monday summary email. The outside uptime
