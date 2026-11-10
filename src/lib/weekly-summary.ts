@@ -137,6 +137,8 @@ export function summaryEmail(f: WeeklyFigures, adminUrl: string): { subject: str
 
   const waiting = [
     f.attention.openReports > 0 && plural(f.attention.openReports, "open abuse report", "open abuse reports"),
+    f.attention.finalWarningsDue > 0 &&
+      plural(f.attention.finalWarningsDue, "final warning past due", "final warnings past due"),
     f.attention.overdueAccounts > 0 && plural(f.attention.overdueAccounts, "account overdue", "accounts overdue"),
     f.attention.unappliedPayments > 0 &&
       plural(f.attention.unappliedPayments, "Paystack event not applied", "Paystack events not applied"),

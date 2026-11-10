@@ -24,6 +24,7 @@ import { createShare, revokeShare } from "@/lib/stat-shares";
 import { featureRefusal } from "@/lib/refusals";
 import { checkCustomCode } from "@/lib/short-code";
 import { flash } from "@/lib/flash";
+import { acknowledgeWarning } from "@/lib/dashboard-warnings";
 
 /**
  * Dashboard mutations.
@@ -473,4 +474,24 @@ export async function shareStatsAction(
     console.error("[dashboard] share change failed", error);
     return { error: "We could not change sharing. Please try again." };
   }
+}
+
+/**
+ * The owner marks a staff warning as read. The id comes from the form; the
+ * account and the person come from the session, and the statement admits the
+ * owner alone, so a team member, or a form naming another account's warning,
+ * changes nothing. A final warning stays on the dashboard after this, as it
+ * carries a date; the rest leave it.
+ */
+export async function acknowledgeWarningAction(formData: FormData): Promise<void> {
+  const scope = await requireScope();
+  const id = z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .safeParse(formData.get("warningId"));
+  if (!id.success) return;
+  await acknowledgeWarning(scope, id.data);
+  revalidatePath("/app");
 }

@@ -3,11 +3,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
-import { resolveScope } from "@/lib/resolve-scope";
+import { resolveAccess } from "@/lib/resolve-scope";
 import { ensureProfile } from "@/lib/profile";
 import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
 import { roleAllows } from "@/lib/account-scope";
 import { listCodes } from "@/lib/user-codes";
+import { dashboardWarnings } from "@/lib/dashboard-warnings";
 import { belongsToATeamSafely, isOwnAccount, readOnboardingSafely } from "@/lib/onboarding";
 import { shouldOnboard } from "@/lib/onboarding-steps";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
@@ -26,6 +27,7 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/componen
 import { StatusPill } from "./StatusPill";
 import { VerifyBanner } from "./VerifyBanner";
 import { UpgradeBanner } from "./UpgradeBanner";
+import { SuspendedNotice, WarningBanner } from "./WarningBanner";
 
 export const metadata: Metadata = { title: "Your codes" };
 
@@ -49,19 +51,27 @@ export default async function CodesPage({
 
   // Also grants the free plan on first load, so a code created here can
   // actually serve traffic. See ensureFreeSubscription.
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  const profile = await ensureProfile({ id: user.id, email: user.email, name: user.name });
   // Which account this page shows, and as whom. Its own unless the person
   // is working in a team they belong to; every read below proves access.
-  const scope = await resolveScope();
-  if (!scope) redirect("/auth/sign-in");
+  // `resolveAccess` is cached per request, so the shell's notices reuse it.
+  const access = await resolveAccess();
+  if (!access) redirect("/auth/sign-in");
+  const { scope } = access;
 
   // Onboarding is the person's own account's, never a team's: in a team
   // there is nothing to read and nobody is sent anywhere.
   const ownAccount = isOwnAccount(scope);
-  const [codes, entitlement, params, onboarding] = await Promise.all([
+  const [codes, entitlement, params, warnings, onboarding] = await Promise.all([
     listCodes(scope),
     getEntitlement(scope.accountId),
     searchParams,
+    // Staff warnings never stop the codes list: a failed read (a preview
+    // ahead of migration 030, say) shows the page without them.
+    dashboardWarnings(scope).catch((error) => {
+      console.error("[dashboard] warnings unavailable", error);
+      return [];
+    }),
     ownAccount ? readOnboardingSafely(scope) : null,
   ]);
 
@@ -139,6 +149,12 @@ export default async function CodesPage({
         ) : null
       }
     >
+      {/* Only the person's own account can be suspended and still open here. */}
+      {isOwner && profile.suspendedAt ? <SuspendedNotice /> : null}
+      <WarningBanner
+        warnings={warnings}
+        ownerName={isOwner ? null : (access.team?.ownerName ?? "the account owner")}
+      />
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
 
       {lapsed && hasCodes ? <LapsedNotice /> : null}

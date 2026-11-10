@@ -18,6 +18,7 @@ async function readBadges(): Promise<AdminBadges> {
   ]);
   return {
     reports: counts?.openReports ?? 0,
+    warnings: counts?.finalWarningsDue ?? 0,
     overdue: counts?.overdueAccounts ?? 0,
     retention,
   };
@@ -170,7 +171,13 @@ const ACTION_LABELS: Record<string, string> = {
   "subscription.assign": "Plan assigned",
   "report.action": "Report marked handled",
   "report.dismiss": "Report dismissed",
+  "customer.warn": "Warning sent",
+  "warning.complied": "Warning closed, put right",
+  "warning.withdrawn": "Warning withdrawn",
 };
+
+/** A warning's level as the history says it. The audit row keeps the level, never the text. */
+const LEVEL_WORDS: Record<string, string> = { notice: "notice", warning: "warning", final: "final warning" };
 
 /** The history of what staff changed on one code or account. */
 export function StaffHistory({
@@ -189,6 +196,17 @@ export function StaffHistory({
             {entry.createdAt.toLocaleString("en-NG", { dateStyle: "medium", timeStyle: "short" })}
           </span>
           <span className="font-medium">{ACTION_LABELS[entry.action] ?? entry.action}</span>
+          {typeof entry.detail.level === "string" ? (
+            <span className="text-[var(--paper-soft)]">{LEVEL_WORDS[entry.detail.level] ?? entry.detail.level}</span>
+          ) : null}
+          {entry.action === "customer.suspend" && typeof entry.detail.warningId === "number" ? (
+            <span className="text-[var(--paper-soft)]">
+              {entry.detail.early === true ? "before a final warning fell due" : "after a final warning fell due"}
+            </span>
+          ) : null}
+          {entry.detail.emailed === false ? (
+            <span className="text-[var(--struck-ink)]">email not sent</span>
+          ) : null}
           {typeof entry.detail.reason === "string" ? (
             <span className="text-[var(--paper-soft)]">“{entry.detail.reason}”</span>
           ) : null}
