@@ -2042,6 +2042,123 @@ a local Postgres 16 with rows either side of each boundary: a sign-up at
 waited for next week, and a safety block at 04:50 that morning counted while
 last Monday's did not.
 
+## First-code onboarding and drop-off tracking, 10 November 2026
+
+Written on 6 November and brought up to date with `main` on 10 November,
+after team seats: the migration is now `029`, and every query goes through
+an `AccountScope` (see "Onboarding and teams" below).
+
+Decided with Francis: a new account is walked from sign-up to a first code
+in **seven steps at most**, every step is recorded so staff can see where
+people stop, and the walk ends on the code's first scan. Six steps, with the
+code made on step 4:
+
+| # | Screen | Records |
+| --- | --- | --- |
+| 1 | The sign-up form, unchanged; it now lands on `/app/start` | `account_created` |
+| 2 | What the code will go on, one tap | `purpose_chosen` |
+| 3 | Where a scan leads: website, Instagram or Facebook | `destination_set` |
+| 4 | Name and colour (logo optional), then "Create code" | `code_created` |
+| 5 | Download the artwork (optional) | `artwork_downloaded` |
+| 6 | Scan it; the screen shows the scan as it arrives | `test_scanned`, then `completed` |
+
+- **The limit is a test.** `ONBOARDING_STEPS` in `src/lib/onboarding-steps.ts`
+  is the list, and `onboarding.test.ts` fails if it passes seven or if the code
+  is made after step 7.
+- **Migration `029`**: `qr_onboarding` (one row per account: origin, purpose,
+  the draft link, the code it made, skipped and from where, finished) and
+  `qr_onboarding_steps` (the first time each step was reached). New tables
+  only; nothing that exists is altered. A reload or a second download never
+  counts twice. The draft link lives on the server, so it never rides in a
+  URL and a person can finish on another device; it is cleared once the code
+  holds it. Account erasure deletes both.
+- **Who sees it.** `/app` sends an account with no codes there until it
+  finishes or skips. Skipping is remembered and never forced again; the empty
+  dashboard offers the way back. Accounts with codes never see it. Older
+  accounts with no codes are walked through it too, as `origin = 'existing'`,
+  and the funnel counts only `signup`.
+- **Never in the way.** Every step write is best-effort, and `/app` treats an
+  onboarding it cannot read as no onboarding, so a preview ahead of 029 still
+  opens the dashboard.
+- **Link codes only**, because a new account is always on Free. Step 4 goes
+  through `createCode`, so the first code meets the same screening, plan
+  limits, Web Risk check and short-code rules as any other; step 3 screens
+  the link early so a refusal is shown where it was typed.
+- **The redirect path is untouched.** The scan screen polls
+  `/app/start/scan`, which reads the account's own code's `qr_scans` rows
+  (bots excluded) that the redirect already writes in `after()`. "Made a code"
+  and "scanned" on the staff page are read from the codes and scans
+  themselves, raw rows and rollup both, so they also count a code made on the
+  dashboard after skipping and a first scan from a customer days later.
+- **Before the code exists the panel shows an outline that cannot be
+  scanned**: finder squares and an empty dot grid, no format information and
+  no data. A real-looking symbol would invite printing a code that leads
+  nowhere. The real symbol is revealed once, on the screen after "Create code".
+- The download step is recorded by the download route when it serves a file,
+  not by the button.
+- **Staff see it at `/admin/onboarding`**: 7, 30 or 90 days of sign-ups, how
+  many reached each step, the share of the step before (scanning and
+  finishing measured against making the code, since downloading is optional),
+  median time on each step, skips by screen, the biggest drop in one line,
+  what first codes are for, and made / scanned / confirmed-email outcomes.
+  Its tab title is "Onboarding", not naming the admin (7 November).
+- **Privacy:** onboarding answers and steps are account data. The policy now
+  says so, with legitimate interest as the basis, and that they are recorded on
+  our servers with no cookie and no analytics service. Nothing new is recorded
+  about people who scan.
+
+**Onboarding and teams** (decided 10 November 2026). Onboarding belongs to
+the person's own account and is never about a team's first code:
+
+- Every function in `src/lib/onboarding.ts` takes the `AccountScope` from
+  `resolveScope()` and reads nothing and writes nothing unless it is the
+  person's own account (`isOwnAccount`). Each statement still carries
+  `access()`, which for one's own account is `$1 = $n` and reads no members
+  table; `onboarding.ts` is now one of the modules
+  `scope-guard.test.ts` reads, with `qr_onboarding` and
+  `qr_onboarding_steps` as customer tables. Two functions are named
+  exemptions: `startOnboardingAtSignUp` (the sign-up action, which has the
+  id Neon Auth just returned and no session yet) and `onboardingFunnel`
+  (staff, behind `requireStaff`).
+- **Working in a team**, `/app` never sends anyone to the setup, the empty
+  team dashboard does not offer it, `/app/start` and its actions send the
+  person to the dashboard, and a download of a team code records no step. A
+  first-code form drawn in one's own account and submitted after switching
+  to a team in another tab makes nothing: the action sees a team scope and
+  goes to the dashboard instead of making the code in the team.
+- **Signing up through an invitation** starts no onboarding and goes back to
+  the invitation as before. Such a person came to work in the team, and
+  counting them would show a drop-off that is not one.
+- **A live member of any team who never started the onboarding** is not sent
+  to it from their own empty account either; their empty dashboard still
+  offers "Set up your first code step by step", which opens it as
+  `existing`. Someone who did start it (they signed up on their own and
+  joined a team later) carries on as before in their own account. A member
+  whose team is locked out works in their own account and is likewise not
+  sent. If membership cannot be read, nobody is sent.
+
+Tested: unit tests for the screen rules, resume and skip, the funnel maths,
+the migration's allowed values, the preset colours' contrast, the scan
+check's account filter and its route, the own-account rule (a team scope
+reads and writes nothing), and the privacy wording; the scope guard covers
+every onboarding query. On 6 November, in the browser against a local
+Postgres at desktop and phone width: the whole flow from step 2 to the code
+page, a refused link keeping what was typed, the colour preview, the reveal,
+a download and a scan each recorded once, skip and return, and the staff
+page over synthetic sign-ups (sign-in stubbed, since Neon Auth is hosted;
+the stub was never committed). On 10 November, on a scratch local Postgres
+14 with migrations 001 to 029 applied in order by `scripts/migrate.ts` and
+a stub `neon_auth."user"`: a sign-up opened one onboarding however often it
+ran; purpose, draft, a code made through `createCode` and attached, a
+coloured style, a download recorded once, a bot scan ignored and a real one
+seen; another account could neither attach that code nor see its scans;
+finishing stuck and a later skip changed nothing; a member working in a
+team read nothing and wrote nothing to the team owner's onboarding; an
+invited sign-up had no row; membership was seen, and not once removed; a
+member opening the setup from their own account got an `existing` row; the
+staff funnel counted only sign-ups and read made / scanned / verified
+correctly; erasure deleted the onboarding and its steps.
+
 ## Staff warnings and the watch lists, 10 November 2026
 
 The last part of staff moderation (27 October entry: "warnings and monitoring

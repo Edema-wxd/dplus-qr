@@ -12,6 +12,7 @@ export type AdminSection =
   | "/admin/monitor"
   | "/admin/customers"
   | "/admin/codes"
+  | "/admin/onboarding"
   | "/admin/plans"
   | "/admin/pricing"
   | "/admin/retention";
@@ -25,6 +26,7 @@ const ITEMS: { href: AdminSection; label: string; icon: string; badge?: keyof Ad
   { href: "/admin/monitor", label: "Watch lists", icon: "M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8zM8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z", badge: "warnings" },
   { href: "/admin/customers", label: "Customers", icon: "M8 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM3 14c.6-2.6 2.6-4 5-4s4.4 1.4 5 4", badge: "overdue" },
   { href: "/admin/codes", label: "Codes", icon: "M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" },
+  { href: "/admin/onboarding", label: "Onboarding", icon: "M2.5 3h11M4.5 6.5h7M6.5 10h3M7.5 13.5h1" },
   { href: "/admin/plans", label: "Plans", icon: "M2 4.5h12v7H2zM2 7h12" },
   { href: "/admin/pricing", label: "Pricing page", icon: "M3 2.5h7l3 3v8H3zM5.5 8h5M5.5 10.5h5" },
   { href: "/admin/retention", label: "Retention", icon: "M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 5v3l2 1.5", badge: "retention" },

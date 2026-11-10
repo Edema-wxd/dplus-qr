@@ -26,6 +26,10 @@ export const FLASH_MESSAGES = {
   },
   "team-left": { title: "You left the team" },
   "account-switched": { title: "Switched account" },
+  "setup-finished": {
+    title: "Your first code is set up",
+    description: "Every scan of it appears on this page.",
+  },
   "signed-out": { title: "Signed out" },
   "plan-created": { title: "Plan created" },
 } as const satisfies Record<string, { title: string; description?: string }>;
