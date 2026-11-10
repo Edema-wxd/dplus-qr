@@ -137,8 +137,14 @@ reliability for a feature, reliability wins. Everything below follows from that.
   where it lives: the free-plan grant (`profile.ts`), staff assignment
   (`plan-admin.ts`, refused for an account paying through Paystack), the
   grace-period lapse (`grace.ts`), the optimistic not-renewing flag on cancel
-  (`checkout.ts`) and account erasure (`moderation.ts`). Any new writer needs
-  a reason recorded in DECISIONS.md.
+  (`checkout.ts`), account erasure (`moderation.ts`) and the period-end
+  check that reads overdue subscriptions back from Paystack
+  (`billing-reconcile.ts`). Any new writer needs a reason recorded in
+  DECISIONS.md.
+- **A webhook that fails answers 500, so Paystack re-delivers it.** Only a
+  processed `qr_payment_events` row stops a delivery; an unprocessed one is
+  claimed (`claimed_at`, a two-minute lease) and tried again. Side effects
+  run after the answer, as the outcome's `followUp`.
 - A plan's price and interval are fixed once it has a `paystack_plan_code`,
   because Paystack charges its own copy. A new price is a new plan.
 

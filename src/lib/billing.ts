@@ -27,11 +27,32 @@ import {
  * narrowed so it can only ever insert where no subscription exists at all.
  */
 
-export type ApplyOutcome =
+/**
+ * What became of one attempt at an event.
+ *
+ * `followUp` is what to do once the caller has answered: stop a replaced
+ * subscription at Paystack, purge cached destinations, email the customer,
+ * alert staff. None of it is part of the money, and the webhook runs it in
+ * `after()` so Paystack's request waits only on the database.
+ *
+ * `busy` means another attempt at the same event holds the claim right now;
+ * `duplicate` means the event has already been applied.
+ */
+export type ApplyOutcome = (
   | { kind: "duplicate"; eventKey: string }
+  | { kind: "busy"; eventKey: string }
   | { kind: "ignored"; eventKey: string; why: string }
   | { kind: "applied"; eventKey: string; change: SubscriptionChange["kind"] }
-  | { kind: "deferred"; eventKey: string; why: string };
+  | { kind: "deferred"; eventKey: string; why: string }
+) & { followUp?: () => Promise<void> };
+
+/**
+ * How long a claim on an event holds before another attempt may take it over.
+ * Long enough for any real attempt to finish; short enough that an attempt
+ * that died (a timeout, a deploy) does not hold the event past Paystack's
+ * next re-delivery.
+ */
+const CLAIM_LEASE = "2 minutes";
 
 /**
  * Who the event belongs to.
@@ -321,13 +342,53 @@ async function stopSuperseded(userId: string, superseded: Superseded[]): Promise
 }
 
 /**
- * Record the delivery, then act on it, in one transaction.
+ * Record a delivery and claim it, in one statement.
  *
- * Order matters. The insert goes first and carries the unique constraint on
- * `event_key`, so a replay fails there and never reaches the subscription
- * write. Marking it processed happens in the same transaction as the effect,
- * so there is no window where an event is logged as handled but did nothing --
- * Paystack does not re-send, so that window would lose money silently.
+ * A new event is inserted already claimed. One seen before is claimed again
+ * only while it is unprocessed and nobody else holds it: before 11 November
+ * 2026 any existing row ended the delivery, so an event whose first attempt
+ * threw was never applied and Paystack's re-delivery of it was dropped as a
+ * duplicate. The payload of the first delivery is kept; Paystack re-sends the
+ * same body.
+ */
+async function claimDelivery(
+  key: string,
+  type: string,
+  rawBody: string
+): Promise<{ id: string } | { kind: "duplicate" | "busy" }> {
+  const claimed = await query<{ id: string }>(
+    `insert into qr_payment_events (event_key, type, payload, attempts, claimed_at)
+     values ($1, $2, $3::jsonb, 1, now())
+     on conflict (event_key) do update
+       set attempts = qr_payment_events.attempts + 1, claimed_at = now()
+       where qr_payment_events.processed_at is null
+         and (qr_payment_events.claimed_at is null
+              or qr_payment_events.claimed_at < now() - interval '${CLAIM_LEASE}')
+     returning id`,
+    [key, type, rawBody]
+  );
+  if (claimed.length > 0) return { id: claimed[0].id };
+  return { kind: await whyUnclaimed("event_key = $1", key) };
+}
+
+/** Whether an event that could not be claimed is done, or in someone's hands. */
+async function whyUnclaimed(where: string, value: string): Promise<"duplicate" | "busy"> {
+  const row = await queryOne<{ processed: boolean }>(
+    `select processed_at is not null as processed from qr_payment_events where ${where}`,
+    [value]
+  );
+  return row && !row.processed ? "busy" : "duplicate";
+}
+
+/**
+ * Record the delivery, then act on it.
+ *
+ * The claim goes first and carries the unique constraint on `event_key`, so
+ * an applied event fails there and never reaches the subscription write.
+ * Marking it processed happens in the same transaction as the effect, so there
+ * is no window where an event is logged as handled but did nothing. If the
+ * attempt throws, the row stays unprocessed and its claim lapses, and the next
+ * delivery, a staff retry or the daily sweep tries again.
  *
  * The signature must already have been verified by the caller. This function
  * trusts its input.
@@ -342,27 +403,94 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
 
   // Logged whether or not we act on it: the payload column is the record of
   // what Paystack actually sent, which is the only evidence in a dispute.
-  const inserted = await query<{ id: string }>(
-    `insert into qr_payment_events (event_key, type, payload)
-     values ($1, $2, $3::jsonb)
-     on conflict (event_key) do nothing
-     returning id`,
-    [key, event.event, rawBody]
+  const claim = await claimDelivery(key, event.event, rawBody);
+  if ("kind" in claim) return { kind: claim.kind, eventKey: key };
+
+  return processClaimed(claim.id, key, event);
+}
+
+/**
+ * Try a stored event again, by its row id: the admin's Retry and the daily
+ * sweep. Claimed exactly as a delivery is, so a retry racing Paystack's own
+ * re-delivery cannot apply it twice. The stored key is reused rather than
+ * recomputed, because `payload` is jsonb and no longer the bytes a body-hash
+ * key was made from.
+ */
+export async function retryPaystackEvent(eventId: string): Promise<ApplyOutcome | { kind: "missing" }> {
+  const rows = await query<{ event_key: string; payload: unknown }>(
+    `update qr_payment_events
+        set attempts = attempts + 1, claimed_at = now()
+      where id = $1
+        and processed_at is null
+        and (claimed_at is null or claimed_at < now() - interval '${CLAIM_LEASE}')
+      returning event_key, payload`,
+    [eventId]
+  );
+  if (rows.length === 0) {
+    const exists = await queryOne<{ id: string }>("select id from qr_payment_events where id = $1", [eventId]);
+    if (!exists) return { kind: "missing" };
+    const kind = await whyUnclaimed("id = $1", eventId);
+    return { kind, eventKey: "" };
+  }
+
+  const { event_key: key, payload } = rows[0];
+  const parsed = eventSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error(`stored Paystack payload did not parse: ${parsed.error.message}`);
+  }
+  return processClaimed(eventId, key, parsed.data);
+}
+
+export type SweepResult = { tried: number; applied: number; deferred: number; failed: number };
+
+/**
+ * The daily backstop for events whose attempts all threw and that Paystack has
+ * stopped re-sending. Only rows with no recorded reason: a deferred event is
+ * waiting on a person, and trying it again changes nothing until they act.
+ * A fortnight back at most, and a few at a time, so one bad payload cannot
+ * make the job run long.
+ */
+export async function retryStuckEvents(limit = 20): Promise<SweepResult> {
+  const stuck = await query<{ id: string }>(
+    `select id from qr_payment_events
+      where processed_at is null
+        and error is null
+        and received_at > now() - interval '14 days'
+        and (claimed_at is null or claimed_at < now() - interval '1 hour')
+      order by received_at
+      limit $1`,
+    [limit]
   );
 
-  if (inserted.length === 0) return { kind: "duplicate", eventKey: key };
-  const eventId = inserted[0].id;
+  const result: SweepResult = { tried: 0, applied: 0, deferred: 0, failed: 0 };
+  for (const { id } of stuck) {
+    result.tried++;
+    try {
+      const outcome = await retryPaystackEvent(id);
+      if (outcome.kind === "applied") result.applied++;
+      if (outcome.kind === "deferred") result.deferred++;
+      if ("followUp" in outcome && outcome.followUp) await outcome.followUp();
+    } catch (error) {
+      result.failed++;
+      console.error("[paystack] retry of a stuck event failed", id, error);
+    }
+  }
+  return result;
+}
 
+/** Act on an event this attempt holds the claim on. */
+async function processClaimed(eventId: string, key: string, event: PaystackEvent): Promise<ApplyOutcome> {
   async function markProcessed(note: string | null): Promise<void> {
     await query(
-      "update qr_payment_events set processed_at = now(), error = $2 where id = $1",
+      "update qr_payment_events set processed_at = now(), claimed_at = null, error = $2 where id = $1",
       [eventId, note]
     );
   }
 
-  async function defer(why: string): Promise<ApplyOutcome> {
-    await query("update qr_payment_events set error = $2 where id = $1", [eventId, why]);
-    return { kind: "deferred", eventKey: key, why };
+  // Released, so a person who fixes the cause can retry it at once.
+  async function defer(why: string, stored = why): Promise<ApplyOutcome> {
+    await query("update qr_payment_events set claimed_at = null, error = $2 where id = $1", [eventId, stored]);
+    return { kind: "deferred", eventKey: key, why, followUp: () => alertDeferred(key, why) };
   }
 
   if (!isHandled(event.event)) {
@@ -375,27 +503,16 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
 
   // A plan code Paystack knows and we do not means the dashboard has a plan
   // this database was never told about. Left unprocessed on purpose, so it can
-  // be replayed once the row is seeded rather than quietly losing a sale.
+  // be retried once the row is seeded rather than quietly losing a sale.
   if (planCode && !plan) {
-    await query("update qr_payment_events set error = $2 where id = $1", [
-      eventId,
-      `unknown paystack plan code ${planCode}`,
-    ]);
-    return {
-      kind: "deferred",
-      eventKey: key,
-      why: `unknown plan code ${planCode}; seed qr_plans and replay`,
-    };
+    return defer(
+      `unknown plan code ${planCode}; connect the plan, then retry`,
+      `unknown paystack plan code ${planCode}`
+    );
   }
 
   const userId = await resolveUserId(event);
-  if (!userId) {
-    await query("update qr_payment_events set error = $2 where id = $1", [
-      eventId,
-      "no matching qr_users row",
-    ]);
-    return { kind: "deferred", eventKey: key, why: "no matching account" };
-  }
+  if (!userId) return defer("no matching account", "no matching qr_users row");
 
   const change = decideChange(event, { plan, now: new Date() });
 
@@ -416,10 +533,10 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
   const written = await withTransaction(async (run) => {
     const result = await writeChange(run, { userId, plan, change });
     if (!result.matched) {
-      await run("update qr_payment_events set processed_at = now(), error = $2 where id = $1", [
-        eventId,
-        "no live subscription matched this event; nothing changed",
-      ]);
+      await run(
+        "update qr_payment_events set processed_at = now(), claimed_at = null, error = $2 where id = $1",
+        [eventId, "no live subscription matched this event; nothing changed"]
+      );
       return result;
     }
 
@@ -449,7 +566,7 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
     }
 
     await run(
-      "update qr_payment_events set processed_at = now(), error = null where id = $1",
+      "update qr_payment_events set processed_at = now(), claimed_at = null, error = null where id = $1",
       [eventId]
     );
     return result;
@@ -461,18 +578,40 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
     return { kind: "ignored", eventKey: key, why: "no live subscription matched" };
   }
 
-  // After the commit, never inside it: stopping the old plan at Paystack and
-  // purging the cache are not part of this transaction's money.
-  await stopSuperseded(userId, written.superseded);
-  await purgeOwnerCodes(userId);
+  return {
+    kind: "applied",
+    eventKey: key,
+    change: change.kind,
+    // After the commit, never inside it, and after the caller has answered.
+    // Stopping the old plan at Paystack and purging the cache are not part of
+    // this transaction's money. The emails are side effects on the outside
+    // world: a mail failure inside the transaction would roll back a payment
+    // we have already taken. `notify*` swallow their own errors.
+    followUp: async () => {
+      await stopSuperseded(userId, written.superseded);
+      await purgeOwnerCodes(userId);
+      await notifyOf({ userId, plan, change });
+    },
+  };
+}
 
-  // Also after the commit, and for a sharper reason. These are side effects on
-  // the outside world: a mail failure inside the transaction would roll back a
-  // payment we have already taken, and a throw here would make Paystack retry
-  // a charge already applied. `notify*` swallow their own errors.
-  await notifyOf({ userId, plan, change });
-
-  return { kind: "applied", eventKey: key, change: change.kind };
+/** Tell staff an event is waiting on them. One email per reason per hour. */
+async function alertDeferred(key: string, why: string): Promise<void> {
+  console.error("[paystack] deferred", key, why);
+  await alertOnce(
+    `paystack-deferred:${why}`,
+    "A Paystack event needs a person",
+    [
+      "A Paystack event could not be applied on its own:",
+      "",
+      `  ${why}`,
+      "",
+      "It is listed under Payments on the admin overview, with a Retry button",
+      "for once the cause is fixed. Until it is dealt with, a customer's plan",
+      "may not match what they paid for.",
+      "Further events deferred for the same reason are not emailed for an hour.",
+    ].join("\n")
+  );
 }
 
 /**

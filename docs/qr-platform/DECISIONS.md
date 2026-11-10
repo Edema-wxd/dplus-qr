@@ -2443,7 +2443,8 @@ Consequences:
   exact plan.
 - Still open from the same audit: matching by email and `metadata.user_id` at
   all (charges should be accepted only for a reference we issued, with the
-  plan's amount), retrying an unprocessed event, and a period-end backstop.
+  plan's amount). Retrying an unprocessed event and a period-end backstop
+  followed on 11 November.
 
 Checked against a local Postgres with every migration applied: a forged
 `subscription.create` deferred with the Starter row untouched; the real
@@ -2452,6 +2453,77 @@ to stop `SUB_old`; the old subscription's disable and renewal then changed
 nothing; the new subscription's failure and renewal applied to it alone.
 `src/__tests__/billing-apply.test.ts` covers the same decisions without a
 database.
+
+## Paystack events are retried, and period ends are checked, 11 November 2026
+
+From the security audit of 10 November (M2). Two ways a payment state went
+wrong and stayed wrong:
+
+- **A failed event was never tried again.** The webhook answered 200 first and
+  applied the event in `after()`, so Paystack never re-sent anything, and the
+  log row was written before processing, so if Paystack had re-sent, the
+  re-delivery would have been dropped as a duplicate. A database cold start
+  while a `charge.success` was being applied left a paying customer
+  unactivated, with nothing to bring it back. Deferred events waited on a
+  "replay" that did not exist.
+- **Nothing backed up a lost webhook.** No code that serves a code looks at
+  `current_period_end`. A lost `subscription.disable` left a cancelled account
+  on its paid plan for good.
+
+What changed:
+
+- **The webhook applies the event, then answers** (`route.ts`). 200 for
+  applied, ignored, duplicate and deferred; 500 when applying throws, so
+  Paystack re-delivers it; 503 while another attempt holds it. Only the
+  database work is waited on. Stopping a replaced subscription, purging
+  cached destinations, customer email and staff alerts come back from
+  `applyPaystackEvent` as `followUp` and run in `after()`. This reverses the
+  route's old rule "never 500 on our own bug": Paystack retrying an event that
+  fails the same way each time costs a throttled error email, while a lost
+  event costs a customer their plan.
+- **Only a processed event stops a delivery** (migration 032). The log
+  insert is now a claim: a new event is inserted claimed; one seen before is
+  claimed again if it is unprocessed and its claim (`claimed_at`) is older
+  than two minutes. So a re-delivery that overlaps a slow first attempt gets
+  503 instead of applying the charge twice, and one that follows a failed
+  attempt applies it. `attempts` counts claims. Applied and deferred events
+  release their claim; a thrown attempt leaves it to lapse.
+- **Staff can retry an event** from Unapplied Paystack events on the admin
+  overview (`retryPaystackEvent`, `payment-actions.ts`). It goes through the
+  same claim and checks as a delivery, under the event's stored key, so it
+  cannot apply an event twice or activate a plan the webhook would refuse.
+  Each retry is recorded in `qr_admin_audit`.
+- **A daily job, `/api/cron/billing` at 03:20, before the grace job:**
+  - `retryStuckEvents` retries up to 20 unprocessed events from the last
+    fortnight that have no recorded reason (they threw, not deferred) and
+    have been untouched for an hour. Deferred ones wait for staff.
+  - `reconcileOverdueSubscriptions` (`src/lib/billing-reconcile.ts`) reads
+    back from Paystack every subscription still `active` here two days after
+    its period ended:
+    - `cancelled` or `completed` there ends it here;
+    - `active` or `non-renewing` with a later next payment date moves the
+      period on;
+    - `attention` starts the plan's grace period and emails the customer, as
+      a failed invoice would.
+    
+    Anything else, a plan that differs, or a failed read changes nothing and
+    goes to staff in one email a day. Each write requires the row to be
+    exactly as read, so a webhook that lands meanwhile wins.
+
+The reconciliation is a **new writer of `qr_subscriptions`**. The reason: the
+evidence it acts on is Paystack's own record, read with our secret key. That
+is the authority a webhook carries, so this is the webhook's answer fetched
+rather than pushed. It acts only where the answer is plain, and never on our
+own clock alone: a period end passing without a renewal is not, by itself,
+reason to take a printed code down.
+
+Not changed: past-due rows are not read back, because the grace job already
+ends them; and free and staff-assigned plans have no Paystack subscription
+to check.
+
+`src/__tests__/billing-apply.test.ts`, `paystack-webhook-route.test.ts` and
+`billing-reconcile.test.ts` cover the claim, the status codes and each
+reconciliation rule.
 
 ## Still open
 
