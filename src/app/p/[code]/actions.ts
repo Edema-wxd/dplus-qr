@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { z } from "zod";
 import { clientIp, ipRateKey } from "@/lib/ip";
 import { allowFeedback } from "@/lib/ratelimit";
-import { saveFeedback } from "@/lib/public-page";
+import { feedbackOrigin, saveFeedback } from "@/lib/public-page";
 import { normaliseCode } from "@/lib/short-code";
 
 const schema = z.object({
@@ -40,7 +40,8 @@ export async function submitFeedback(
     return { status: "idle", error: parsed.error.issues[0]?.message ?? "Check the form." };
   }
 
-  const allowed = await allowFeedback(ipRateKey(clientIp(await headers())));
+  const requestHeaders = await headers();
+  const allowed = await allowFeedback(ipRateKey(clientIp(requestHeaders)));
   if (!allowed) {
     return { status: "idle", error: "Thank you, we already have your answers." };
   }
@@ -49,7 +50,8 @@ export async function submitFeedback(
     const saved = await saveFeedback(
       parsed.data.code,
       parsed.data.rating,
-      parsed.data.comment || null
+      parsed.data.comment || null,
+      feedbackOrigin(requestHeaders)
     );
     if (!saved) return { status: "idle", error: "This code is not taking answers right now." };
   } catch (error) {

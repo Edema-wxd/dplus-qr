@@ -28,13 +28,21 @@ export type Plan = {
 
 export type PlanFeatures = {
   csv_export?: boolean;
-  analytics?: "basic" | "trends";
   support?: string;
   months_free?: number;
-  team_seats?: boolean;
+  /** People on the account, owner included (migration 028). Absent: no team. */
+  team_seats?: number;
   bulk_creation?: boolean;
   /** Owner-chosen short codes, such as `qriateplus.com/dplus`. */
   custom_codes?: boolean;
+  /** Unique scans, operating systems, cities and the trend against the previous period. */
+  insights?: boolean;
+  /** Public, read-only stats links for a code. */
+  share_stats?: boolean;
+  /** Making hosted page codes (menu, PDF, profile card...). Without it, link codes only. */
+  hosted_pages?: boolean;
+  /** Uploading video files to a video page. Without it, YouTube or Vimeo links only. */
+  video_uploads?: boolean;
 } & Record<string, unknown>;
 
 type Row = {

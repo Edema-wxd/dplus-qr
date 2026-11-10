@@ -2,7 +2,7 @@ import { query } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { clientIp, hashIp, saltDay } from "@/lib/ip";
 import { parseAgent } from "@/lib/ua";
-import { lookupLocation } from "@/lib/geo";
+import { lookupLocation, type Location } from "@/lib/geo";
 import { shouldCountScan } from "@/lib/ratelimit";
 
 /**
@@ -20,6 +20,8 @@ export type ScanContext = {
   userAgent: string | null;
   ip: string | null;
   countryHeader: string | null;
+  /** Raw and still URL-encoded; decoded in `after()` by `readCity`. */
+  cityHeader: string | null;
 };
 
 /** Pull everything needed off the request while it is still in scope. */
@@ -30,7 +32,21 @@ export function scanContext(qrId: number, headers: Headers): ScanContext {
     ip: clientIp(headers),
     countryHeader:
       headers.get("x-vercel-ip-country") ?? headers.get("cf-ipcountry") ?? null,
+    cityHeader: headers.get("x-vercel-ip-city"),
   };
+}
+
+/**
+ * Where the scan came from, from the headers captured during the request.
+ *
+ * Both headers are rebuilt: until 6 November 2026 only the country was, so
+ * `readCity` never saw `x-vercel-ip-city` and every scan recorded a null city.
+ */
+export function scanLocation(context: ScanContext): Location {
+  if (!context.countryHeader) return lookupLocation(context.ip);
+  const headers = new Headers({ "cf-ipcountry": context.countryHeader });
+  if (context.cityHeader) headers.set("x-vercel-ip-city", context.cityHeader);
+  return lookupLocation(context.ip, headers);
 }
 
 export async function recordScan(context: ScanContext): Promise<void> {
@@ -40,12 +56,7 @@ export async function recordScan(context: ScanContext): Promise<void> {
 
     const agent = parseAgent(context.userAgent);
     const ipHash = hashIp(context.ip);
-    const location = lookupLocation(
-      context.ip,
-      context.countryHeader
-        ? new Headers({ "cf-ipcountry": context.countryHeader })
-        : undefined
-    );
+    const location = scanLocation(context);
 
     // Counters first: cheap, and they back the dashboard's live numbers before
     // the nightly rollup runs.

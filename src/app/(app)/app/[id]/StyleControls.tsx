@@ -9,14 +9,15 @@ import {
 } from "react";
 import {
   checkQrStyle,
-  contrastRatio,
   DEFAULT_QR_STYLE,
   isDefaultQrStyle,
   qrStyleVars,
   type QrStyle,
 } from "@/lib/qr-style";
 import { setStyleAction, type CodeState } from "../actions";
+import { ColourPicker } from "../ColourPicker";
 import { primaryButtonClass, secondaryButtonClass } from "@/components/controls";
+import { useSuccessToast } from "@/components/notify";
 
 /**
  * Live colour preview for the code page.
@@ -67,13 +68,17 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
     setStyleAction,
     {} as CodeState
   );
+  useSuccessToast(state, "style", (s) =>
+    s.saved
+      ? { title: "Colours saved", description: "Downloads now use these colours." }
+      : null
+  );
 
   const check = checkQrStyle(style);
-  const ratio = contrastRatio(style.dark, style.light);
+  // An inverted pair is usually the right two colours the wrong way round.
+  const swapped = { dark: style.light, light: style.dark };
+  const canSwap = !check.ok && check.inverted && checkQrStyle(swapped).ok;
   const dirty = style.dark !== saved.dark || style.light !== saved.light;
-  const message = check.ok
-    ? `Contrast ${ratio.toFixed(1)}:1. This will scan once printed.`
-    : check.reason;
 
   // The pair the last save was about. A server message describes those
   // colours, so it is hidden as soon as the owner picks different ones rather
@@ -82,50 +87,10 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
   const current =
     submitted !== null && submitted.dark === style.dark && submitted.light === style.light;
 
-  // `<input type="color">` reports lowercase; the stored form is uppercase.
-  const pick = (key: keyof QrStyle) => (event: React.ChangeEvent<HTMLInputElement>) =>
-    setStyle({ ...style, [key]: event.target.value.toUpperCase() });
-
   return (
     <form action={action} onSubmit={() => setSubmitted(style)}>
       <input type="hidden" name="id" value={id} />
-      <fieldset>
-        <legend className="mb-2 block text-sm">Colours</legend>
-        <div className="flex flex-wrap gap-x-6 gap-y-3">
-          <ColourField
-            id="qr-dark"
-            name="dark"
-            label="Code"
-            value={style.dark}
-            onChange={pick("dark")}
-          />
-          <ColourField
-            id="qr-light"
-            name="light"
-            label="Background"
-            value={style.light}
-            onChange={pick("light")}
-          />
-        </div>
-      </fieldset>
-
-      {/*
-        The live region persists so screen readers keep announcing it; the
-        line inside is keyed on its text, so each change inserts a new node
-        rather than editing one in place. Safari, with its colour panel open,
-        repainted the recoloured specimen but left an edited text node showing
-        the old message.
-      */}
-      <div aria-live="polite" className="mt-3">
-        <p
-          key={message}
-          className={`text-xs leading-relaxed ${
-            check.ok ? "text-[var(--paper-soft)]" : "text-[var(--struck-ink)]"
-          }`}
-        >
-          {message}
-        </p>
-      </div>
+      <ColourPicker style={style} onChange={setStyle} />
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button
@@ -135,6 +100,11 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
         >
           {pending ? "Saving…" : "Save colours"}
         </button>
+        {canSwap ? (
+          <button type="button" onClick={() => setStyle(swapped)} className={secondaryButtonClass}>
+            Swap colours
+          </button>
+        ) : null}
         {isDefaultQrStyle(style) ? null : (
           <button
             type="button"
@@ -154,44 +124,9 @@ export function StyleForm({ id, saved }: { id: string; saved: QrStyle }) {
         <p className="mt-2 max-w-[44ch] text-xs leading-relaxed text-[var(--paper-soft)]">
           {dirty
             ? "Previewing. Downloads use the saved colours until you save."
-            : state.saved
-              ? "Saved. Downloads now use these colours."
-              : "Colours change the artwork only. Codes already printed keep working whatever you pick here."}
+            : "Colours change the artwork only. Codes already printed keep working whatever you pick here."}
         </p>
       )}
     </form>
-  );
-}
-
-function ColourField({
-  id,
-  name,
-  label,
-  value,
-  onChange,
-}: {
-  id: string;
-  name: string;
-  label: string;
-  value: string;
-  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <label htmlFor={id} className="flex items-center gap-2.5 text-sm">
-      <input
-        id={id}
-        name={name}
-        type="color"
-        value={value.toLowerCase()}
-        onChange={onChange}
-        className="h-9 w-11 cursor-pointer rounded-md border border-[var(--paper-rule)] bg-white p-1"
-      />
-      <span>
-        {label}
-        <span className="dash-num block font-mono text-xs text-[var(--paper-soft)]">
-          {value}
-        </span>
-      </span>
-    </label>
   );
 }

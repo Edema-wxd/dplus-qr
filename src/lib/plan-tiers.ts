@@ -1,5 +1,6 @@
 import type { Plan } from "@/lib/plans";
 import { advertisedFeatures } from "@/lib/plan-features";
+import { windowLabel } from "@/lib/chart-buckets";
 
 /**
  * Plans as a customer reads them: one tier, two billing intervals.
@@ -42,9 +43,7 @@ export function naira(kobo: number): string {
 
 /** Retention in the units the pricing table was agreed in (decision 17). */
 export function historyLabel(days: number): string {
-  if (days >= 730) return "24 months";
-  if (days >= 365) return "12 months";
-  return `${days} days`;
+  return windowLabel(days);
 }
 
 /**
@@ -57,7 +56,7 @@ export function featureLines(plan: Pick<Plan, "maxCodes" | "historyDays" | "feat
   return [
     `${plan.maxCodes.toLocaleString("en-NG")} dynamic codes`,
     "Unlimited static codes",
-    `${historyLabel(plan.historyDays)} of scan history`,
+    `${historyLabel(plan.historyDays)} of scan history and charts`,
     ...advertisedFeatures(plan.features),
   ];
 }

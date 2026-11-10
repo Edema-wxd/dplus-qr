@@ -5,10 +5,14 @@ import { SOCIAL_NETWORKS, type FileRef, type PageContent } from "@/lib/page-cont
 import { gs1ElementString, videoEmbedUrl } from "@/lib/page-helpers";
 import { FeedbackForm } from "./FeedbackForm";
 import { CopyText } from "./CopyText";
+import { PdfViewer } from "./PdfViewer";
+import { ImageGallery } from "./ImageGallery";
+import { SocialIcon } from "./SocialIcon";
 
 /**
- * One view per hosted page type. Server components throughout; the only
- * client pieces are the feedback form and the coupon's copy button.
+ * One view per hosted page type. Server components throughout; the client
+ * pieces are the feedback form, the coupon's copy button, the PDF viewer and
+ * the photo viewer.
  *
  * Built for a phone held at arm's length in a shop or a restaurant: one
  * column, large tap targets, the one action the page exists for first.
@@ -181,13 +185,19 @@ function Contact({
   );
 }
 
-function LinkList({ links }: { links: { label: string; url: string }[] }) {
+/** A column of link buttons. An `icon` sits before the label, never instead of it. */
+function LinkList({
+  links,
+}: {
+  links: { label: string; url: string; icon?: React.ReactNode }[];
+}) {
   if (links.length === 0) return null;
   return (
     <ul className="space-y-2">
       {links.map((link, i) => (
         <li key={`${link.url}-${i}`}>
-          <a href={link.url} rel="noopener nofollow" className={quiet}>
+          <a href={link.url} rel="noopener nofollow" className={link.icon ? `${quiet} gap-2.5` : quiet}>
+            {link.icon}
             {link.label}
           </a>
         </li>
@@ -235,16 +245,22 @@ export function PageView({
   switch (kind) {
     case "pdf": {
       const c = content as PageContent<"pdf">;
+      // The file's permanent address on this host, never the UploadThing URL:
+      // that changes whenever the owner replaces the file.
+      const documentUrl = `/p/${encodeURIComponent(code)}/document`;
       return (
         <Stack>
           <Heading title={c.title} />
           <Prose text={c.description} />
-          <a href={c.file.url} rel="noopener" className={button}>
-            Open the PDF
-          </a>
-          <a href={c.file.url} download={c.file.name} className={quiet}>
-            Download
-          </a>
+          <div className="grid grid-cols-2 gap-2">
+            <a href={documentUrl} rel="noopener" className={button}>
+              Open full screen
+            </a>
+            <a href={`${documentUrl}?download`} className={quiet}>
+              Download
+            </a>
+          </div>
+          <PdfViewer src={documentUrl} title={c.title} />
         </Stack>
       );
     }
@@ -255,29 +271,35 @@ export function PageView({
         <Stack>
           <Heading title={c.title} />
           <Prose text={c.description} />
-          <ul className="grid grid-cols-2 gap-2">
-            {c.images.map((image, i) => (
-              <li key={image.fileId} className={i === 0 ? "col-span-2" : ""}>
-                {/*
-                  The thumbnail is resized; tapping it opens the original,
-                  which is the one time a scanner has asked for full size.
-                */}
-                <a href={image.url} rel="noopener" className="block">
-                  <PageImage
-                    url={image.url}
-                    alt={`${c.title}, image ${i + 1}`}
-                    frame="aspect-square w-full rounded-lg border border-border"
-                    sizes={
-                      i === 0
-                        ? FULL_WIDTH
-                        : "(max-width: 480px) calc(50vw - 1.25rem), 220px"
-                    }
-                    eager={i < 3}
-                  />
-                </a>
-              </li>
-            ))}
-          </ul>
+          <ImageGallery
+            images={c.images.map((image, i) => ({ url: image.url, alt: `${c.title}, image ${i + 1}` }))}
+          >
+            <ul className="grid grid-cols-2 gap-2">
+              {c.images.map((image, i) => (
+                <li key={image.fileId} className={i === 0 ? "col-span-2" : ""}>
+                  {/*
+                    The thumbnail is resized; tapping it opens the original,
+                    which is the one time a scanner has asked for full size.
+                    ImageGallery shows it over the page; without JavaScript the
+                    link opens it directly.
+                  */}
+                  <a href={image.url} rel="noopener" className="block" data-gallery-index={i}>
+                    <PageImage
+                      url={image.url}
+                      alt={`${c.title}, image ${i + 1}`}
+                      frame="aspect-square w-full rounded-lg border border-border"
+                      sizes={
+                        i === 0
+                          ? FULL_WIDTH
+                          : "(max-width: 480px) calc(50vw - 1.25rem), 220px"
+                      }
+                      eager={i < 3}
+                    />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </ImageGallery>
         </Stack>
       );
     }
@@ -355,7 +377,11 @@ export function PageView({
             <Prose text={c.description} />
           </div>
           <LinkList
-            links={c.profiles.map((p) => ({ label: SOCIAL_NETWORKS[p.network], url: p.url }))}
+            links={c.profiles.map((p) => ({
+              label: SOCIAL_NETWORKS[p.network],
+              url: p.url,
+              icon: <SocialIcon network={p.network} className="shrink-0" />,
+            }))}
           />
         </Stack>
       );
@@ -387,6 +413,11 @@ export function PageView({
             {c.android ? (
               <a href={c.android} rel="noopener nofollow" className={button}>
                 Get it on Google Play
+              </a>
+            ) : null}
+            {c.huawei ? (
+              <a href={c.huawei} rel="noopener nofollow" className={button}>
+                Explore it on AppGallery
               </a>
             ) : null}
             {c.website ? (
@@ -440,19 +471,37 @@ export function PageView({
               <h2 className="border-b border-border pb-2 font-sarlotte text-xl">{section.name}</h2>
               <ul>
                 {section.items.map((item, j) => (
-                  <li key={`${item.name}-${j}`} className="border-b border-border py-3 last:border-b-0">
-                    <div className="flex items-baseline justify-between gap-4">
-                      <span className="font-medium">{item.name}</span>
-                      {item.price ? (
-                        <span className="shrink-0 tabular-nums">
-                          {c.currency}
-                          {item.price}
-                        </span>
+                  <li
+                    key={`${item.name}-${j}`}
+                    className="flex gap-3 border-b border-border py-3 last:border-b-0"
+                  >
+                    {/*
+                      A thumbnail, not a cover: a menu can run to hundreds of
+                      dishes, so each photo is fetched at 64px as it nears the
+                      screen, never all at once on mobile data.
+                    */}
+                    {item.photo ? (
+                      <PageImage
+                        url={item.photo.url}
+                        alt={item.name}
+                        frame="h-16 w-16 shrink-0 rounded-lg border border-border"
+                        sizes="64px"
+                      />
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline justify-between gap-4">
+                        <span className="font-medium">{item.name}</span>
+                        {item.price ? (
+                          <span className="shrink-0 tabular-nums">
+                            {c.currency}
+                            {item.price}
+                          </span>
+                        ) : null}
+                      </div>
+                      {item.description ? (
+                        <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>
                       ) : null}
                     </div>
-                    {item.description ? (
-                      <p className="mt-0.5 text-sm text-muted-foreground">{item.description}</p>
-                    ) : null}
                   </li>
                 ))}
               </ul>

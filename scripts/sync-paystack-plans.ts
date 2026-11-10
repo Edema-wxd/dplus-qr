@@ -17,6 +17,7 @@
  * `tsx` compiles to CJS, so no top-level await -- hence main().
  */
 import { Client } from "pg";
+import { pinSslMode } from "../src/lib/db-url";
 
 type PlanRow = {
   id: string;
@@ -97,7 +98,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const client = new Client({ connectionString });
+  const client = new Client({ connectionString: pinSslMode(connectionString) });
   await client.connect();
 
   try {

@@ -1,4 +1,4 @@
--- 018: warnings staff send to an account.
+-- 030: warnings staff send to an account.
 --
 -- Three levels: a notice, a warning, and a final warning that names a date to
 -- put things right by. Passing that date changes nothing on its own: a final
@@ -6,10 +6,19 @@
 -- separate action a named staff member takes (Francis, 27 Oct 2026). So
 -- nothing here is ever read by the redirect path.
 --
+-- `user_id` is the account (the owner's id), as on every other account table.
+-- With team seats its members see the account's open warnings read-only; only
+-- the owner can mark one as read.
+--
 -- Erasing an account deletes its warnings, since a message about the account
 -- is personal data about it. The staff audit trail keeps that one was sent.
+--
+-- Additive only: a new table and two indexes, nothing existing is altered.
+-- `if not exists` because this was first written as 018 on PR #16, before
+-- migrations applied on deploy, and could have been run by hand somewhere; the
+-- shape is unchanged from that draft.
 
-create table qr_account_warnings (
+create table if not exists qr_account_warnings (
   id               bigserial    primary key,
   user_id          uuid         not null references qr_users (id) on delete restrict,
   -- The code the warning is about, if it is about one.
@@ -38,10 +47,11 @@ create table qr_account_warnings (
     check ((level = 'final') = (respond_by is not null))
 );
 
--- An account's warnings, newest first: the staff page and the owner's banner.
-create index qr_account_warnings_user_idx on qr_account_warnings (user_id, created_at desc);
+-- An account's warnings, newest first: the staff page and the dashboard banner.
+create index if not exists qr_account_warnings_user_idx
+  on qr_account_warnings (user_id, created_at desc);
 
 -- Final warnings still open, by due date: the staff "due" list.
-create index qr_account_warnings_due_idx
+create index if not exists qr_account_warnings_due_idx
   on qr_account_warnings (respond_by)
   where level = 'final' and resolved_at is null;

@@ -8,7 +8,7 @@ import { primaryButtonClass } from "@/components/controls";
 import { audit, requireStaff } from "../guard";
 import { AdminShell, tableClass, tdClass, thClass } from "../AdminShell";
 
-export const metadata: Metadata = { title: "Plans · Admin" };
+export const metadata: Metadata = { title: "Plans" };
 export const instant = false;
 
 /**

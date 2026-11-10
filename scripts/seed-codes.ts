@@ -13,6 +13,7 @@
 import { Pool } from "pg";
 import QRCode from "qrcode";
 import { generateCode } from "../src/lib/short-code";
+import { pinSslMode } from "../src/lib/db-url";
 
 const BASE_URL = process.env.QR_BASE_URL ?? "http://localhost:3000";
 
@@ -40,7 +41,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({ connectionString: pinSslMode(connectionString) });
 
   try {
     // Plan.

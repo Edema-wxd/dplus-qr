@@ -1,5 +1,5 @@
 import { issueSchema, warningEmail, formatRespondBy } from "@/lib/warnings";
-import { isSpike, reportStatusSchema, SPIKE_FACTOR, SPIKE_MIN_SCANS } from "@/lib/monitoring";
+import { isSpike, SPIKE_FACTOR, SPIKE_MIN_SCANS } from "@/lib/watch-lists";
 import { INBOX_DOMAIN, SENDING_DOMAIN, SUPPORT_EMAIL } from "@/lib/brand";
 
 const message = "Your code points to a page asking for bank login details.";
@@ -49,6 +49,13 @@ describe("warningEmail", () => {
     expect(mail.text).not.toMatch(/will be suspended/);
   });
 
+  it("says a final warning stays on the dashboard until staff close it, and the rest until read", () => {
+    const final = warningEmail({ level: "final", message, name: "Ada", respondBy, shortCode: null });
+    expect(final.text).toContain("until our team closes it");
+    const notice = warningEmail({ level: "notice", message, name: "Ada", respondBy: null, shortCode: null });
+    expect(notice.text).toContain("until you mark it as read");
+  });
+
   it("threatens nothing in a notice", () => {
     const mail = warningEmail({ level: "notice", message, name: "Ada", respondBy: null, shortCode: null });
     expect(mail.subject).toMatch(/notice/i);
@@ -85,13 +92,5 @@ describe("isSpike", () => {
 
   it("does not call a quiet code waking up a spike", () => {
     expect(isSpike(6, 1)).toBe(false);
-  });
-});
-
-describe("reportStatusSchema", () => {
-  it("defaults to the open queue", () => {
-    expect(reportStatusSchema.parse(undefined)).toBe("open");
-    expect(reportStatusSchema.parse("deleted")).toBe("open");
-    expect(reportStatusSchema.parse(["dismissed"])).toBe("dismissed");
   });
 });

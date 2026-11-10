@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { CODE_HOST, PRODUCT_NAME } from "@/lib/brand";
@@ -34,6 +34,22 @@ export function CodeDemo({
   const logRef = useRef<HTMLOListElement>(null);
 
   const live = rows[rows.length - 1];
+
+  // On a wide screen the log sits beside the form and grows downward, so after
+  // a few submissions the new live row lands below the fold and the click
+  // appears to do nothing. Bring it into view, but only there: on a phone the
+  // log is a screen away from the form, and yanking the page off the field the
+  // visitor is typing into would be worse. The readout under the symbol covers
+  // that case.
+  useEffect(() => {
+    if (!live.added) return;
+    const row = logRef.current?.lastElementChild;
+    if (!row || !window.matchMedia("(min-width: 1024px)").matches) return;
+    const { top, bottom } = row.getBoundingClientRect();
+    if (top >= 0 && bottom <= window.innerHeight) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    row.scrollIntoView({ block: "nearest", behavior: still ? "auto" : "smooth" });
+  }, [live]);
 
   function point(event: React.FormEvent) {
     event.preventDefault();
@@ -133,6 +149,25 @@ export function CodeDemo({
           </p>
           <p className="lp-num mt-1.5 text-center font-mono text-[15px] sm:text-base">
             {CODE_HOST}/{DEMO_CODE}
+          </p>
+          {/*
+            Where the code leads right now, next to the form that changes it.
+            The log is the record, but it is beside the form only on a wide
+            screen; on a phone it is a full screen below, so without this line
+            pressing "Point it" changed nothing the visitor could see. Keyed on
+            the URL so each change replays a short swap, not a slow fade.
+          */}
+          <p
+            aria-live="polite"
+            className="mt-3 flex max-w-full items-baseline justify-center gap-2 text-center text-sm text-[var(--paper-soft)]"
+          >
+            <span className="shrink-0">Opens</span>
+            <span
+              key={live.url}
+              className="lp-swap min-w-0 truncate font-mono text-[var(--live-ink)]"
+            >
+              {live.url}
+            </span>
           </p>
         </div>
 
@@ -235,9 +270,7 @@ export function CodeDemo({
           })}
         </ol>
 
-        <p
-          aria-live="polite"
-          className="max-w-[40ch] text-sm leading-relaxed text-[var(--field-muted)]"
+        <p className="max-w-[40ch] text-sm leading-relaxed text-[var(--field-muted)]"
         >
           {live.note}
         </p>

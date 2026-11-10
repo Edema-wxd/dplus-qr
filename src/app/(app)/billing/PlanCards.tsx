@@ -18,9 +18,16 @@ import type { Tier } from "@/lib/plan-tiers";
 export function PlanCards({
   tiers,
   currentSlug,
+  featured = null,
+  featuredLabel,
+  taglines,
 }: {
   tiers: Tier[];
   currentSlug: string | null;
+  /** The same "most popular" tier and taglines as the public pricing page. */
+  featured?: string | null;
+  featuredLabel?: string;
+  taglines?: Record<string, string>;
 }) {
   const [state, action, pending] = useActionState<CheckoutFormState, FormData>(
     startCheckoutAction,
@@ -42,6 +49,9 @@ export function PlanCards({
       <PlanTiers
         tiers={tiers}
         initialInterval={onAnnual ? "annual" : "monthly"}
+        featured={featured}
+        featuredLabel={featuredLabel}
+        taglines={taglines}
         action={(price) => {
           const isCurrent = price.slug === currentSlug;
           return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useSyncExternalStore } from "react";
+import { toast } from "sonner";
 import {
   fromPickedContact,
   looksLikeVCard,
@@ -44,7 +45,17 @@ export function ContactImport({ onImport }: { onImport: (fields: ContactFields) 
     () => false
   );
   const fileRef = useRef<HTMLInputElement>(null);
-  const [note, setNote] = useState<{ error: boolean; text: string } | null>(null);
+  // Only failures stay on the page; a successful import is a toast.
+  const [error, setError] = useState<string | null>(null);
+
+  function imported(fields: ContactFields, from: string) {
+    onImport(fields);
+    setError(null);
+    toast.success(`Filled in from ${from}`, {
+      id: "contact-import",
+      description: "Check the details below.",
+    });
+  }
 
   async function pick() {
     const manager = contacts();
@@ -55,10 +66,9 @@ export function ContactImport({ onImport }: { onImport: (fields: ContactFields) 
       const [contact] = await manager.select(wanted, { multiple: false });
       // Dismissing the picker resolves with nothing: not an error.
       if (!contact) return;
-      onImport(fromPickedContact(contact));
-      setNote({ error: false, text: "Filled in from your contacts. Check the details below." });
+      imported(fromPickedContact(contact), "your contacts");
     } catch {
-      setNote({ error: true, text: "Your contacts could not be opened. Try a .vcf file instead." });
+      setError("Your contacts could not be opened. Try a .vcf file instead.");
     }
   }
 
@@ -67,19 +77,15 @@ export function ContactImport({ onImport }: { onImport: (fields: ContactFields) 
     event.target.value = "";
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
-      setNote({ error: true, text: "That file is too large to be a contact card." });
+      setError("That file is too large to be a contact card.");
       return;
     }
     const text = await file.text();
     if (!looksLikeVCard(text)) {
-      setNote({ error: true, text: "That file is not a contact card (.vcf)." });
+      setError("That file is not a contact card (.vcf).");
       return;
     }
-    onImport(parseVCard(text));
-    setNote({
-      error: false,
-      text: `Filled in from ${file.name}. Check the details below.`,
-    });
+    imported(parseVCard(text), file.name);
   }
 
   return (
@@ -107,10 +113,10 @@ export function ContactImport({ onImport }: { onImport: (fields: ContactFields) 
       <p
         aria-live="polite"
         className={`mt-2 text-xs leading-relaxed ${
-          note?.error ? "text-[var(--struck-ink)]" : "text-[var(--paper-soft)]"
+          error ? "text-[var(--struck-ink)]" : "text-[var(--paper-soft)]"
         }`}
       >
-        {note?.text ??
+        {error ??
           (pickerAvailable
             ? "Pick someone from your phone, or import a contact card file."
             : "Export or share a contact from your contacts app as a .vcf file, then import it here. If there are several people in the file, the first is used.")}

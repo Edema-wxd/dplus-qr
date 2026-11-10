@@ -4,6 +4,9 @@ import { Suspense } from "react";
 import { DashNav } from "./DashNav";
 import { PlanUsage } from "./PlanUsage";
 import { StaffLink } from "./StaffLink";
+import { TeamSlot } from "./TeamSlot";
+import { TeamLockNotice, WithBillingOwner } from "./TeamNotices";
+import { UpgradeButton } from "./UpgradeButton";
 
 /**
  * The dashboard shell.
@@ -45,6 +48,11 @@ export function DashShell({
             <StaffLink />
           </Suspense>
         }
+        team={
+          <Suspense fallback={null}>
+            <TeamSlot />
+          </Suspense>
+        }
       />
 
       <main className="mx-auto w-full max-w-6xl px-5 py-9 sm:px-8 sm:py-12">
@@ -75,10 +83,20 @@ export function DashShell({
               <div className="mt-2 text-sm text-[var(--paper-soft)]">{meta}</div>
             ) : null}
           </div>
-          {action ? <div className="shrink-0">{action}</div> : null}
+          <div className="flex shrink-0 items-center gap-3">
+            {action ? <div>{action}</div> : null}
+            <Suspense fallback={null}>
+              <UpgradeButton />
+            </Suspense>
+          </div>
         </div>
 
-        <div className="mt-8">{children}</div>
+        <div className="mt-8">
+          <Suspense fallback={null}>
+            <TeamLockNotice />
+          </Suspense>
+          <WithBillingOwner>{children}</WithBillingOwner>
+        </div>
 
         <footer className="mt-16 border-t border-[var(--paper-rule)] pt-5">
           <LegalLinks tone="paper" />

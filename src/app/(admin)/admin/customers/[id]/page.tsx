@@ -2,17 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { z } from "zod";
-
-/**
- * Any Postgres `uuid`. Not zod's `uuid()`, which also demands an RFC version
- * and variant, and so would 404 a valid id the database happily stores.
- */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import { getCustomer } from "@/lib/admin-billing";
 import { isAdmin } from "@/lib/admin";
 import { hasSignInAccount, staffActions } from "@/lib/moderation";
-import { accountWarnings } from "@/lib/warnings";
 import { getEntitlement } from "@/lib/entitlement";
+import { batchesForStaff } from "@/lib/bulk-create";
+import { teamForStaff } from "@/lib/team";
+import { accountWarnings } from "@/lib/warnings";
 import { listAllPlans } from "@/lib/plans";
 import { naira } from "@/lib/plan-tiers";
 import { CODE_HOST } from "@/lib/brand";
@@ -23,32 +19,47 @@ import { SubscriptionStatus } from "../SubscriptionStatus";
 import { AssignPlan } from "../AssignPlan";
 import { AccountActions } from "../AccountActions";
 import { EraseAccount, RetryRemoveSignIn } from "../EraseAccount";
+import { TeamControl } from "../TeamControls";
 import { WarnForm } from "../WarnForm";
 import { WarningList } from "../WarningList";
 
-export const metadata: Metadata = { title: "Customer · Admin" };
+export const metadata: Metadata = { title: "Customer" };
 export const instant = false;
+
+/**
+ * Any Postgres `uuid`. Not zod's `uuid()`, which also demands an RFC version
+ * and variant, and so would 404 a valid id the database happily stores.
+ */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const idSchema = z.string().regex(UUID);
 
 /**
- * One account: its plan, every subscription it has held, its codes, and a
- * form to assign it a plan by hand. An account paying through Paystack is
- * changed in Paystack instead, and the webhook brings the change here.
+ * One account, in the order staff read it: where it stands, its plan and
+ * billing history, its codes, what staff have done to it, and last, set apart,
+ * the actions that take it out of service. An account paying through Paystack
+ * has its plan changed in Paystack instead, and the webhook brings the change
+ * here.
  */
 export default async function AdminCustomer({ params }: { params: Promise<{ id: string }> }) {
   const staff = await requireStaff();
   const parsed = idSchema.safeParse((await params).id);
   if (!parsed.success) notFound();
 
-  const [customer, entitlement, plans, actions, signIn, staffAccount, warnings] = await Promise.all([
+  const [customer, entitlement, plans, actions, signIn, staffAccount, batches, team, warnings] = await Promise.all([
     getCustomer(parsed.data),
     getEntitlement(parsed.data),
     listAllPlans(),
     staffActions("customer", parsed.data),
     hasSignInAccount(parsed.data),
     isAdmin(parsed.data),
-    accountWarnings(parsed.data),
+    batchesForStaff(parsed.data, 10),
+    teamForStaff(parsed.data),
+    // Its own failure: a preview ahead of migration 030 still shows the account.
+    accountWarnings(parsed.data).catch((error) => {
+      console.error("[admin] warnings unavailable", error);
+      return null;
+    }),
   ]);
   if (!customer) notFound();
   const erased = customer.erasedAt !== null;
@@ -70,29 +81,47 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
 
   audit(staff, { action: "view", targetType: "customer", targetId: customer.id });
 
+  const paidViaPaystack = customer.hasPaystackCustomer || customer.subscriptions.some((sub) => sub.viaPaystack);
+
+  // Said the way staff would check it: whether the codes are serving, and if
+  // something is about to change, when.
+  const planNote = customer.suspendedAt
+    ? "Suspended, so codes show the paused page"
+    : !entitlement
+      ? "No plan, so codes show the paused page"
+      : live?.status === "past_due"
+        ? live.graceUntil
+          ? `Payment overdue, codes pause ${day(live.graceUntil)}`
+          : "Payment overdue"
+        : !entitlement.active
+          ? "Lapsed, codes paused"
+          : live?.cancelAtPeriodEnd
+            ? `Not renewing, ends ${day(live.currentPeriodEnd)}`
+            : "Codes serving";
+
+  const blocked = customer.codes.filter((code) => code.status === "blocked").length;
+  const paused = customer.codes.filter((code) => code.status === "paused").length;
+  const codesNote = [blocked ? `${blocked} blocked` : "", paused ? `${paused} paused` : ""].filter(Boolean).join(", ") || undefined;
+
   return (
     <AdminShell
       heading={erased ? "Erased account" : customer.name || customer.email}
       current="/admin/customers"
+      back={{ href: "/admin/customers", label: "All customers" }}
       meta={erased ? `Erased ${day(customer.erasedAt)}` : customer.email}
     >
-      <Link
-        href="/admin/customers"
-        className="-mt-4 mb-6 inline-block text-sm text-[var(--paper-soft)] hover:text-[var(--paper-ink)]"
-      >
-        All customers
-      </Link>
 
       <div className="space-y-10">
         <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-[var(--paper-rule)] bg-[var(--paper-rule)] lg:grid-cols-4">
           <Stat
             label="Plan"
             value={entitlement?.planName ?? "None"}
-            note={entitlement ? (entitlement.active ? "Serving codes" : "Lapsed, codes paused") : "Codes paused"}
+            note={planNote}
           />
           <Stat
             label="Codes"
             value={entitlement ? `${entitlement.codesUsed} of ${entitlement.maxCodes}` : String(customer.codes.length)}
+            note={codesNote}
           />
           <Stat label="Joined" value={day(customer.createdAt)} />
           <Stat
@@ -107,58 +136,16 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
                   ? `Since ${day(customer.archivedAt)}, and suspended`
                   : customer.suspendedAt
                     ? `Since ${day(customer.suspendedAt)}`
-                    : customer.hasPaystackCustomer
-                      ? "Known to Paystack"
+                    : paidViaPaystack
+                      ? "Pays through Paystack"
                       : "Never paid through Paystack"
             }
           />
         </dl>
 
-        <section aria-labelledby="moderate-heading">
-          <SectionHeading id="moderate-heading">Moderate</SectionHeading>
-          <div className="mt-4">
-            {erased ? (
-              signIn ? (
-                <RetryRemoveSignIn userId={customer.id} />
-              ) : (
-                <p className="text-sm text-[var(--paper-soft)]">
-                  Erased. Nothing remains to moderate: its codes answer as unknown and its short codes stay reserved.
-                </p>
-              )
-            ) : isSelf ? (
-              <p className="text-sm text-[var(--paper-soft)]">This is your own account.</p>
-            ) : (
-              <AccountActions
-                userId={customer.id}
-                suspended={customer.suspendedAt !== null}
-                archived={customer.archivedAt !== null}
-                activeCodes={customer.codes.filter((code) => code.status !== "blocked").length}
-              />
-            )}
-          </div>
-        </section>
-
-        {erased ? null : (
-          <section aria-labelledby="warnings-heading">
-            <SectionHeading id="warnings-heading">Warnings</SectionHeading>
-            <WarningList warnings={warnings} />
-            {isSelf ? null : (
-              <div className="mt-6">
-                <h3 className="mb-3 text-sm font-medium">Send a warning</h3>
-                <WarnForm
-                  userId={customer.id}
-                  codes={customer.codes
-                    .filter((code) => !code.archived)
-                    .map((code) => ({ id: code.id, label: `${code.name} · ${CODE_HOST}/${code.shortCode}` }))}
-                />
-              </div>
-            )}
-          </section>
-        )}
-
         {erased ? null : (
           <section aria-labelledby="assign-heading">
-            <SectionHeading id="assign-heading">Assign a plan</SectionHeading>
+            <SectionHeading id="assign-heading">Plan</SectionHeading>
             <div className="mt-4">
               <AssignPlan
                 userId={customer.id}
@@ -251,30 +238,189 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
           )}
         </section>
 
+        {team.members.length > 0 || team.invites.length > 0 || team.events.length > 0 ? (
+          <section aria-labelledby="team-heading">
+            <SectionHeading id="team-heading">
+              Team, {team.members.length + 1} of {team.seats} {team.seats === 1 ? "seat" : "seats"}
+            </SectionHeading>
+            <ul className="mt-4 text-sm">
+              {team.members.map((member) => (
+                <li
+                  key={member.userId}
+                  className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--paper-rule)] py-2.5 last:border-b-0"
+                >
+                  <span className="min-w-0">
+                    <Link href={`/admin/customers/${member.userId}`} className="underline underline-offset-4">
+                      {member.name || member.email}
+                    </Link>
+                    <span className="dash-num ml-2 text-xs text-[var(--paper-soft)]">
+                      {member.email} · {member.role} · joined {day(member.joinedAt)}
+                      {member.locked ? " · over the seats, locked out" : ""}
+                    </span>
+                  </span>
+                  <TeamControl
+                    accountId={customer.id}
+                    op="remove-member"
+                    targetId={member.userId}
+                    label="Remove"
+                    confirm={`Remove ${member.email} from this team? They lose access at once. Their own account is not touched.`}
+                  />
+                </li>
+              ))}
+              {team.invites.map((invite) => (
+                <li
+                  key={invite.id}
+                  className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--paper-rule)] py-2.5 last:border-b-0"
+                >
+                  <span className="dash-num text-xs text-[var(--paper-soft)]">
+                    Invited {invite.email} as {invite.role}, expires {day(invite.expiresAt)}
+                  </span>
+                  <TeamControl
+                    accountId={customer.id}
+                    op="revoke-invite"
+                    targetId={invite.id}
+                    label="Cancel invite"
+                    confirm={`Cancel the invitation to ${invite.email}?`}
+                  />
+                </li>
+              ))}
+            </ul>
+            {team.events.length > 0 ? (
+              <details className="mt-3 text-xs text-[var(--paper-soft)]">
+                <summary className="cursor-pointer">Team log, latest {team.events.length}</summary>
+                <ol className="mt-2 space-y-1">
+                  {team.events.map((event, i) => (
+                    <li key={i} className="dash-num">
+                      {day(event.at)}: {event.action}
+                      {event.detail.by === "staff" ? " by staff" : event.actor ? ` by ${event.actor}` : ""}
+                      {event.subject ? `, ${event.subject}` : ""}
+                      {typeof event.detail.role === "string" ? ` (${event.detail.role})` : ""}
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            ) : null}
+          </section>
+        ) : null}
+
+        {team.memberOf.length > 0 ? (
+          <section aria-labelledby="member-of-heading">
+            <SectionHeading id="member-of-heading">Member of</SectionHeading>
+            <ul className="mt-4 text-sm">
+              {team.memberOf.map((membership) => (
+                <li key={membership.accountId} className="border-b border-[var(--paper-rule)] py-2.5 last:border-b-0">
+                  <Link href={`/admin/customers/${membership.accountId}`} className="underline underline-offset-4">
+                    {membership.ownerName || membership.ownerEmail}
+                  </Link>
+                  <span className="dash-num ml-2 text-xs text-[var(--paper-soft)]">
+                    {membership.role} · joined {day(membership.joinedAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {batches.length > 0 ? (
+          <section aria-labelledby="batches-heading">
+            <SectionHeading id="batches-heading">Bulk batches, newest first</SectionHeading>
+            <ul className="mt-4 text-sm">
+              {batches.map((batch) => (
+                <li key={batch.id} className="dash-num border-b border-[var(--paper-rule)] py-2 last:border-b-0">
+                  {day(batch.createdAt)}: {batch.rowsCreated.toLocaleString("en-NG")} codes made from{" "}
+                  {batch.rowsTotal.toLocaleString("en-NG")} rows
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {erased ? null : (
+          <section aria-labelledby="warnings-heading">
+            <SectionHeading id="warnings-heading">Warnings</SectionHeading>
+            {warnings === null ? (
+              <p className="mt-4 text-sm text-[var(--paper-soft)]">Warnings could not be read just now.</p>
+            ) : (
+              <>
+                <p className="mt-3 max-w-[70ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+                  Emailed from support@ and shown on the account&apos;s dashboard, to the owner and, read-only, to
+                  anyone in their team. A final warning falling due changes nothing by itself: suspend from it, or
+                  close it.
+                </p>
+                <WarningList warnings={warnings} />
+                {isSelf ? null : (
+                  <div className="mt-6">
+                    <h3 className="mb-3 text-sm font-medium">Send a warning</h3>
+                    <WarnForm
+                      userId={customer.id}
+                      codes={customer.codes
+                        .filter((code) => !code.archived)
+                        .map((code) => ({ id: code.id, label: `${code.name} · ${CODE_HOST}/${code.shortCode}` }))}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
         <section aria-labelledby="staff-heading">
           <SectionHeading id="staff-heading">Staff changes</SectionHeading>
           <StaffHistory entries={actions} />
         </section>
 
-        {erased || isSelf ? null : (
-          <section aria-labelledby="erase-heading">
-            <SectionHeading id="erase-heading">Erase</SectionHeading>
+        <section aria-labelledby="danger-heading">
+          <SectionHeading id="danger-heading">Take action</SectionHeading>
+          <p className="mt-3 max-w-[70ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+            These change what the customer and their scanners see. Everything here is recorded under staff changes
+            above; only erasing cannot be undone.
+          </p>
+          <div className="mt-4 space-y-8 rounded-lg border border-[var(--struck-ink)]/30 bg-white px-4 py-5 sm:px-5">
+          <section aria-labelledby="moderate-heading">
+            <h3 id="moderate-heading" className="text-sm font-medium">Suspend, archive or block</h3>
             <div className="mt-4">
-              {staffAccount ? (
-                <p className="text-sm text-[var(--paper-soft)]">
-                  This is a staff account. Remove its admin role in the database before it can be erased.
-                </p>
-              ) : live?.viaPaystack ? (
-                <p className="max-w-[70ch] text-sm text-[var(--paper-soft)]">
-                  This account pays through Paystack. Cancel the subscription in Paystack first, or it keeps charging
-                  an account that no longer exists.
-                </p>
+              {erased ? (
+                signIn ? (
+                  <RetryRemoveSignIn userId={customer.id} />
+                ) : (
+                  <p className="text-sm text-[var(--paper-soft)]">
+                    Erased. Nothing remains to moderate: its codes answer as unknown and its short codes stay reserved.
+                  </p>
+                )
+              ) : isSelf ? (
+                <p className="text-sm text-[var(--paper-soft)]">This is your own account.</p>
               ) : (
-                <EraseAccount userId={customer.id} email={customer.email} />
+                <AccountActions
+                  userId={customer.id}
+                  suspended={customer.suspendedAt !== null}
+                  archived={customer.archivedAt !== null}
+                  activeCodes={customer.codes.filter((code) => code.status !== "blocked").length}
+                />
               )}
             </div>
           </section>
-        )}
+
+          {erased || isSelf ? null : (
+            <section aria-labelledby="erase-heading">
+              <h3 id="erase-heading" className="text-sm font-medium">Erase for good</h3>
+              <div className="mt-4">
+                {staffAccount ? (
+                  <p className="text-sm text-[var(--paper-soft)]">
+                    This is a staff account. Remove its admin role in the database before it can be erased.
+                  </p>
+                ) : live?.viaPaystack ? (
+                  <p className="max-w-[70ch] text-sm text-[var(--paper-soft)]">
+                    This account pays through Paystack. Cancel the subscription in Paystack first, or it keeps charging
+                    an account that no longer exists.
+                  </p>
+                ) : (
+                  <EraseAccount userId={customer.id} email={customer.email} teamMembers={team.members.length} />
+                )}
+              </div>
+            </section>
+          )}
+          </div>
+        </section>
       </div>
     </AdminShell>
   );

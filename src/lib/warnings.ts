@@ -11,6 +11,11 @@ import { CODE_HOST, PRODUCT_NAME, SUPPORT_EMAIL } from "@/lib/brand";
  * and suspending the account is an action a named staff member takes, which
  * resolves the warning and records who did it (Francis, 27 Oct 2026). Nothing
  * here is read by the redirect path.
+ *
+ * This module is the pure rules and the staff side, called only from pages
+ * and actions behind `requireStaff()` / `staffForAction()`. What the
+ * account's own dashboard reads is in `dashboard-warnings.ts`, scoped with
+ * `access()` like every other dashboard query.
  */
 
 // ---------------------------------------------------------------------------
@@ -95,7 +100,7 @@ export function warningEmail(input: {
     );
   }
   lines.push(
-    `If you have questions, or have already fixed this, reply to this email or write to ${SUPPORT_EMAIL}. You will also see this on your dashboard until you mark it as read.`,
+    `If you have questions, or have already fixed this, reply to this email or write to ${SUPPORT_EMAIL}. You will also see this on your dashboard${input.level === "final" ? " until our team closes it" : " until you mark it as read"}.`,
     "",
     `The ${PRODUCT_NAME} team`
   );
@@ -313,72 +318,4 @@ export async function dueFinalWarnings(limit = 50): Promise<DueWarning[]> {
     [limit]
   );
   return rows.map((row) => ({ ...toWarning(row), userId: row.user_id, email: row.email, name: row.name }));
-}
-
-export async function dueFinalWarningCount(): Promise<number> {
-  const row = await queryOne<{ n: string }>(
-    `select count(*) as n from qr_account_warnings
-     where level = 'final' and resolved_at is null and respond_by <= now()`
-  );
-  return Number(row?.n ?? 0);
-}
-
-// ---------------------------------------------------------------------------
-// The owner's side. Every query filters by the session's user id.
-// ---------------------------------------------------------------------------
-
-export type OwnerWarning = {
-  id: number;
-  level: WarningLevel;
-  message: string;
-  respondBy: Date | null;
-  shortCode: string | null;
-  acknowledged: boolean;
-  createdAt: Date;
-};
-
-/**
- * What the owner's dashboard shows: every open warning they have not marked
- * as read, and every open final warning even once read, because it carries a
- * date that still matters.
- */
-export async function ownerWarnings(userId: string): Promise<OwnerWarning[]> {
-  const rows = await query<{
-    id: string;
-    level: WarningLevel;
-    message: string;
-    respond_by: Date | null;
-    short_code: string | null;
-    acknowledged: boolean;
-    created_at: Date;
-  }>(
-    `select w.id, w.level, w.message, w.respond_by, c.short_code,
-            w.acknowledged_at is not null as acknowledged, w.created_at
-     from qr_account_warnings w
-     left join qr_codes c on c.id = w.qr_id and c.user_id = w.user_id
-     where w.user_id = $1 and w.resolved_at is null
-       and (w.acknowledged_at is null or w.level = 'final')
-     order by w.created_at desc
-     limit 10`,
-    [userId]
-  );
-  return rows.map((row) => ({
-    id: Number(row.id),
-    level: row.level,
-    message: row.message,
-    respondBy: row.respond_by,
-    shortCode: row.short_code,
-    acknowledged: row.acknowledged,
-    createdAt: row.created_at,
-  }));
-}
-
-export async function acknowledgeWarning(userId: string, id: number): Promise<boolean> {
-  const row = await queryOne<{ id: string }>(
-    `update qr_account_warnings set acknowledged_at = now()
-     where id = $1 and user_id = $2 and acknowledged_at is null
-     returning id`,
-    [id, userId]
-  );
-  return row !== null;
 }

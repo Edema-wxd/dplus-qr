@@ -1,14 +1,17 @@
-import { z } from "zod";
-import { query, queryOne } from "@/lib/db";
+import { query } from "@/lib/db";
 import { LINK_KINDS } from "@/lib/qr-types";
 import { screenUrl } from "@/lib/screening";
 
 /**
- * What staff watch: the abuse-report queue, and lists of codes behaving in
- * ways abuse tends to: a sudden burst of scans, a new account re-pointing its
- * codes, a destination today's screening rules would refuse, and repeated
- * reports. Every list is a prompt to look, never a verdict; staff act on the
- * code's own page.
+ * What staff watch on `/admin/monitor`: codes behaving in ways abuse tends
+ * to. A sudden burst of scans, a new account re-pointing its codes, and a
+ * destination today's screening rules would refuse. Every list is a prompt to
+ * look, never a verdict; staff act on the code's own page.
+ *
+ * Not here, because the admin already has them: the abuse-report queue and a
+ * code's pile of reports (`/admin/reports`, and the "Open abuse reports"
+ * filter on `/admin/codes`), and threat-list matches, which the weekly Web
+ * Risk re-check blocks on its own (`reputation-sweep.ts`).
  */
 
 // ---------------------------------------------------------------------------
@@ -30,115 +33,6 @@ export function isSpike(today: number, dailyAverage: number): boolean {
 
 /** An account counts as new for this long when it re-points a code. */
 export const NEW_ACCOUNT_DAYS = 14;
-
-export const REPORT_STATUSES = ["open", "actioned", "dismissed"] as const;
-export type ReportStatus = (typeof REPORT_STATUSES)[number];
-
-const single = (value: unknown) => (Array.isArray(value) ? value[0] : value);
-export const reportStatusSchema = z.preprocess(single, z.enum(REPORT_STATUSES)).catch("open");
-
-// ---------------------------------------------------------------------------
-// The abuse-report queue.
-// ---------------------------------------------------------------------------
-
-export type QueuedReport = {
-  id: number;
-  reportedCode: string;
-  reporterEmail: string | null;
-  reason: string;
-  status: ReportStatus;
-  createdAt: Date;
-  /** Null when the report names a code that does not exist, or one that has gone. */
-  code: {
-    id: number;
-    name: string;
-    kind: string;
-    destinationUrl: string;
-    status: "active" | "paused" | "blocked";
-    archived: boolean;
-    ownerId: string;
-    ownerEmail: string;
-    ownerErased: boolean;
-    openReports: number;
-  } | null;
-};
-
-/** Reports in one state. Open ones oldest first, so nothing waits forever; closed ones newest first. */
-export async function listReports(status: ReportStatus, limit = 100): Promise<QueuedReport[]> {
-  const rows = await query<{
-    id: string;
-    reported_code: string;
-    reporter_email: string | null;
-    reason: string;
-    status: ReportStatus;
-    created_at: Date;
-    qr_id: string | null;
-    name: string | null;
-    kind: string | null;
-    destination_url: string | null;
-    code_status: "active" | "paused" | "blocked" | null;
-    archived: boolean | null;
-    owner_id: string | null;
-    owner_email: string | null;
-    owner_erased: boolean | null;
-    open_reports: string | null;
-  }>(
-    `select r.id, r.reported_code, r.reporter_email, r.reason, r.status, r.created_at,
-            c.id as qr_id, c.name, c.kind, c.destination_url, c.status as code_status,
-            c.archived_at is not null as archived,
-            u.id as owner_id, u.email as owner_email, u.erased_at is not null as owner_erased,
-            (select count(*) from qr_abuse_reports o where o.qr_id = c.id and o.status = 'open') as open_reports
-     from qr_abuse_reports r
-     left join qr_codes c on c.id = r.qr_id
-     left join qr_users u on u.id = c.user_id
-     where r.status = $1
-     order by case when $1 = 'open' then r.created_at end asc,
-              r.created_at desc
-     limit $2`,
-    [status, limit]
-  );
-  return rows.map((row) => ({
-    id: Number(row.id),
-    reportedCode: row.reported_code,
-    reporterEmail: row.reporter_email,
-    reason: row.reason,
-    status: row.status,
-    createdAt: row.created_at,
-    code:
-      row.qr_id === null
-        ? null
-        : {
-            id: Number(row.qr_id),
-            name: row.name!,
-            kind: row.kind!,
-            destinationUrl: row.destination_url!,
-            status: row.code_status!,
-            archived: row.archived === true,
-            ownerId: row.owner_id!,
-            ownerEmail: row.owner_email!,
-            ownerErased: row.owner_erased === true,
-            openReports: Number(row.open_reports ?? 0),
-          },
-  }));
-}
-
-/** Close an open report. Returns the code it named, for the audit row. */
-export async function closeReport(
-  id: number,
-  status: "actioned" | "dismissed"
-): Promise<{ reportedCode: string } | null> {
-  return queryOne<{ reportedCode: string }>(
-    `update qr_abuse_reports set status = $2
-     where id = $1 and status = 'open'
-     returning reported_code as "reportedCode"`,
-    [id, status]
-  );
-}
-
-export async function openReportCount(): Promise<number> {
-  const row = await queryOne<{ n: string }>(`select count(*) as n from qr_abuse_reports where status = 'open'`);
-  return Number(row?.n ?? 0);
-}
 
 // ---------------------------------------------------------------------------
 // Watch lists.
@@ -180,6 +74,8 @@ function toWatched(row: WatchedRow): WatchedCode {
 }
 
 const UTC_TODAY = `(now() at time zone 'UTC')::date`;
+/** Midnight UTC today as a timestamp, whatever the session's time zone. */
+const UTC_MIDNIGHT = `(${UTC_TODAY}::timestamp at time zone 'UTC')`;
 
 /**
  * Codes scanned far more today than usual, judged as `isSpike` judges: today's
@@ -191,7 +87,7 @@ export async function scanSpikes(limit = 20): Promise<(WatchedCode & { today: nu
   const rows = await query<WatchedRow & { today: string; average: string }>(
     `with today as (
        select qr_id, count(*) as n from qr_scans
-       where not is_bot and scanned_at >= ${UTC_TODAY}
+       where not is_bot and scanned_at >= ${UTC_MIDNIGHT}
        group by qr_id
      ),
      base as (
@@ -273,22 +169,4 @@ export async function failingDestinations(
     }
   }
   return { codes: failing, checked: rows.length };
-}
-
-/** Codes with two or more open reports, most reported first. */
-export async function mostReported(limit = 20): Promise<(WatchedCode & { openReports: number })[]> {
-  const rows = await query<WatchedRow & { open_reports: string }>(
-    `select ${WATCHED_COLUMNS}, r.n as open_reports
-     from (
-       select qr_id, count(*) as n from qr_abuse_reports
-       where status = 'open' and qr_id is not null
-       group by qr_id having count(*) >= 2
-     ) r
-     join qr_codes c on c.id = r.qr_id
-     join qr_users u on u.id = c.user_id
-     order by r.n desc
-     limit $1`,
-    [limit]
-  );
-  return rows.map((row) => ({ ...toWatched(row), openReports: Number(row.open_reports) }));
 }

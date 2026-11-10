@@ -111,7 +111,7 @@ export function WarnForm({
       <button type="submit" disabled={pending} className={level === "final" ? dangerButtonClass : primaryButtonClass}>
         {pending ? "Sending…" : `Send ${LEVELS.find((o) => o.value === level)!.label.toLowerCase()}`}
       </button>
-      <ActionNote state={state} />
+      <ActionNote state={state} id={`warn-${userId}`} />
     </form>
   );
 }
@@ -149,7 +149,7 @@ export function WarningActions({ warningId, final, due }: { warningId: number; f
           Withdraw
         </button>
       </div>
-      <ActionNote state={state} />
+      <ActionNote state={state} id={`warning-${warningId}`} />
     </form>
   );
 }

@@ -1,7 +1,9 @@
 # dplus-qr
 
-The De Sign Plus dynamic QR platform. Standalone Next.js 16 app serving
-`qr.de-signplus.com`: redirects, status pages, client accounts and dashboard.
+QRiate+, the De Sign Plus dynamic QR platform. Standalone Next.js 16 app
+serving `qriateplus.com` (it replaced `qr.de-signplus.com` on 22 Oct 2026, see
+DECISIONS.md): redirects, status pages, the public landing and pricing pages,
+client accounts and dashboard, and the staff admin.
 
 ## Read before any work
 
@@ -56,7 +58,17 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Both are Neon-managed: `neon env pull` writes them. Never hand-edit.
 - Every change is a new numbered file in `db/migrations/`, additive only. Never
   edit a migration that has run; the runner's checksum check will stop you.
-- Every query touching client data filters by the session's user id.
+- Every query touching client data filters by the account and proves, in the
+  same statement, that the session's user may use it. Dashboard functions
+  take an `AccountScope` from `resolveScope()` (`src/lib/resolve-scope.ts`),
+  never a bare user id, and each statement carries `${access(n)}` from
+  `src/lib/account-scope.ts`. With no team the account is the session user.
+  `src/__tests__/scope-guard.test.ts` fails on a query without it.
+- **Connecting is retried once** (`connect()` in `src/lib/db.ts`): Neon pauses
+  the database when idle, and the first connection after that can outlast the
+  5-second limit. Never a statement, only the connection, so nothing runs
+  twice. The redirect lookup alone passes `{ failFast: true }`: a scanner gets
+  the status page after one wait, never two.
 - `qr_codes.user_id` is `on delete restrict` on purpose. Accounts are suspended
   and codes are paused; neither is deleted.
 
@@ -106,6 +118,53 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Production needs custom SMTP and `neon neon-auth domain add <origin>` for
   each deployed origin. Localhost is pre-approved.
 
+**Plans and billing**
+
+- **What a plan allows is data, not code.** Limits and feature flags live in
+  `qr_plans` (`max_codes`, `history_days`, `features` jsonb) and staff edit them
+  from `/admin/plans`. Gates are the `can*` functions in
+  `src/lib/entitlement.ts`, and the flag catalogue is `PLAN_FEATURES` in
+  `src/lib/plan-features.ts`. A flag marked `built: false` is never advertised.
+- **Never write a plan name or price into UI copy** ("Starter and up", "Pro and
+  Business", "₦4,000"). Read it from the rows: `src/lib/upgrade-offers.ts` for
+  "which plan unlocks this", `src/lib/plan-tiers.ts` for price tables. Staff
+  move flags between plans without a deploy, and hard-coded copy goes stale.
+- **A locked control stays clickable** and opens the upgrade prompt
+  (`LockedButton` / `UpgradeDialog` in `src/app/(app)/app/UpgradePrompt.tsx`).
+  The server refuses the action as well; the prompt only explains.
+- **Payment state in `qr_subscriptions` comes from the Paystack webhook**
+  (`src/lib/billing.ts`). The other writers are narrow and each is documented
+  where it lives: the free-plan grant (`profile.ts`), staff assignment
+  (`plan-admin.ts`, refused for an account paying through Paystack), the
+  grace-period lapse (`grace.ts`), the optimistic not-renewing flag on cancel
+  (`checkout.ts`) and account erasure (`moderation.ts`). Any new writer needs
+  a reason recorded in DECISIONS.md.
+- A plan's price and interval are fixed once it has a `paystack_plan_code`,
+  because Paystack charges its own copy. A new price is a new plan.
+
+**Staff admin** (`/admin`)
+
+- Access is a Neon Auth role: `update neon_auth."user" set role = 'admin'
+  where email = '...'`. It is read from the database on every request, never
+  from the session, so revoking it takes effect at once.
+- `requireStaff()` gates every page and `staffForAction()` every Server
+  Action, in `src/app/(admin)/admin/guard.ts`. Non-admins, signed out included,
+  get the ordinary 404, **byte for byte the response a dead link gets**, and
+  that is decided in `proxy.ts` before the page streams: the page cannot say
+  no in time, because its `loading.tsx` shell, with the admin's title, is sent
+  with a 200 before `requireStaff()` runs. The proxy rewrites anyone who is not
+  staff to `/_nowhere/404`, a path no route serves. Signed out: no database
+  read needed. Signed in: it verifies Neon Auth's signed `session_data` cookie
+  (`src/lib/session-cookie.ts`) and reads the role from the database. When it
+  cannot tell (unreadable cookie, database down) it lets the page decide, so
+  it can only hide the admin, never lock staff out, and then the shell does
+  go out, so no admin page names the admin in its `metadata` title
+  (`src/__tests__/admin-titles.test.ts`). It never redirects `/admin` to
+  sign-in. Being in the matcher also refreshes the session there: a page
+  cannot write cookies, so a refresh attempted by `requireStaff()` threw.
+- Every page view, search and change writes `qr_admin_audit` (`audit()` after
+  the response, `recordChange()` awaited).
+
 **Security**
 
 - Validate all input with `zod` on the server.
@@ -114,6 +173,22 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - Store `sha256(ip + daily_salt)` only, never a raw IP, and never log one.
 - Every new env var goes in `.env.example` with a placeholder and a comment.
 - Never run `npm audit fix --force`.
+
+## Notifications
+
+Toasts are shadcn/ui's Sonner (`src/components/ui/sonner.tsx`), mounted once
+in the root layout. `components.json` is set up for `npx shadcn add`.
+
+- **A success is a toast; an error stays inline.** An error is something to
+  fix, so it sits beside the control that caused it until it is fixed. Report
+  an action's success with `useSuccessToast` (`src/components/notify.ts`) and
+  keep rendering `state.error` yourself. Only failures with no form to sit in
+  (a refused clipboard) are error toasts.
+- **A message that must survive a `redirect()`** goes through `flash(key)`
+  (`src/lib/flash.ts`) just before the redirect. The cookie carries a key into
+  `FLASH_MESSAGES`, never text, so add the message there.
+- A page that replaces its form with a result (cancelling a plan, a sent
+  report) needs no toast: the result is already on the page.
 
 ## Next.js 16 notes
 
@@ -129,6 +204,11 @@ differs from older training data. What has already bitten this repo:
     shell, streamed detail.
   - A route touching no request API is evaluated at build time — use
     `await connection()` to stop that (see `src/app/health/route.ts`).
+  - **Await `connection()` before `auth.getSession()`** in any page or server
+    component. Otherwise Next prerenders it, and a session read that has to
+    ask Neon Auth starts a fetch that is cut off when the prerender ends
+    ("During prerendering, fetch() rejects…", seen on `/app/[id]`).
+    `src/__tests__/session-before-prerender.test.ts` enforces it.
   - A page whose whole content is per-request, with no useful static shell to
     stream around (an authenticated account page), sets
     `export const instant = false` instead of wrapping everything in Suspense.
@@ -159,6 +239,19 @@ env -i PATH="$PATH" HOME="$HOME" npx next build   # must pass
 Project `francis-woods-projects/dplus-qr`, linked to the GitHub repo, so a push
 to `main` deploys. Env vars are set in the project (production and preview).
 
+- **Production deploys apply migrations before building.** `npm run build` is
+  `tsx scripts/migrate.ts --deploy && next build`, pinned in `vercel.json`. On
+  a production build it applies anything pending, so code can never go live
+  ahead of its schema: on 27 Oct 2026 migration 017 was merged but not run, the
+  redirect's one query named its new column, and every scan fell to the
+  unavailable page. A failed migration fails the build, and the previous
+  deploy keeps serving. Preview builds **only report**, because previews share
+  the production database and must never apply an unmerged PR's schema.
+  Locally the step does nothing. It needs `DATABASE_URL_UNPOOLED` in the
+  Vercel project's Production environment (`npm run env:sync`). Each
+  migration runs with a 5s `lock_timeout`: an `alter table qr_codes` that
+  cannot get its lock fails the deploy rather than queueing every scan behind
+  it.
 - **`.env` values can be quoted, and piping them elsewhere strips nothing.**
   `neon deploy` writes `DATABASE_URL="postgres://…"` with quotes because the
   value contains `?` and `&`. Local loaders strip them; `vercel env add` does
@@ -240,5 +333,22 @@ neon neon-auth status
 
 ## Status
 
-Scaffold and redirect spike complete. Phase 1 (auth, verification, dashboard)
-not started. See DECISIONS.md for what is still open.
+Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
+
+- Redirect path, status pages, scan recording with a daily rollup. The
+  retention and upload sweeps exist but run only with `DELETION_SWEEPS_ENABLED`.
+- Accounts on Neon Auth, the dashboard (sidebar, plan meter, code types and
+  hosted pages, logos, colours, custom links, analytics, share-stats links,
+  CSV export, bulk creation with zip download, team seats with invitations
+  and an account switcher), and upgrade prompts on every locked feature.
+- Billing: Paystack checkout and webhooks, grace and lapse, the public
+  `/pricing` page and `/billing`, both read from `qr_plans`.
+- Staff admin: overview with what needs attention, abuse-report queue,
+  customers (filters, plan assignment, suspend, archive, erase), codes
+  (block, pause, archive, re-screen), plans and features, pricing-page copy.
+- Production deploys apply pending migrations before building.
+- Monitoring: server errors emailed to staff (throttled, production only,
+  `src/lib/error-alerts.ts`) and a Monday summary email. The outside uptime
+  check on `/health` is an account still to open (DECISIONS.md, 8 November).
+
+What is still open is listed at the end of DECISIONS.md.

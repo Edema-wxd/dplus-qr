@@ -9,7 +9,7 @@ import { audit, requireStaff } from "../guard";
 import { AdminShell, Tag, day, tableClass, tdClass, thClass } from "../AdminShell";
 import { Destination } from "./Destination";
 
-export const metadata: Metadata = { title: "Codes · Admin" };
+export const metadata: Metadata = { title: "Codes" };
 export const instant = false;
 
 /** The list's URL with some filters changed, for the pager. */

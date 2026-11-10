@@ -3,6 +3,8 @@
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
+import { afterAuthPath, INVITE_PARAM } from "@/lib/team-invite";
+import { flash } from "@/lib/flash";
 
 const schema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
@@ -33,10 +35,12 @@ export async function signInAction(
     return { error: "That email and password do not match." };
   }
 
-  redirect("/app");
+  // Back to the invitation, when the form carried one (checked in afterAuthPath).
+  redirect(afterAuthPath(formData.get(INVITE_PARAM)));
 }
 
 export async function signOutAction(): Promise<void> {
   await auth.signOut();
+  await flash("signed-out");
   redirect("/auth/sign-in");
 }

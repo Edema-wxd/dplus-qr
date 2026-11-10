@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { setLogoAction, type CodeState } from "../actions";
 import { LogoPicker, type PickerLogo } from "../LogoPicker";
 import { primaryButtonClass } from "@/components/controls";
+import { useSuccessToast } from "@/components/notify";
 
 /**
  * Put a logo in the middle of this code, change it, or take it out.
@@ -26,6 +27,16 @@ export function LogoForm({
   const [state, action, pending] = useActionState(setLogoAction, {} as CodeState);
   const [choice, setChoice] = useState(current ?? "");
   const dirty = choice !== (current ?? "");
+  useSuccessToast(state, "logo", (s) =>
+    s.saved
+      ? {
+          title: "Logo saved",
+          description:
+            "Download the artwork again to get it. Files you saved before still scan, they just do not have this change.",
+          duration: 8000,
+        }
+      : null
+  );
 
   return (
     <form action={action}>
@@ -45,11 +56,6 @@ export function LogoForm({
       {state.error ? (
         <p role="alert" className="mt-2 text-sm text-[var(--struck-ink)]">
           {state.error}
-        </p>
-      ) : state.saved && !dirty ? (
-        <p className="mt-2 max-w-[44ch] text-xs leading-relaxed text-[var(--paper-soft)]">
-          Saved. Download the artwork again to get it: files you saved before
-          still scan, they just do not have this change.
         </p>
       ) : null}
     </form>

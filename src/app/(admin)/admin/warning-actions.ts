@@ -13,13 +13,12 @@ import {
   suspendForWarning,
   warningEmail,
 } from "@/lib/warnings";
-import { closeReport } from "@/lib/monitoring";
 import { recordChange, staffForAction } from "./guard";
 import type { AdminFormState } from "./actions";
 
 /**
- * Warnings and the abuse-report queue. Each action re-checks staff, validates
- * with zod and writes `qr_admin_audit`. The audit row for a warning records
+ * Staff warnings. Each action re-checks staff, validates with zod and writes
+ * `qr_admin_audit`. The audit row for a warning records
  * its level and id, never its text: erasing an account deletes the warning,
  * and a copy of the message in the audit would outlive that.
  */
@@ -73,6 +72,7 @@ export async function issueWarningAction(_prev: AdminFormState, form: FormData):
   });
   revalidatePath(`/admin/customers/${userId.data}`);
   if (parsed.data.qrId) revalidatePath(`/admin/codes/${parsed.data.qrId}`);
+  revalidatePath("/app");
 
   const label = LEVEL_LABELS[parsed.data.level];
   const due = warning.respondBy ? ` They have until ${formatRespondBy(warning.respondBy)}.` : "";
@@ -105,6 +105,7 @@ export async function resolveWarningAction(_prev: AdminFormState, form: FormData
     });
     revalidatePath(`/admin/customers/${result.userId}`);
     revalidatePath("/admin/monitor");
+    revalidatePath("/admin");
     return { notice: "Suspended. Every code shows the paused page; they can still sign in to see why." };
   }
 
@@ -113,27 +114,7 @@ export async function resolveWarningAction(_prev: AdminFormState, form: FormData
   await recordChange(staff, `warning.${op}`, "customer", resolved.userId, { warningId });
   revalidatePath(`/admin/customers/${resolved.userId}`);
   revalidatePath("/admin/monitor");
-  return { notice: op === "complied" ? "Closed: they put it right." : "Withdrawn. It has left their dashboard." };
-}
-
-const reportSchema = z.object({
-  reportId: z.coerce.number().int().positive(),
-  op: z.enum(["actioned", "dismissed"]),
-});
-
-export async function reportAction(_prev: AdminFormState, form: FormData): Promise<AdminFormState> {
-  const staff = await staffForAction();
-  if (!staff) return REFUSED;
-
-  const parsed = reportSchema.safeParse({ reportId: form.get("reportId"), op: form.get("op") });
-  if (!parsed.success) return { error: "That report does not exist." };
-
-  const closed = await closeReport(parsed.data.reportId, parsed.data.op);
-  if (!closed) return { error: "That report is already closed." };
-  await recordChange(staff, `report.${parsed.data.op}`, "report", String(parsed.data.reportId), {
-    code: closed.reportedCode,
-  });
-  revalidatePath("/admin/reports");
   revalidatePath("/admin");
-  return { notice: parsed.data.op === "actioned" ? "Marked as actioned." : "Dismissed." };
+  revalidatePath("/app");
+  return { notice: op === "complied" ? "Closed: they put it right." : "Withdrawn. It has left their dashboard." };
 }

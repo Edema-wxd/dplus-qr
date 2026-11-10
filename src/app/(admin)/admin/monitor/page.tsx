@@ -3,41 +3,42 @@ import Link from "next/link";
 import { CODE_HOST } from "@/lib/brand";
 import {
   failingDestinations,
-  mostReported,
   NEW_ACCOUNT_DAYS,
   newAccountChanges,
   scanSpikes,
   SPIKE_FACTOR,
   SPIKE_MIN_SCANS,
   type WatchedCode,
-} from "@/lib/monitoring";
+} from "@/lib/watch-lists";
 import { dueFinalWarnings, formatRespondBy } from "@/lib/warnings";
 import { audit, requireStaff } from "../guard";
 import { AdminShell, SectionHeading, day, tableClass, tdClass, thClass } from "../AdminShell";
 import { Destination } from "../codes/Destination";
 import { WarningActions } from "../customers/WarnForm";
 
-export const metadata: Metadata = { title: "Monitor · Admin" };
+// No admin page names the admin in its title: see the note on the overview.
+export const metadata: Metadata = { title: "Watch lists" };
 export const instant = false;
 
 /**
- * Everything worth a look, on one page. Each list is a prompt, never a
- * verdict: the code's own page is where staff block, archive or warn.
+ * Everything worth a look that no other admin page already lists. Each list
+ * is a prompt, never a verdict: the code's own page is where staff block,
+ * archive or warn. Open abuse reports, and codes with several of them, are on
+ * Reports and under the "Open abuse reports" filter on Codes.
  */
 export default async function AdminMonitor() {
   const staff = await requireStaff();
   audit(staff, { action: "view", targetType: "page", targetId: "/admin/monitor" });
 
-  const [due, spikes, failing, changes, reported] = await Promise.all([
+  const [due, spikes, failing, changes] = await Promise.all([
     dueFinalWarnings(),
     scanSpikes(),
     failingDestinations(),
     newAccountChanges(),
-    mostReported(),
   ]);
 
   return (
-    <AdminShell heading="Monitor" current="/admin/monitor" meta="Codes and accounts that need a person to look at them.">
+    <AdminShell heading="Watch lists" current="/admin/monitor" meta="Codes and accounts that need a person to look at them.">
       <div className="space-y-12">
         <section aria-labelledby="due-heading">
           <SectionHeading id="due-heading">Final warnings due ({due.length})</SectionHeading>
@@ -104,15 +105,6 @@ export default async function AdminMonitor() {
             heading: "Changed",
             cell: (code) => `${code.changes}× · last ${day(code.changedAt)} · joined ${day(code.accountCreatedAt)}`,
           }}
-        />
-
-        <WatchTable
-          id="reported"
-          title={`Most reported (${reported.length})`}
-          note="Codes with two or more open abuse reports. The reports themselves are under Reports."
-          empty="No code has more than one open report."
-          codes={reported}
-          extra={{ heading: "Open reports", cell: (code) => String(code.openReports) }}
         />
       </div>
     </AdminShell>

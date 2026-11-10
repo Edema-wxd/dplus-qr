@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { CODE_ORIGIN, PRODUCT_NAME } from "@/lib/brand";
-import { TERMS } from "@/lib/legal";
+import { connection } from "next/server";
+import { buildTerms, TERMS } from "@/lib/legal";
+import { getPricingContent } from "@/lib/site-content";
 import { LegalShell } from "../LegalShell";
 
 /**
@@ -17,6 +19,13 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
 };
 
-export default function TermsPage() {
-  return <LegalShell doc={TERMS} />;
+// Read per request: the billing clauses are the points staff edit at
+// /admin/pricing, so a saved change reaches the Terms and the pricing page
+// together. Falls back to the default wording if the database is unreachable.
+export const instant = false;
+
+export default async function TermsPage() {
+  await connection();
+  const content = await getPricingContent();
+  return <LegalShell doc={buildTerms(content.policy)} />;
 }

@@ -133,11 +133,13 @@ does not count as a scan; the redirect responds in under 100 ms when cached.
 - [ ] Plan limits enforced on code creation; codes only go live with an active
       subscription
 - [ ] Grace period, lapse to paused page, restore on payment; failure emails
-- [ ] Destination screening (scheme rules, shortener block, Web Risk) and weekly
-      re-check cron
-- [ ] Admin tools: search, block code, suspend account, abuse reports, audit log
-      (27 Oct 2026: search, block, suspend, archive, erase, warnings, the
-      abuse-report queue, monitoring and per-target audit history done)
+- [x] Destination screening (scheme rules, shortener block, Web Risk) and weekly
+      re-check cron (8 Nov 2026: Web Risk built, dormant until
+      `WEB_RISK_API_KEY` is set)
+- [x] Admin tools: search, block code, suspend account, abuse reports, audit log
+      (27 Oct 2026: search, block, suspend, archive, erase and per-target audit
+      history; 28 Oct: the abuse-report queue; 10 Nov: staff warnings and the
+      watch lists at `/admin/monitor`)
 - [x] Privacy Policy, Terms and acceptable-use pages at `/privacy`, `/terms`
       and `/acceptable-use` — 25 Oct 2026. Drafts, not legally reviewed; no
       entity details yet, and the 6-month post-lapse deletion they promise
@@ -154,7 +156,10 @@ and a new payment restores them; a known test phishing URL is refused.
       `/api/cron/scans`, `npm run scans:rollup`)
 - [ ] Analytics charts: scans by day, country, device; CSV export
 - [ ] Nightly backup to S3 and a tested restore
-- [ ] Uptime monitor on `/health`, error alerts, weekly admin summary email
+- [x] Error alerts and weekly admin summary email (8 Nov 2026, see
+      DECISIONS.md)
+- [ ] Uptime monitor on `/health`: an outside service to set up, see
+      DECISIONS.md, 8 November monitoring entry
 - [ ] Public landing and pricing pages
 
 **Done when:** dashboards load from rollups only; a backup restore succeeds on

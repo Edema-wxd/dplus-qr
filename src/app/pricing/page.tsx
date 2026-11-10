@@ -6,7 +6,6 @@ import { connection } from "next/server";
 import {
   CODE_ORIGIN,
   COMPANY_NAME,
-  LAPSE_RETENTION_MONTHS,
   MAIN_SITE,
   PRODUCT_NAME,
   SUPPORT_EMAIL,
@@ -15,6 +14,8 @@ import {
 import { listPublicPlans } from "@/lib/plans";
 import { groupTiers, type Tier } from "@/lib/plan-tiers";
 import { LegalLinks } from "@/components/LegalLinks";
+import { getPricingContent } from "@/lib/site-content";
+import { POLICY_KEYS, type PricingContent } from "@/lib/pricing-content";
 import { PricingTiers } from "./PricingTiers";
 
 export const metadata: Metadata = {
@@ -36,8 +37,17 @@ export const metadata: Metadata = {
  *
  * On the paper surface of the legal pages, because it is read the same way --
  * carefully, by someone deciding whether to pay -- and links to them.
+ *
+ * Its wording is edited at `/admin/pricing` (`src/lib/site-content.ts`) and
+ * read per request. The billing points are the same text as the matching
+ * Terms clauses, so the two pages cannot disagree.
  */
-export default function PricingPage() {
+export const instant = false;
+
+export default async function PricingPage() {
+  await connection();
+  const content = await getPricingContent();
+
   return (
     <div className="legal min-h-dvh">
       <header className="border-b border-[var(--paper-rule)] px-6 py-4 sm:px-10">
@@ -70,49 +80,30 @@ export default function PricingPage() {
           {PRODUCT_NAME} · {COMPANY_NAME}
         </p>
         <h1 className="mt-3 font-sarlotte text-[clamp(2.2rem,6vw,3.2rem)] leading-[1.02] tracking-[-0.015em] text-balance">
-          Plans and pricing
+          {content.headline}
         </h1>
-        <p className="mt-4 max-w-[56ch] text-[17px] leading-relaxed text-[var(--paper-soft)]">
-          Every plan re-points any code at any time, for as long as the printed
-          thing exists. Plans differ in how many codes you hold, how long scan
-          history is kept, and what you can export.
+        <p className="mt-4 max-w-[56ch] whitespace-pre-line text-[17px] leading-relaxed text-[var(--paper-soft)]">
+          {content.intro}
         </p>
 
         <div className="mt-10">
           <Suspense fallback={<TableLoading />}>
-            <Tiers />
+            <Tiers content={content} />
           </Suspense>
         </div>
 
         <section aria-labelledby="terms-heading" className="mt-14 border-t border-[var(--paper-rule)] pt-7">
           <h2 id="terms-heading" className="font-sarlotte text-[1.65rem] leading-tight tracking-[-0.01em]">
-            How billing works
+            {content.billingHeading}
           </h2>
           <dl className="mt-4 max-w-[68ch]">
             {[
-              {
-                term: "Billed in naira through Paystack",
-                detail:
-                  "Monthly or annually. Annual plans cost ten months for twelve. A plan renews automatically until you cancel it.",
-              },
-              {
-                term: "Charged in advance, not refundable",
-                detail:
-                  "Cancelling runs to the end of the period you have paid for, so you never pay for time you cannot use.",
-              },
-              {
-                term: "A missed payment pauses, it does not delete",
-                detail: `Codes keep working through a grace period, then show a paused page that names your business. Paying again restores them within a minute. Codes and scan data are kept for ${LAPSE_RETENTION_MONTHS} months after a plan lapses.`,
-              },
-              {
-                term: "Static codes are free on every plan",
-                detail:
-                  "A static code encodes its content directly, so it needs no slot and never stops working. Only dynamic codes count towards a plan's limit.",
-              },
-            ].map((row) => (
-              <div key={row.term} className="border-b border-[var(--paper-rule)]/60 py-3.5 last:border-b-0">
+              ...POLICY_KEYS.map((key) => content.policy[key]),
+              ...content.faqs.map((faq) => ({ term: faq.question, detail: faq.answer })),
+            ].map((row, i) => (
+              <div key={`${i}-${row.term}`} className="border-b border-[var(--paper-rule)]/60 py-3.5 last:border-b-0">
                 <dt className="font-medium">{row.term}</dt>
-                <dd className="mt-1 leading-relaxed text-[var(--paper-soft)]">{row.detail}</dd>
+                <dd className="mt-1 whitespace-pre-line leading-relaxed text-[var(--paper-soft)]">{row.detail}</dd>
               </div>
             ))}
           </dl>
@@ -144,7 +135,7 @@ export default function PricingPage() {
   );
 }
 
-async function Tiers() {
+async function Tiers({ content }: { content: PricingContent }) {
   await connection();
   let tiers: Tier[];
   try {
@@ -156,7 +147,7 @@ async function Tiers() {
     tiers = [];
   }
   if (tiers.length === 0) return <TableFallback />;
-  return <PricingTiers tiers={tiers} />;
+  return <PricingTiers tiers={tiers} content={content} />;
 }
 
 /** Three empty cards, the table's own footprint, so the page does not jump. */

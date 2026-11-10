@@ -3,10 +3,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
+import { resolveAccess } from "@/lib/resolve-scope";
 import { ensureProfile } from "@/lib/profile";
-import { getEntitlement } from "@/lib/entitlement";
+import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
+import { roleAllows } from "@/lib/account-scope";
 import { listCodes } from "@/lib/user-codes";
-import { ownerWarnings } from "@/lib/warnings";
+import { dashboardWarnings } from "@/lib/dashboard-warnings";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
 import { qrStyleVars } from "@/lib/qr-style";
 import { dynamicType, isPageKind } from "@/lib/qr-types";
@@ -23,6 +25,7 @@ import { DashShell } from "./DashShell";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
 import { StatusPill } from "./StatusPill";
 import { VerifyBanner } from "./VerifyBanner";
+import { UpgradeBanner } from "./UpgradeBanner";
 import { SuspendedNotice, WarningBanner } from "./WarningBanner";
 
 export const metadata: Metadata = { title: "Your codes" };
@@ -48,12 +51,23 @@ export default async function CodesPage({
   // Also grants the free plan on first load, so a code created here can
   // actually serve traffic. See ensureFreeSubscription.
   const profile = await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  // Which account this page shows, and as whom. Its own unless the person
+  // is working in a team they belong to; every read below proves access.
+  // `resolveAccess` is cached per request, so the shell's notices reuse it.
+  const access = await resolveAccess();
+  if (!access) redirect("/auth/sign-in");
+  const { scope } = access;
 
   const [codes, entitlement, params, warnings] = await Promise.all([
-    listCodes(user.id),
-    getEntitlement(user.id),
+    listCodes(scope),
+    getEntitlement(scope.accountId),
     searchParams,
-    ownerWarnings(user.id),
+    // Staff warnings never stop the codes list: a failed read (a preview
+    // ahead of migration 030, say) shows the page without them.
+    dashboardWarnings(scope).catch((error) => {
+      console.error("[dashboard] warnings unavailable", error);
+      return [];
+    }),
   ]);
 
   const listQuery = parseListQuery(params);
@@ -72,6 +86,11 @@ export default async function CodesPage({
   // path's `decide()` serves the paused page for every code on the account.
   const lapsed = entitlement === null || !entitlement.active;
 
+  // A viewer sees the codes and downloads, and makes nothing; the owner alone
+  // is sold a plan.
+  const canWrite = roleAllows(scope.role, "write");
+  const isOwner = scope.role === "owner";
+
   return (
     <DashShell
       heading="Your codes"
@@ -84,14 +103,43 @@ export default async function CodesPage({
         ) : null
       }
       action={
-        hasCodes ? <NewCodeButton /> : null
+        hasCodes && canWrite ? (
+          <span className="flex flex-wrap gap-2">
+            {/*
+              Only on plans with bulk creation. Everyone else meets it, locked,
+              on the new-code page, rather than a second upgrade button here.
+            */}
+            {canBulkCreate(entitlement) && !atLimit ? (
+              <Link href="/app/new/bulk" className={`${secondaryButtonClass} no-underline`}>
+                Make many at once
+              </Link>
+            ) : null}
+            <NewCodeButton />
+          </span>
+        ) : null
       }
     >
-      {profile.suspendedAt ? <SuspendedNotice /> : null}
-      <WarningBanner warnings={warnings} />
+      {/* Only the person's own account can be suspended and still open here. */}
+      {isOwner && profile.suspendedAt ? <SuspendedNotice /> : null}
+      <WarningBanner
+        warnings={warnings}
+        ownerName={isOwner ? null : (access.team?.ownerName ?? "the account owner")}
+      />
       {user.emailVerified ? null : <VerifyBanner email={user.email} />}
 
       {lapsed && hasCodes ? <LapsedNotice /> : null}
+
+      {/*
+        A free account is prompted only when there is a reason it would care:
+        its codes are being scanned, or it is one code from the limit.
+      */}
+      {isOwner && !lapsed && entitlement?.planSlug === "free" ? (
+        codes.length >= entitlement.maxCodes - 1 ? (
+          <UpgradeBanner reason="limit" />
+        ) : codes.some((code) => code.scans30d > 0) ? (
+          <UpgradeBanner reason="scans" />
+        ) : null
+      ) : null}
 
       {hasCodes ? <Totals codes={codes} /> : null}
 
@@ -100,7 +148,7 @@ export default async function CodesPage({
       ) : null}
 
       {codes.length === 0 ? (
-        <EmptyState />
+        <EmptyState canWrite={canWrite} />
       ) : shown.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-10 text-center text-sm text-[var(--paper-soft)]">
           No codes match.{" "}
@@ -393,16 +441,18 @@ function NewCodeButton() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ canWrite }: { canWrite: boolean }) {
   return (
     <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-14 text-center">
       <p className="mx-auto max-w-[42ch] text-[15px] leading-relaxed text-[var(--paper-soft)]">
         No codes yet. Make one, print it, and you can change where it leads for
         as long as the printed thing exists.
       </p>
-      <div className="mt-6 flex justify-center">
-        <NewCodeButton />
-      </div>
+      {canWrite ? (
+        <div className="mt-6 flex justify-center">
+          <NewCodeButton />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   type CodeState,
 } from "../actions";
 import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/components/controls";
+import { useSuccessToast } from "@/components/notify";
 
 /** Re-point the code. The one control the whole product exists for. */
 export function DestinationForm({
@@ -22,6 +23,14 @@ export function DestinationForm({
   const [state, action, pending] = useActionState(
     changeDestinationAction,
     {} as CodeState
+  );
+  useSuccessToast(state, "destination", (s) =>
+    s.saved
+      ? {
+          title: "Destination saved",
+          description: "Scans follow the new destination within a minute.",
+        }
+      : null
   );
 
   return (
@@ -58,9 +67,7 @@ export function DestinationForm({
         </p>
       ) : (
         <p className="mt-2 text-xs text-[var(--paper-soft)]">
-          {state.saved
-            ? "Saved. Scans follow the new destination within a minute."
-            : "The printed code never changes. Only this does."}
+          The printed code never changes. Only this does.
         </p>
       )}
     </form>
@@ -72,6 +79,7 @@ export function RenameForm({ id, current }: { id: string; current: string }) {
     renameCodeAction,
     {} as CodeState
   );
+  useSuccessToast(state, "rename", (s) => (s.saved ? { title: "Name saved" } : null));
 
   return (
     <form action={action}>
@@ -124,6 +132,21 @@ export function StatusForm({
     {} as CodeState
   );
   const next = status === "active" ? "paused" : "active";
+  // The page re-renders with the new status in the same answer as the state,
+  // so `status` here is already the one just saved.
+  useSuccessToast(state, "status", (s) =>
+    !s.saved
+      ? null
+      : status === "paused"
+        ? {
+            title: "Code paused",
+            description: "Scanners now see a calm page naming your business.",
+          }
+        : {
+            title: "Code is live again",
+            description: "Scans follow the destination again, usually within a minute.",
+          }
+  );
 
   return (
     <form action={action}>
