@@ -28,6 +28,12 @@ const nextConfig: NextConfig = {
     maximumResponseBody: 5_000_000,
   },
   partialPrefetching: true,
+  // A blog post's Markdown copy lives at its address plus `.md`, the llms.txt
+  // convention. A dynamic segment cannot end in a fixed suffix, so the route
+  // is `/blog/{slug}/md` and this maps the conventional address onto it.
+  async rewrites() {
+    return [{ source: "/blog/:slug.md", destination: "/blog/:slug/md" }];
+  },
   turbopack: {
     rules: {
       "*.css": {

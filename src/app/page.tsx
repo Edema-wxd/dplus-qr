@@ -245,6 +245,13 @@ export default function Home() {
           </nav>
           <div className="flex items-center gap-1.5">
             <Link
+              href="/blog"
+              className="hidden rounded-lg px-3 py-2 text-sm text-(--chalk-soft) no-underline transition-colors duration-150 hover:text-(--chalk) sm:inline-flex"
+              data-plain
+            >
+              Blog
+            </Link>
+            <Link
               href="/auth/sign-in"
               className="rounded-lg px-3 py-2 text-sm text-(--chalk-soft) no-underline transition-colors duration-150 hover:text-(--chalk)"
               data-plain
@@ -740,6 +747,9 @@ export default function Home() {
         <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
           <Link href="/pricing" className="text-xs text-(--chalk-muted) underline transition-colors duration-150 hover:text-(--chalk)">
             Pricing
+          </Link>
+          <Link href="/blog" className="text-xs text-(--chalk-muted) underline transition-colors duration-150 hover:text-(--chalk)">
+            Blog
           </Link>
           <LegalLinks tone="field" />
           <Wordmark on="dark" width={104} className="opacity-85" />

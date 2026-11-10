@@ -16,6 +16,8 @@ jest.mock("@/lib/auth/server", () => ({
 }));
 const isAdmin = jest.fn<Promise<boolean>, [string]>();
 jest.mock("@/lib/admin", () => ({ isAdmin: (id: string) => isAdmin(id) }));
+const resolvePublicSlug = jest.fn<Promise<unknown>, [string]>();
+jest.mock("@/lib/blog", () => ({ resolvePublicSlug: (slug: string) => resolvePublicSlug(slug) }));
 const reportError = jest.fn(async (..._args: unknown[]) => {});
 jest.mock("@/lib/error-alerts", () => ({ reportError: (...args: unknown[]) => reportError(...args) }));
 
@@ -176,5 +178,64 @@ describe("everything else", () => {
     expect(config.matcher).toContain("/admin/:path*");
     expect(config.matcher).not.toContain("/:path*");
     expect(config.matcher).not.toContain("/_/:path*");
+  });
+});
+
+describe("blog posts", () => {
+  beforeEach(() => {
+    resolvePublicSlug.mockReset();
+    reportError.mockClear();
+  });
+
+  it("passes a live post to the page without touching the session", async () => {
+    resolvePublicSlug.mockResolvedValueOnce({ kind: "live" });
+    const response = await proxy(request("/blog/minimum-qr-code-size"));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(middleware).not.toHaveBeenCalled();
+  });
+
+  it("answers a draft, a scheduled post or an unknown address with the ordinary 404", async () => {
+    resolvePublicSlug.mockResolvedValueOnce({ kind: "missing" });
+    expect(rewrittenTo(await proxy(request("/blog/not-yet")))).toBe(NOWHERE);
+  });
+
+  it("sends an address a post used to have to where it lives now, permanently, keeping the query", async () => {
+    resolvePublicSlug.mockResolvedValueOnce({ kind: "moved", slug: "new-name" });
+    const response = await proxy(request("/blog/old-name?utm_source=x"));
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("https://qriateplus.com/blog/new-name?utm_source=x");
+  });
+
+  it("leaves it to the page when the database cannot answer", async () => {
+    resolvePublicSlug.mockRejectedValueOnce(new Error("down"));
+    const response = await proxy(request("/blog/anything"));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("passes the feed and the Markdown copies on to their own routes", async () => {
+    for (const path of ["/blog/rss.xml", "/blog/some-post.md"]) {
+      const response = await proxy(request(path));
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+    }
+    expect(resolvePublicSlug).not.toHaveBeenCalled();
+  });
+
+  it("answers an address that can never be a slug with a 404, without a lookup", async () => {
+    expect(rewrittenTo(await proxy(request("/blog/under_score")))).toBe(NOWHERE);
+    expect(resolvePublicSlug).not.toHaveBeenCalled();
+  });
+
+  it("sends an address typed with capitals to its lower-case form", async () => {
+    resolvePublicSlug.mockResolvedValueOnce({ kind: "live" });
+    const response = await proxy(request("/blog/Minimum-QR-Code-Size"));
+    expect(resolvePublicSlug).toHaveBeenCalledWith("minimum-qr-code-size");
+    expect(response.status).toBe(308);
+    expect(response.headers.get("location")).toBe("https://qriateplus.com/blog/minimum-qr-code-size");
+  });
+
+  it("matches one segment under /blog, never the index or a post's card", () => {
+    expect(config.matcher).toContain("/blog/:slug");
+    expect(config.matcher).not.toContain("/blog/:path*");
   });
 });
