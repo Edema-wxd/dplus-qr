@@ -8,6 +8,8 @@ import { resolveScope } from "@/lib/resolve-scope";
 import { ensureProfile } from "@/lib/profile";
 import { fileKind, formatBytes, listFileLibrary, type LibraryFile } from "@/lib/files";
 import { isOptimisableImage } from "@/lib/upload-host";
+import { getEntitlement } from "@/lib/entitlement";
+import { storageQuotaBytes } from "@/lib/storage-quota";
 import { primaryButtonClass } from "@/components/controls";
 import { DashShell } from "../DashShell";
 import { TypeIcon } from "../TypeIcon";
@@ -38,8 +40,12 @@ export default async function FilesPage() {
   const scope = await resolveScope();
   if (!scope) redirect("/auth/sign-in");
 
-  const files = await listFileLibrary(scope);
+  const [files, entitlement] = await Promise.all([listFileLibrary(scope), getEntitlement(scope.accountId)]);
   const unused = files.filter((file) => file.usedBy.length === 0).length;
+  // Every file counts against the plan's page-file storage, used or not, so
+  // the total is shown where the files are (DECISIONS.md, 11 November 2026).
+  const used = files.reduce((total, file) => total + file.sizeBytes, 0);
+  const quota = storageQuotaBytes(entitlement?.features);
 
   return (
     <DashShell
@@ -49,6 +55,7 @@ export default async function FilesPage() {
           <span className="dash-num">
             {files.length} {files.length === 1 ? "file" : "files"}
             {unused > 0 ? ` · ${unused} not used by any code` : ""}
+            {` · ${formatBytes(used)} of ${formatBytes(quota)} used`}
           </span>
         ) : undefined
       }
@@ -76,7 +83,8 @@ export default async function FilesPage() {
           </ul>
           {unused > 0 ? (
             <p className="mt-4 max-w-[62ch] text-xs leading-relaxed text-[var(--paper-soft)]">
-              A file no code uses may be cleared out a week after it was uploaded.
+              A file no code uses may be cleared out a week after it was uploaded. Until then it counts towards your
+              storage.
             </p>
           ) : null}
         </>

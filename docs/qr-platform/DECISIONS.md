@@ -2469,6 +2469,47 @@ and falls back to its fixed pages if it cannot.
 static route would shadow it. `blog` is now reserved, so no new one can be
 claimed.
 
+## Page-file uploads need hosted pages, and storage has a limit, 11 November 2026
+
+Security audit M4. The photo, PDF and audio endpoints checked only the
+session, although Free has no hosted pages (22 October entry), and no plan had
+a storage limit. A free account could script 16MB uploads, ten audio files a
+request, and each was public at once on `fmctfyekk3.ufs.sh`: free file hosting
+on the company's UploadThing bill, and a reason for UploadThing to suspend the
+app, which would break every hosted page's photos and PDFs.
+
+**Who may upload a page file.** A plan with `hosted_pages`, or an account
+that already has a hosted page (not archived). Page files exist only to be
+shown on a page; the exception keeps the rule that a page that exists stays
+editable whatever the plan, since replacing a menu photo is an edit. Video
+still needs `video_uploads` as well. Refused in the upload middleware, before
+UploadThing hands out a URL, with the usual upgrade sentence.
+
+**How much an account may store.** `features.storage_mb`, a new numeric
+feature edited from `/admin/plans`. Migration 034 sets starting values where a
+plan has none: Free 25 MB (only reachable by an account that kept its pages),
+Starter 250 MB, Pro 2 GB, Business 10 GB. **These are a first guess, set by
+the audit fix, for the business to adjust.** A plan without a value gets
+100 MB (`DEFAULT_STORAGE_MB`), never unlimited. Not advertised on the price
+table: that is a copy decision, and `storage_mb` has no `advertise` until
+someone makes it.
+
+- **Everything held counts**, used or not, because that is what is paid
+  for. Owners cannot delete files themselves; a file replaced on a page drops
+  out only when the upload sweep clears it, a week unused, and the sweep is
+  still switched off (below). Until it is on, an owner who replaces files often
+  will eventually reach the limit and need staff to raise it. The Files page
+  shows "x of y used" so it is never a surprise.
+- **Checked twice.** The middleware refuses a request whose declared sizes
+  would not fit (UploadThing then refuses a file that is bigger than declared).
+  Several requests can pass it before any file lands, so `recordFile` checks
+  again against what is stored, under a per-account advisory lock, and a file
+  that does not fit is deleted from UploadThing. Ten 4 MB files landing at once
+  against 10 MB kept two (verified against Postgres).
+- **Lowering a limit deletes nothing.** An account over it keeps every file
+  and every page; only new uploads are refused.
+- Logos are not counted: 1MB each and a fixed number per library.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.
@@ -2489,6 +2530,8 @@ Business decisions:
   of 7 November covers the dashboard and the nightly jobs but not a scanner:
   the first scan of a quiet code while the database is asleep can still reach
   the unavailable page (see that entry). Keeping it awake costs compute hours.
+- Each plan's page-file storage (`storage_mb`, 11 November entry). The
+  starting values were set by the audit fix, not by the business.
 
 To set up outside the app:
 
@@ -2505,6 +2548,9 @@ Built but switched off:
 - The retention and upload sweeps run only with `DELETION_SWEEPS_ENABLED=true`.
   When to turn them on in production is open; read a dry run against
   production first (see the 30 October entry).
+  Since 11 November the upload sweep is also what frees page-file storage:
+  until it runs, a replaced file counts against the account's `storage_mb`
+  for good.
 
 Closed since this list was first written:
 
