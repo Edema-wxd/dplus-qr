@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
@@ -7,6 +8,8 @@ import { afterAuthPath, INVITE_PARAM, isInviteToken } from "@/lib/team-invite";
 import { ensureProfile } from "@/lib/profile";
 import { parseSignupRef, recordSignupSource, SIGNUP_REF_PARAM } from "@/lib/signup-source";
 import { startOnboardingAtSignUp } from "@/lib/onboarding";
+import { clientIp, ipRateKey } from "@/lib/ip";
+import { allowAuth } from "@/lib/ratelimit";
 
 const schema = z.object({
   name: z.string().trim().min(2, "Enter the business or contact name."),
@@ -76,6 +79,12 @@ export async function signUpAction(
   const { name, email, password } = parsed.data;
   const invite = formData.get(INVITE_PARAM);
   const invited = isInviteToken(invite);
+
+  // Throwaway accounts are how a free QR host ends up carrying phishing
+  // links; a handful an hour from one visitor is more than anyone needs.
+  if (!(await allowAuth("sign-up-visitor", ipRateKey(clientIp(await headers()))))) {
+    return { error: "Too many new accounts from here. Wait an hour and try again." };
+  }
 
   const { data, error } = await auth.signUp.email({ email, name, password });
   if (error) {

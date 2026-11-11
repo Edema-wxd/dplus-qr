@@ -1,5 +1,4 @@
 import { env } from "@/lib/env";
-import { isUploadThingUrl } from "@/lib/upload-host";
 
 /**
  * Whether a link is on Google's lists of unsafe sites, through the Web Risk
@@ -120,7 +119,10 @@ export function pageLinks(content: unknown, into: Set<string> = new Set()): Set<
       if (isFile && key === "url") continue;
       pageLinks(value, into);
     }
-  } else if (typeof content === "string" && /^https?:\/\//i.test(content) && !isUploadThingUrl(content)) {
+  } else if (typeof content === "string" && /^https?:\/\//i.test(content)) {
+    // Only the `url` beside a `fileId` is exempt (above). A typed link to any
+    // UploadThing host is screened like any other: anyone can host a page on
+    // `*.ufs.sh` with their own UploadThing app.
     into.add(content);
   }
   return into;

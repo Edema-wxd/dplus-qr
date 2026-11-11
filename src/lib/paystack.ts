@@ -74,7 +74,9 @@ export function verifySignature(rawBody: string, signature: string | null): bool
     .update(rawBody, "utf8")
     .digest("hex");
 
-  if (signature.length !== expected.length) return false;
+  // Hex only, so the byte lengths `timingSafeEqual` compares always match;
+  // a non-ASCII header would otherwise throw instead of being refused.
+  if (!/^[0-9a-f]{128}$/.test(signature)) return false;
 
   return timingSafeEqual(Buffer.from(signature, "utf8"), Buffer.from(expected, "utf8"));
 }
