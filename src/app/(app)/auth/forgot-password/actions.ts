@@ -3,6 +3,8 @@
 import { headers } from "next/headers";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
+import { clientIp, ipRateKey } from "@/lib/ip";
+import { allowAuth, emailRateKey } from "@/lib/ratelimit";
 
 const schema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email address."),
@@ -33,6 +35,16 @@ export async function forgotPasswordAction(
   }
 
   const { email } = parsed.data;
+
+  // Over the limit, nothing is sent and the answer is the same as a sent one:
+  // a different reply would say the address is being asked about, and each
+  // reset is mail from the onboarding address whose reputation verification
+  // depends on.
+  const visitor = ipRateKey(clientIp(await headers()));
+  const allowed =
+    (await allowAuth("reset-visitor", visitor)) &&
+    (await allowAuth("reset-account", emailRateKey(email)));
+  if (!allowed) return { sentTo: email, sentAt: Date.now() };
 
   const { error } = await auth.requestPasswordReset({
     email,

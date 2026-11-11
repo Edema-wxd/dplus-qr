@@ -2392,6 +2392,49 @@ Facebook, Netflix, and a plain email envelope.
 - Every mark on every pattern decodes in the test suite.
 - A preset mark on a phishing code is handled like any other abuse: blocked.
 
+## Sign-in, sign-up and resets are limited here, 10 November 2026
+
+From the security audit of 10 November. These were left to Managed Auth's
+own rate limit, but the Neon Auth SDK calls Managed Auth from this server and
+forwards only the cookie and the origin, never the visitor's IP
+(`@neondatabase/auth` server, `fetchWithAuth` and `PROXY_HEADERS`). Managed
+Auth therefore saw every attempt as coming from Vercel's addresses: either no
+limit on one machine running a password list, or one limit shared by everyone
+on that address. And `/api/auth/[...path]` proxied the whole auth API, so
+`sign-in/email`, `sign-up/email` and `request-password-reset` could be called
+directly, around any limit the Server Actions had.
+
+- **Limits that see the visitor** (`allowAuth` in `src/lib/ratelimit.ts`,
+  Upstash, sliding windows):
+  - sign-in: 30 attempts per visitor per 15 minutes, and 10 *failures* per
+    account per 15 minutes;
+  - sign-up: 5 per visitor per hour;
+  - password reset: 5 per visitor and 3 per address per hour.
+
+  Visitors are keyed by `ipRateKey`, addresses by `emailRateKey`, a salted
+  hash, so no address is stored in Redis. They fail open like every other
+  limiter here, so a Redis outage never locks anyone out.
+- **The answers reveal nothing new.** The account limit says "too many failed
+  attempts for that email", which is true whether or not the account exists.
+  A reset over its limit sends nothing and answers exactly as a sent one, so
+  it cannot be used to tell which addresses are being asked about.
+- **The cost of the account limit.** Someone can keep an account's sign-in
+  shut for 15 minutes at a time by failing on purpose. A password reset still
+  works. That is the usual trade for stopping a password being guessed from
+  many machines.
+- **`/api/auth` takes GETs only.** Nothing in the app writes through it:
+  every auth call is a Server Action, and `authClient` is not used by any
+  page. Writes answer 404. GETs pass through, which covers the verification
+  and reset links and an OAuth callback. The scaffold's comment that the
+  route "must not be narrowed" predates any of that and is replaced. The OAuth
+  verifier exchange runs in `proxy.ts` through the SDK middleware, which calls
+  Managed Auth directly, so it is unaffected. A browser-side auth call added
+  later needs its path opened there, with the same limits in front of it.
+
+Still open from the same audit: whether Managed Auth can be told the
+visitor's IP (a question for Neon), and holding a new account's codes until
+its email is verified.
+
 ## The blog, 10 November 2026
 
 A blog at `/blog`, written and published by staff from `/admin/blog`, built
