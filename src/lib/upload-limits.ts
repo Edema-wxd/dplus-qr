@@ -9,7 +9,7 @@
  * so it is safe in a client component and tested without a network.
  */
 
-export type UploadEndpoint = "logo" | "pageImage" | "pagePdf" | "pageVideo" | "pageAudio";
+export type UploadEndpoint = "logo" | "pageImage" | "pagePdf" | "pageVideo" | "pageAudio" | "blogImage";
 
 type Limit = {
   /** In UploadThing's notation, which it parses with 1024-byte units. */
@@ -26,6 +26,8 @@ export const UPLOAD_LIMITS: Record<UploadEndpoint, Limit> = {
   pagePdf: { maxFileSize: "16MB", maxFileCount: 1, noun: "PDF" },
   pageVideo: { maxFileSize: "64MB", maxFileCount: 1, noun: "video" },
   pageAudio: { maxFileSize: "16MB", maxFileCount: 10, noun: "track" },
+  // Staff only: covers and figures for blog posts.
+  blogImage: { maxFileSize: "4MB", maxFileCount: 1, noun: "image" },
 };
 
 /** Bytes in a limit, counted as UploadThing counts them (1MB = 1024 × 1024). */

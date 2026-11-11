@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { isAdmin } from "@/lib/admin";
+import { resolvePublicSlug } from "@/lib/blog";
+import { SLUG_PATTERN } from "@/lib/blog-schema";
 import { reportError } from "@/lib/error-alerts";
 import {
   SESSION_DATA_COOKIE,
@@ -12,7 +14,8 @@ import {
  * Route protection. In Next 16 this file is `proxy.ts`; `middleware.ts` is
  * deprecated.
  *
- * The matcher lists only the protected pages. It must never cover everything:
+ * The matcher lists only the protected pages, plus blog posts for their status
+ * codes (see `blogPostStatus`). It must never cover everything:
  * a catch-all matcher redirects CSS and JavaScript for signed-out visitors, so
  * the sign-in page itself cannot load.
  *
@@ -43,6 +46,8 @@ const NOWHERE = "/_nowhere/404";
  */
 export default async function proxy(request: NextRequest) {
   try {
+    const post = BLOG_POST.exec(request.nextUrl.pathname);
+    if (post) return await blogPostStatus(request, post[1]);
     return await guard(request);
   } catch (error) {
     await reportError(error, {
@@ -52,6 +57,53 @@ export default async function proxy(request: NextRequest) {
     });
     throw error;
   }
+}
+
+/**
+ * A blog post: public, indexed, and never behind a session, so Neon Auth's
+ * middleware is not run here at all.
+ *
+ * The proxy is here for one thing, the status code. The post page streams,
+ * and a streamed page has sent a 200 before it can call `notFound()` or
+ * redirect, so a draft would be a "soft 404" and a renamed post's old address
+ * a meta refresh. Search engines and the crawlers that read for answer
+ * engines want the real thing: 404 for a post that is not public, 308 from an
+ * address a post used to have. One small query decides; the page's own check
+ * stays the real one, and when this cannot tell (the database slow or down)
+ * the request goes on to it.
+ *
+ * The feed and the `.md` copies pass straight on to their own routes. An
+ * address typed with capitals is sent to its lower-case form.
+ */
+const BLOG_POST = /^\/blog\/([^/]+)$/;
+
+/** The feed and the Markdown copies: files with their own routes, not posts. */
+const BLOG_FILE = /\.(md|xml)$/;
+
+async function blogPostStatus(request: NextRequest, segment: string): Promise<NextResponse> {
+  if (BLOG_FILE.test(segment)) return NextResponse.next();
+
+  // Addresses are lower case. One typed with capitals is the same post; one
+  // that could never be a slug is missing, with no lookup needed.
+  const slug = segment.toLowerCase();
+  if (!SLUG_PATTERN.test(slug)) return NextResponse.rewrite(new URL(NOWHERE, request.url));
+
+  try {
+    const found = await resolvePublicSlug(slug);
+    if (found.kind === "missing") return NextResponse.rewrite(new URL(NOWHERE, request.url));
+    const target = found.kind === "moved" ? found.slug : slug;
+    if (target !== segment) {
+      // The proxy needs an absolute Location (a relative one throws "Invalid
+      // URL"). The request's own URL, re-pathed, keeps its host and query;
+      // on Vercel that host is the public one.
+      const moved = request.nextUrl.clone();
+      moved.pathname = `/blog/${target}`;
+      return NextResponse.redirect(moved, 308);
+    }
+  } catch (error) {
+    console.error("[proxy] blog post lookup failed; leaving it to the page", error);
+  }
+  return NextResponse.next();
 }
 
 async function guard(request: NextRequest) {
@@ -154,5 +206,7 @@ function setCookieValue(response: Response, name: string): string | null {
 export const config = {
   // `/admin` is here for the session refresh and to answer non-staff with a
   // 404; see above. Its guard is still `requireStaff()`, on every request.
-  matcher: ["/account/:path*", "/app/:path*", "/billing/:path*", "/admin/:path*"],
+  // `/blog/:slug` (one segment: a post, never the index or its card) is here
+  // only for its status code; see `blogPostStatus`.
+  matcher: ["/account/:path*", "/app/:path*", "/billing/:path*", "/admin/:path*", "/blog/:slug"],
 };

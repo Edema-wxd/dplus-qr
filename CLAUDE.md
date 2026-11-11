@@ -41,7 +41,9 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - **Adding a route means adding its name to `RESERVED_CODES`** in
   `src/lib/short-code.ts`. Codes share a URL namespace with pages on this host,
   so an unreserved route name can be issued as a code and dead-end a printed
-  code.
+  code. The same goes for a new `proxy.ts` matcher entry or a `next.config.ts`
+  rewrite or redirect: each answers its path ahead of the code. The test in
+  `src/__tests__/custom-codes.test.ts` checks all three.
 - Collisions are resolved by the unique index and a retry, never by checking
   first — checking races.
 
@@ -350,6 +352,11 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
   (`/app/start`, never more than seven, enforced by a test), each step
   recorded, with the drop-off funnel at `/admin/onboarding`. Only ever in
   the person's own account, never a team they work in.
+- Blog at `/blog`, written by staff at `/admin/blog`: Markdown typed or
+  imported from `.md` files, search, answer-engine and sourcing fields with a
+  live checklist, scheduled publishing, a feed, `.md` copies listed in
+  `llms.txt`, and 404/308 decided in `proxy.ts` so posts never soft-404.
+  Raw HTML in a post is never rendered.
 - Production deploys apply pending migrations before building.
 - Monitoring: server errors emailed to staff (throttled, production only,
   `src/lib/error-alerts.ts`) and a Monday summary email. The outside uptime

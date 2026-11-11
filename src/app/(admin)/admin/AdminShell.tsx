@@ -174,6 +174,13 @@ const ACTION_LABELS: Record<string, string> = {
   "customer.warn": "Warning sent",
   "warning.complied": "Warning closed, put right",
   "warning.withdrawn": "Warning withdrawn",
+  "blog.create": "Post created",
+  "blog.update": "Post saved",
+  "blog.publish": "Post published",
+  "blog.schedule": "Post scheduled",
+  "blog.unpublish": "Post unpublished",
+  "blog.delete": "Post deleted",
+  "blog.import": "Post imported",
 };
 
 /** A warning's level as the history says it. The audit row keeps the level, never the text. */

@@ -29,7 +29,7 @@ export type VCardInput = {
 export function escapeVCard(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
-    .replace(/\r?\n/g, "\\n")
+    .replace(/\r\n|\r|\n/g, "\\n")
     .replace(/([,;])/g, "\\$1");
 }
 
