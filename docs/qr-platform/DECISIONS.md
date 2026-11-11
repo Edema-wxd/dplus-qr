@@ -2453,6 +2453,126 @@ nothing; the new subscription's failure and renewal applied to it alone.
 `src/__tests__/billing-apply.test.ts` covers the same decisions without a
 database.
 
+## Sign-in, sign-up and resets are limited here, 10 November 2026
+
+From the security audit of 10 November. These were left to Managed Auth's
+own rate limit, but the Neon Auth SDK calls Managed Auth from this server and
+forwards only the cookie and the origin, never the visitor's IP
+(`@neondatabase/auth` server, `fetchWithAuth` and `PROXY_HEADERS`). Managed
+Auth therefore saw every attempt as coming from Vercel's addresses: either no
+limit on one machine running a password list, or one limit shared by everyone
+on that address. And `/api/auth/[...path]` proxied the whole auth API, so
+`sign-in/email`, `sign-up/email` and `request-password-reset` could be called
+directly, around any limit the Server Actions had.
+
+- **Limits that see the visitor** (`allowAuth` in `src/lib/ratelimit.ts`,
+  Upstash, sliding windows):
+  - sign-in: 30 attempts per visitor per 15 minutes, and 10 *failures* per
+    account per 15 minutes;
+  - sign-up: 5 per visitor per hour;
+  - password reset: 5 per visitor and 3 per address per hour.
+
+  Visitors are keyed by `ipRateKey`, addresses by `emailRateKey`, a salted
+  hash, so no address is stored in Redis. They fail open like every other
+  limiter here, so a Redis outage never locks anyone out.
+- **The answers reveal nothing new.** The account limit says "too many failed
+  attempts for that email", which is true whether or not the account exists.
+  A reset over its limit sends nothing and answers exactly as a sent one, so
+  it cannot be used to tell which addresses are being asked about.
+- **The cost of the account limit.** Someone can keep an account's sign-in
+  shut for 15 minutes at a time by failing on purpose. A password reset still
+  works. That is the usual trade for stopping a password being guessed from
+  many machines.
+- **`/api/auth` takes GETs only.** Nothing in the app writes through it:
+  every auth call is a Server Action, and `authClient` is not used by any
+  page. Writes answer 404. GETs pass through, which covers the verification
+  and reset links and an OAuth callback. The scaffold's comment that the
+  route "must not be narrowed" predates any of that and is replaced. The OAuth
+  verifier exchange runs in `proxy.ts` through the SDK middleware, which calls
+  Managed Auth directly, so it is unaffected. A browser-side auth call added
+  later needs its path opened there, with the same limits in front of it.
+
+Still open from the same audit: whether Managed Auth can be told the
+visitor's IP (a question for Neon), and holding a new account's codes until
+its email is verified.
+
+## The blog, 10 November 2026
+
+A blog at `/blog`, written and published by staff from `/admin/blog`, built
+to be found by search engines and quoted by answer and generative engines.
+Admins only (Francis, 10 Nov 2026): the existing Neon Auth `admin` role, no
+new role. A blog-only "editor" role can come later if writers who are not
+staff need it.
+
+**Posts live in the database, not in files.** Staff publish without a
+deploy, the same reason the pricing copy is `site_content`. Migration `031`
+adds `blog_posts` and `blog_post_slugs`; `032` adds `blog_images`. Additive,
+nothing on the redirect path reads them.
+
+**Markdown, and never HTML.** Bodies are Markdown, rendered by
+`src/lib/blog-markdown.ts` (markdown-it with `html: false`): raw HTML is
+escaped and shown as text, links are limited to http(s), mailto, tel,
+site-relative and `#`, and images must be https. Safe by construction rather
+than by sanitising afterwards. The editor's preview, the page and the feed
+all call the same function.
+
+**`.md` files come in two ways.** One file into the editor (button or drop),
+which fills every field its frontmatter names and says which, with an undo;
+or up to ten at once from the post list, each becoming a draft. Frontmatter
+is parsed by `yaml`, never `gray-matter`, whose `---js` blocks run code. Keys
+from Hugo, Jekyll and Astro are understood (`date`, `lastmod`, `image`,
+`summary`, `categories`); unknown keys are named back. Staff can download a
+template and any post as `.md`.
+
+**The fields, by who reads them.**
+- Search: search title, description, focus keyword, keywords, canonical
+  override, noindex, and the checklist (`auditPost`), which is guidance and
+  never blocks a publish.
+- Answer engines: a short answer of 40–60 words (shown first, marked
+  `abstract` and `speakable`), key takeaways, a FAQ (FAQPage) and steps
+  (HowTo).
+- Generative engines: sources (`citation`), topics (`about`), a named author
+  with role, and a clean Markdown copy of each post at its address plus
+  `.md`, listed in `llms.txt`.
+- Sharing: a generated 1200×630 card per post with a real QR of the post's
+  address, unless staff set their own image. Versioned by the last save, so
+  a re-share picks up an edit.
+
+**Public means published and dated in the past.** One predicate, used by
+the index, the post, the feed, the sitemap and llms.txt, so a future date
+schedules a post with no job to run.
+
+**Honest dates.** The visible "Updated" date moves only when staff tick
+"Mark as updated today". A typo fix never fakes freshness.
+
+**Statuses decided in the proxy.** The post page streams, so a `notFound()`
+or redirect inside it would arrive after a 200. For an indexed page that is a
+soft 404 and a meta-refresh redirect, so `proxy.ts` now matches `/blog/:slug`
+(one segment: never the index, the card or the feed) and answers first:
+404 for anything not public, 308 from an address a post used to have or one
+typed in capitals. One small `failFast` query; when it cannot tell, the page
+decides, as with `/admin`. Neon Auth's middleware is not run for blog
+paths. 308 is correct here: this is the blog, not the redirect path, whose
+codes stay 302.
+
+**Renames keep their links.** Changing the slug of a post that was ever
+live stores the old one in `blog_post_slugs`, which then redirects. Another
+post cannot take an address that redirects to a different post.
+
+**Read per request**, like `/pricing`: an edit is live on the next load, and
+`next build` still needs no database. The sitemap now reads the database too
+and falls back to its fixed pages if it cannot.
+
+**Images.** A staff-only UploadThing endpoint, `blogImage` (PNG, JPEG, WebP,
+4 MB), checked against the admin role in its middleware, recorded in
+`blog_images`. A table of its own because the upload cleanup sweeps
+`qr_files` rows no code points at, and a cover would look like one.
+
+**Before merging:** check no account holds `blog` as a custom code
+(`select short_code from qr_codes where lower(short_code) = 'blog'`). The
+static route would shadow it. `blog` is now reserved, so no new one can be
+claimed.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.

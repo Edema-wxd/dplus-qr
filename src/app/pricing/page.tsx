@@ -95,6 +95,9 @@ export default async function PricingPage() {
             <span aria-current="page" className="text-[var(--paper-ink)]">
               Pricing
             </span>
+            <Link href="/blog" className="text-[var(--paper-soft)] underline underline-offset-4 hover:text-[var(--paper-ink)]">
+              Blog
+            </Link>
             <Link href="/auth/sign-in" className="text-[var(--paper-soft)] underline underline-offset-4 hover:text-[var(--paper-ink)]">
               Sign in
             </Link>

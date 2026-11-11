@@ -107,6 +107,19 @@ describe("pageLinks", () => {
       "https://www.instagram.com/mamaput/",
     ]);
   });
+
+  it("screens a typed link to any UploadThing host, which anyone can publish on", () => {
+    const content = {
+      links: [
+        { label: "Menu", url: "https://someone-else.ufs.sh/f/page.html" },
+        { label: "Old", url: "https://utfs.io/f/key" },
+      ],
+    };
+    expect([...pageLinks(content)].sort()).toEqual([
+      "https://someone-else.ufs.sh/f/page.html",
+      "https://utfs.io/f/key",
+    ]);
+  });
 });
 
 describe("what people are told", () => {
