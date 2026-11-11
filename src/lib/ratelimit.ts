@@ -232,3 +232,46 @@ export async function allowInvite(accountId: string): Promise<boolean> {
     return true;
   }
 }
+
+/**
+ * Verification-link limiter: 5 a day per account.
+ *
+ * A new account's codes are held until its email is confirmed, so a person
+ * whose link expired or went to spam needs a way to ask for another. Each
+ * one is an email from the onboarding address, and it only ever goes to the
+ * signed-in person's own address, so this caps how hard one account can lean
+ * on that sender. Fails open like the others: without Redis, Neon Auth's own
+ * limits still apply.
+ */
+const VERIFY_LIMIT = 5;
+
+let verifyRl: Ratelimit | null | undefined;
+
+function verifyLimiter(): Ratelimit | null {
+  if (verifyRl !== undefined) return verifyRl;
+
+  const client = redis();
+  verifyRl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(VERIFY_LIMIT, "1 d"),
+        prefix: "rl:verify",
+        analytics: false,
+      })
+    : null;
+
+  return verifyRl;
+}
+
+export async function allowVerificationEmail(userId: string): Promise<boolean> {
+  const rl = verifyLimiter();
+  if (!rl) return true;
+
+  try {
+    const { success } = await rl.limit(userId);
+    return success;
+  } catch (error) {
+    console.error("[ratelimit] verification check failed", error);
+    return true;
+  }
+}

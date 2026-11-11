@@ -110,6 +110,12 @@ reliability for a feature, reliability wins. Everything below follows from that.
   on every authenticated page load so it also repairs a missed row.
 - Deliberately no cross-schema foreign key to `neon_auth."user"`: that table
   belongs to a managed service that may reshape it.
+- **A new account's codes are held until its email is confirmed.**
+  `ensureProfile()` sets `qr_users.codes_held_since` only when it creates the
+  row unverified, and clears it (purging the cache) the first time the session
+  says verified. It never sets it on an existing row, so pass the session's
+  `emailVerified` at every call; the type requires it. The redirect reads the
+  column from `qr_users`, never Neon Auth's table (DECISIONS.md, 11 November).
 - `proxy.ts` guards pages. A proxy matcher protects pages, not data — check the
   session again inside any Route Handler or Server Action that reads or writes.
 - Never give the matcher a catch-all: it would redirect CSS and JS for

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { ensureProfile } from "@/lib/profile";
+import { VerifyBanner } from "../VerifyBanner";
 import { resolveScope } from "@/lib/resolve-scope";
 import type { AccountScope } from "@/lib/account-scope";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
@@ -73,7 +74,12 @@ export default async function StartPage({
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
 
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  const profile = await ensureProfile({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    emailVerified: user.emailVerified,
+  });
   const scope = await resolveScope();
   if (!scope) redirect("/auth/sign-in");
   if (!isOwnAccount(scope)) redirect("/app");
@@ -137,7 +143,12 @@ export default async function StartPage({
       return screen === "download" ? (
         <DownloadScreen code={code} reveal={params.made === "1"} back={back} />
       ) : (
-        <ScanScreen scope={scope} code={code} back={back} />
+        <ScanScreen
+          scope={scope}
+          code={code}
+          back={back}
+          heldFor={profile.codesHeldSince ? user.email : null}
+        />
       );
   }
 }
@@ -287,15 +298,27 @@ function DownloadScreen({
   );
 }
 
-/** Screen 6: scan it, and see the scan arrive. */
+/**
+ * Screen 6: scan it, and see the scan arrive.
+ *
+ * An account whose email is not confirmed yet has its codes held (migration
+ * 033): a scan shows the paused page and records nothing, so this screen
+ * would wait forever. It says so above the watcher, with a way to get a new
+ * link. Clicking the link and reloading releases the hold, and the watcher
+ * then sees the scan like anyone else's. No extra step: the onboarding stays
+ * at six screens.
+ */
 async function ScanScreen({
   scope,
   code,
   back,
+  heldFor,
 }: {
   scope: AccountScope;
   code: OwnedCode;
   back: { href: string; label: string } | null;
+  /** The address to confirm, while the account's codes are held. */
+  heldFor: string | null;
 }) {
   // A scan made before this screen opened (from the printed proof, say)
   // counts: the screen opens on it rather than waiting for another.
@@ -337,6 +360,7 @@ async function ScanScreen({
       <div className="mb-8 w-48 rounded-xl border border-[var(--paper-rule)] bg-white p-4 lg:hidden">
         <CodeArt code={code} px={176} />
       </div>
+      {heldFor ? <VerifyBanner email={heldFor} held /> : null}
       <ScanWatcher
         initial={scan ? { at: scan.scannedAt.toISOString(), where: describeScan(scan) } : null}
       />

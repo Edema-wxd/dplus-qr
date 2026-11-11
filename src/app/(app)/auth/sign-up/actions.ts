@@ -87,7 +87,12 @@ export async function signUpAction(
   if (data?.user) {
     let profiled = false;
     try {
-      await ensureProfile({ id: data.user.id, email: data.user.email, name: data.user.name });
+      await ensureProfile({
+        id: data.user.id,
+        email: data.user.email,
+        name: data.user.name,
+        emailVerified: data.user.emailVerified,
+      });
       profiled = true;
     } catch (profileError) {
       // The account exists and the person is signed in. Failing here would

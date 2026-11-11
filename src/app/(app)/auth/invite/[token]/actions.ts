@@ -25,7 +25,7 @@ export async function acceptInviteAction(_previous: AcceptState, formData: FormD
 
   // The member row references the profile, which a brand-new account may
   // not have yet if its first stop is this page.
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  await ensureProfile({ id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified });
 
   let result;
   try {

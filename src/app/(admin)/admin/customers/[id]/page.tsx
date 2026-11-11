@@ -87,7 +87,9 @@ export default async function AdminCustomer({ params }: { params: Promise<{ id: 
   // something is about to change, when.
   const planNote = customer.suspendedAt
     ? "Suspended, so codes show the paused page"
-    : !entitlement
+    : customer.codesHeldSince
+      ? "Email not confirmed, so codes show the paused page"
+      : !entitlement
       ? "No plan, so codes show the paused page"
       : live?.status === "past_due"
         ? live.graceUntil

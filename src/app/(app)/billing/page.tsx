@@ -68,6 +68,7 @@ export default async function BillingPage() {
     id: user.id,
     email: user.email,
     name: user.name,
+    emailVerified: user.emailVerified,
   });
 
   const [state, plans, content] = await Promise.all([
