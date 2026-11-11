@@ -32,6 +32,10 @@ export const FLASH_MESSAGES = {
   },
   "signed-out": { title: "Signed out" },
   "plan-created": { title: "Plan created" },
+  "post-created": { title: "Post created", description: "It is a draft until you publish it." },
+  "post-deleted": { title: "Draft deleted" },
+  "post-published": { title: "Published", description: "The post is live on the blog." },
+  "post-scheduled": { title: "Scheduled", description: "The post goes live on its publish date." },
 } as const satisfies Record<string, { title: string; description?: string }>;
 
 export type FlashKey = keyof typeof FLASH_MESSAGES;

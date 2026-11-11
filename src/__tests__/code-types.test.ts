@@ -270,6 +270,13 @@ describe("page helpers", () => {
     expect(ics).toContain("SUMMARY:Launch\\, night");
   });
 
+  it("escapes a bare carriage return, so a title cannot add a calendar property", () => {
+    const start = eventInstant("2026-11-20T18:00", "+01:00");
+    const ics = buildIcs({ uid: "x@y", title: "Party\rATTACH:https://e.example/x", start });
+    expect(ics).toContain("SUMMARY:Party\\nATTACH:https://e.example/x");
+    expect(ics).not.toMatch(/\rATTACH/);
+  });
+
   describe("which store an app code sends a phone to", () => {
     const IPHONE =
       "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";

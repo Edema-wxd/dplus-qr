@@ -2447,6 +2447,259 @@ hold does not: a code that cannot open cannot phish.
 The rest of M3 is not in this change: `WEB_RISK_API_KEY` is still unset in
 production (below), and the auth rate limits are H2.
 
+## Billing events name their subscription, 10 November 2026
+
+From the security audit of 10 November. An upgrade is a new Paystack
+subscription (Paystack has no plan swap), but nothing ever stopped the old
+one, and every webhook write matched *any* live row of the account. So an
+upgrader was billed for both plans, and the old subscription's events landed
+on the new plan:
+
+- cancelling the leftover Starter subscription, or its card failing, lapsed
+  the paid Business row, and the account's codes paused;
+- a Starter renewal cleared a failed Business payment's grace, so an account
+  could keep Business while paying the Starter price.
+
+What changed (`src/lib/billing.ts`, `src/lib/billing-events.ts`):
+
+- **Every write names its row.** `invoice.payment_failed`,
+  `subscription.not_renew` and `subscription.disable` match on
+  `paystack_subscription_code`, read from the top of `data` or from
+  `data.subscription`, where invoice events nest it. One that names no
+  subscription is deferred to staff instead of guessed at. `charge.success`
+  renews only the live row on the charge's plan (and on its subscription when
+  the charge names one). An event that matches no live row changes nothing
+  and sends no email: that is the replaced subscription's own events arriving.
+- **An upgrade stops the subscription it replaces.** `activate` returns the
+  rows it superseded and, after the commit, calls `disableSubscription` for
+  each one still renewing. A failure there leaves the new plan live and
+  emails staff, since the customer is then billed twice until someone
+  disables it in the Paystack dashboard.
+- **Activation must have been asked for.** `subscription.create` carries no
+  metadata, so the account comes from the customer email, and anyone can pay
+  with someone else's address through Paystack Inline. Since activating now
+  also stops the account's current subscription, a forged one would cancel a
+  real customer's plan. So `startCheckout` records each checkout in
+  `qr_checkout_intents` (migration 031), with a reference of our own passed
+  to `transaction/initialize`, *before* calling Paystack. An activation is
+  applied only when it matches an unused checkout for that account and plan
+  from the last seven days, or when the subscription is already this
+  account's (Paystack re-sending it). Anything else is deferred, alerted and
+  left unprocessed. The checkout is marked used in the same transaction.
+
+Consequences:
+
+- A subscription created by hand in the Paystack dashboard no longer
+  activates on its own. It is deferred, and staff assign the plan from
+  `/admin/customers`.
+- Narrow residual: within seven days of someone starting, and not finishing,
+  a checkout for plan X, a payment for plan X made with their email still
+  activates. It needs the victim's own recent, abandoned checkout for that
+  exact plan.
+- Still open from the same audit: matching by email and `metadata.user_id` at
+  all (charges should be accepted only for a reference we issued, with the
+  plan's amount). Retrying an unprocessed event and a period-end backstop
+  followed on 11 November.
+
+Checked against a local Postgres with every migration applied: a forged
+`subscription.create` deferred with the Starter row untouched; the real
+upgrade cancelled Starter, activated Business, used up the checkout and tried
+to stop `SUB_old`; the old subscription's disable and renewal then changed
+nothing; the new subscription's failure and renewal applied to it alone.
+`src/__tests__/billing-apply.test.ts` covers the same decisions without a
+database.
+
+## Paystack events are retried, and period ends are checked, 11 November 2026
+
+From the security audit of 10 November (M2). Two ways a payment state went
+wrong and stayed wrong:
+
+- **A failed event was never tried again.** The webhook answered 200 first and
+  applied the event in `after()`, so Paystack never re-sent anything, and the
+  log row was written before processing, so if Paystack had re-sent, the
+  re-delivery would have been dropped as a duplicate. A database cold start
+  while a `charge.success` was being applied left a paying customer
+  unactivated, with nothing to bring it back. Deferred events waited on a
+  "replay" that did not exist.
+- **Nothing backed up a lost webhook.** No code that serves a code looks at
+  `current_period_end`. A lost `subscription.disable` left a cancelled account
+  on its paid plan for good.
+
+What changed:
+
+- **The webhook applies the event, then answers** (`route.ts`). 200 for
+  applied, ignored, duplicate and deferred; 500 when applying throws, so
+  Paystack re-delivers it; 503 while another attempt holds it. Only the
+  database work is waited on. Stopping a replaced subscription, purging
+  cached destinations, customer email and staff alerts come back from
+  `applyPaystackEvent` as `followUp` and run in `after()`. This reverses the
+  route's old rule "never 500 on our own bug": Paystack retrying an event that
+  fails the same way each time costs a throttled error email, while a lost
+  event costs a customer their plan.
+- **Only a processed event stops a delivery** (migration 032). The log
+  insert is now a claim: a new event is inserted claimed; one seen before is
+  claimed again if it is unprocessed and its claim (`claimed_at`) is older
+  than two minutes. So a re-delivery that overlaps a slow first attempt gets
+  503 instead of applying the charge twice, and one that follows a failed
+  attempt applies it. `attempts` counts claims. Applied and deferred events
+  release their claim; a thrown attempt leaves it to lapse.
+- **Staff can retry an event** from Unapplied Paystack events on the admin
+  overview (`retryPaystackEvent`, `payment-actions.ts`). It goes through the
+  same claim and checks as a delivery, under the event's stored key, so it
+  cannot apply an event twice or activate a plan the webhook would refuse.
+  Each retry is recorded in `qr_admin_audit`.
+- **A daily job, `/api/cron/billing` at 03:20, before the grace job:**
+  - `retryStuckEvents` retries up to 20 unprocessed events from the last
+    fortnight that have no recorded reason (they threw, not deferred) and
+    have been untouched for an hour. Deferred ones wait for staff.
+  - `reconcileOverdueSubscriptions` (`src/lib/billing-reconcile.ts`) reads
+    back from Paystack every subscription still `active` here two days after
+    its period ended:
+    - `cancelled` or `completed` there ends it here;
+    - `active` or `non-renewing` with a later next payment date moves the
+      period on;
+    - `attention` starts the plan's grace period and emails the customer, as
+      a failed invoice would.
+    
+    Anything else, a plan that differs, or a failed read changes nothing and
+    goes to staff in one email a day. Each write requires the row to be
+    exactly as read, so a webhook that lands meanwhile wins.
+
+The reconciliation is a **new writer of `qr_subscriptions`**. The reason: the
+evidence it acts on is Paystack's own record, read with our secret key. That
+is the authority a webhook carries, so this is the webhook's answer fetched
+rather than pushed. It acts only where the answer is plain, and never on our
+own clock alone: a period end passing without a renewal is not, by itself,
+reason to take a printed code down.
+
+Not changed: past-due rows are not read back, because the grace job already
+ends them; and free and staff-assigned plans have no Paystack subscription
+to check.
+
+`src/__tests__/billing-apply.test.ts`, `paystack-webhook-route.test.ts` and
+`billing-reconcile.test.ts` cover the claim, the status codes and each
+reconciliation rule.
+
+## Sign-in, sign-up and resets are limited here, 10 November 2026
+
+From the security audit of 10 November. These were left to Managed Auth's
+own rate limit, but the Neon Auth SDK calls Managed Auth from this server and
+forwards only the cookie and the origin, never the visitor's IP
+(`@neondatabase/auth` server, `fetchWithAuth` and `PROXY_HEADERS`). Managed
+Auth therefore saw every attempt as coming from Vercel's addresses: either no
+limit on one machine running a password list, or one limit shared by everyone
+on that address. And `/api/auth/[...path]` proxied the whole auth API, so
+`sign-in/email`, `sign-up/email` and `request-password-reset` could be called
+directly, around any limit the Server Actions had.
+
+- **Limits that see the visitor** (`allowAuth` in `src/lib/ratelimit.ts`,
+  Upstash, sliding windows):
+  - sign-in: 30 attempts per visitor per 15 minutes, and 10 *failures* per
+    account per 15 minutes;
+  - sign-up: 5 per visitor per hour;
+  - password reset: 5 per visitor and 3 per address per hour.
+
+  Visitors are keyed by `ipRateKey`, addresses by `emailRateKey`, a salted
+  hash, so no address is stored in Redis. They fail open like every other
+  limiter here, so a Redis outage never locks anyone out.
+- **The answers reveal nothing new.** The account limit says "too many failed
+  attempts for that email", which is true whether or not the account exists.
+  A reset over its limit sends nothing and answers exactly as a sent one, so
+  it cannot be used to tell which addresses are being asked about.
+- **The cost of the account limit.** Someone can keep an account's sign-in
+  shut for 15 minutes at a time by failing on purpose. A password reset still
+  works. That is the usual trade for stopping a password being guessed from
+  many machines.
+- **`/api/auth` takes GETs only.** Nothing in the app writes through it:
+  every auth call is a Server Action, and `authClient` is not used by any
+  page. Writes answer 404. GETs pass through, which covers the verification
+  and reset links and an OAuth callback. The scaffold's comment that the
+  route "must not be narrowed" predates any of that and is replaced. The OAuth
+  verifier exchange runs in `proxy.ts` through the SDK middleware, which calls
+  Managed Auth directly, so it is unaffected. A browser-side auth call added
+  later needs its path opened there, with the same limits in front of it.
+
+Still open from the same audit: whether Managed Auth can be told the
+visitor's IP (a question for Neon), and holding a new account's codes until
+its email is verified.
+
+## The blog, 10 November 2026
+
+A blog at `/blog`, written and published by staff from `/admin/blog`, built
+to be found by search engines and quoted by answer and generative engines.
+Admins only (Francis, 10 Nov 2026): the existing Neon Auth `admin` role, no
+new role. A blog-only "editor" role can come later if writers who are not
+staff need it.
+
+**Posts live in the database, not in files.** Staff publish without a
+deploy, the same reason the pricing copy is `site_content`. Migration `031`
+adds `blog_posts` and `blog_post_slugs`; `032` adds `blog_images`. Additive,
+nothing on the redirect path reads them.
+
+**Markdown, and never HTML.** Bodies are Markdown, rendered by
+`src/lib/blog-markdown.ts` (markdown-it with `html: false`): raw HTML is
+escaped and shown as text, links are limited to http(s), mailto, tel,
+site-relative and `#`, and images must be https. Safe by construction rather
+than by sanitising afterwards. The editor's preview, the page and the feed
+all call the same function.
+
+**`.md` files come in two ways.** One file into the editor (button or drop),
+which fills every field its frontmatter names and says which, with an undo;
+or up to ten at once from the post list, each becoming a draft. Frontmatter
+is parsed by `yaml`, never `gray-matter`, whose `---js` blocks run code. Keys
+from Hugo, Jekyll and Astro are understood (`date`, `lastmod`, `image`,
+`summary`, `categories`); unknown keys are named back. Staff can download a
+template and any post as `.md`.
+
+**The fields, by who reads them.**
+- Search: search title, description, focus keyword, keywords, canonical
+  override, noindex, and the checklist (`auditPost`), which is guidance and
+  never blocks a publish.
+- Answer engines: a short answer of 40–60 words (shown first, marked
+  `abstract` and `speakable`), key takeaways, a FAQ (FAQPage) and steps
+  (HowTo).
+- Generative engines: sources (`citation`), topics (`about`), a named author
+  with role, and a clean Markdown copy of each post at its address plus
+  `.md`, listed in `llms.txt`.
+- Sharing: a generated 1200×630 card per post with a real QR of the post's
+  address, unless staff set their own image. Versioned by the last save, so
+  a re-share picks up an edit.
+
+**Public means published and dated in the past.** One predicate, used by
+the index, the post, the feed, the sitemap and llms.txt, so a future date
+schedules a post with no job to run.
+
+**Honest dates.** The visible "Updated" date moves only when staff tick
+"Mark as updated today". A typo fix never fakes freshness.
+
+**Statuses decided in the proxy.** The post page streams, so a `notFound()`
+or redirect inside it would arrive after a 200. For an indexed page that is a
+soft 404 and a meta-refresh redirect, so `proxy.ts` now matches `/blog/:slug`
+(one segment: never the index, the card or the feed) and answers first:
+404 for anything not public, 308 from an address a post used to have or one
+typed in capitals. One small `failFast` query; when it cannot tell, the page
+decides, as with `/admin`. Neon Auth's middleware is not run for blog
+paths. 308 is correct here: this is the blog, not the redirect path, whose
+codes stay 302.
+
+**Renames keep their links.** Changing the slug of a post that was ever
+live stores the old one in `blog_post_slugs`, which then redirects. Another
+post cannot take an address that redirects to a different post.
+
+**Read per request**, like `/pricing`: an edit is live on the next load, and
+`next build` still needs no database. The sitemap now reads the database too
+and falls back to its fixed pages if it cannot.
+
+**Images.** A staff-only UploadThing endpoint, `blogImage` (PNG, JPEG, WebP,
+4 MB), checked against the admin role in its middleware, recorded in
+`blog_images`. A table of its own because the upload cleanup sweeps
+`qr_files` rows no code points at, and a cover would look like one.
+
+**Before merging:** check no account holds `blog` as a custom code
+(`select short_code from qr_codes where lower(short_code) = 'blog'`). The
+static route would shadow it. `blog` is now reserved, so no new one can be
+claimed.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.

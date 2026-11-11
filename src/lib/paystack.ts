@@ -74,7 +74,9 @@ export function verifySignature(rawBody: string, signature: string | null): bool
     .update(rawBody, "utf8")
     .digest("hex");
 
-  if (signature.length !== expected.length) return false;
+  // Hex only, so the byte lengths `timingSafeEqual` compares always match;
+  // a non-ASCII header would otherwise throw instead of being refused.
+  if (!/^[0-9a-f]{128}$/.test(signature)) return false;
 
   return timingSafeEqual(Buffer.from(signature, "utf8"), Buffer.from(expected, "utf8"));
 }
@@ -95,6 +97,9 @@ export type InitializedTransaction = {
  * `metadata.user_id` is how a webhook arriving later is tied back to an
  * account. The customer email alone is not enough: Neon Auth lets an email
  * change, and the charge would then belong to nobody.
+ *
+ * `reference` is ours, recorded in `qr_checkout_intents` before this call, so
+ * the webhook can tell a checkout this app started from one it did not.
  */
 export function initializeTransaction(input: {
   email: string;
@@ -102,6 +107,7 @@ export function initializeTransaction(input: {
   planCode: string;
   userId: string;
   callbackUrl: string;
+  reference: string;
 }): Promise<InitializedTransaction> {
   return call<InitializedTransaction>("/transaction/initialize", {
     method: "POST",
@@ -110,6 +116,7 @@ export function initializeTransaction(input: {
       amount: input.amountKobo,
       plan: input.planCode,
       callback_url: input.callbackUrl,
+      reference: input.reference,
       metadata: { user_id: input.userId },
     },
   });

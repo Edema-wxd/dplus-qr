@@ -155,6 +155,9 @@ export function LegalShell({ doc }: { doc: LegalDocument }) {
             <Link href="/" className="underline underline-offset-4 hover:text-[var(--paper-ink)]">
               Home
             </Link>
+            <Link href="/blog" className="underline underline-offset-4 hover:text-[var(--paper-ink)]">
+              Blog
+            </Link>
           </nav>
         </footer>
       </main>
