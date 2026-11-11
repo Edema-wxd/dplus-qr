@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   checkCustomCode,
@@ -152,5 +152,51 @@ describe("every route on this host is reserved", () => {
 
   it.each(routes)("%s is in RESERVED_CODES, so no code can shadow it", (route) => {
     expect(RESERVED_CODES.has(route.toLowerCase())).toBe(true);
+  });
+});
+
+/**
+ * Routes are not the only things that answer a path on this host. A proxy
+ * matcher entry like `/foo/:path*` also matches `/foo` itself, and a rewrite
+ * or redirect in `next.config.ts` claims its source. Either would intercept a
+ * code named `foo` (a sign-in redirect, a rewrite elsewhere) with no route
+ * folder for the test above to find. Security audit M7, 11 November 2026.
+ */
+describe("every path the proxy or next.config claims is reserved", () => {
+  const root = path.join(__dirname, "..", "..");
+
+  /** The first segment of a path pattern: `/blog/:slug.md` is `blog`. */
+  function firstSegment(pattern: string): string | null {
+    const segment = pattern.replace(/^\//, "").split(/[/:(]/)[0];
+    return segment ? segment : null;
+  }
+
+  function matcherPaths(): string[] {
+    const source = readFileSync(path.join(root, "src", "proxy.ts"), "utf8");
+    const matcher = /matcher:\s*\[([^\]]*)\]/.exec(source)?.[1];
+    if (!matcher) throw new Error("proxy.ts has no matcher array this test can read");
+    return [...matcher.matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+  }
+
+  function configSources(): string[] {
+    const source = readFileSync(path.join(root, "next.config.ts"), "utf8");
+    return [...source.matchAll(/source:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+  }
+
+  const matchers = matcherPaths();
+  const sources = configSources();
+
+  it("reads the proxy's matcher", () => {
+    expect(matchers).toEqual(expect.arrayContaining(["/app/:path*", "/admin/:path*"]));
+  });
+
+  it("never lets the proxy match every path, which would include every code", () => {
+    for (const pattern of matchers) expect(firstSegment(pattern)).not.toBeNull();
+  });
+
+  it.each([...matchers, ...sources])("%s starts with a reserved name", (pattern) => {
+    const segment = firstSegment(pattern);
+    expect(segment).not.toBeNull();
+    expect(RESERVED_CODES.has(segment!.toLowerCase())).toBe(true);
   });
 });

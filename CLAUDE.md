@@ -41,7 +41,9 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - **Adding a route means adding its name to `RESERVED_CODES`** in
   `src/lib/short-code.ts`. Codes share a URL namespace with pages on this host,
   so an unreserved route name can be issued as a code and dead-end a printed
-  code.
+  code. The same goes for a new `proxy.ts` matcher entry or a `next.config.ts`
+  rewrite or redirect: each answers its path ahead of the code. The test in
+  `src/__tests__/custom-codes.test.ts` checks all three.
 - Collisions are resolved by the unique index and a retry, never by checking
   first — checking races.
 
