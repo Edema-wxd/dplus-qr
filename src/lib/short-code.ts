@@ -18,7 +18,9 @@ const CODE_PATTERN = new RegExp(`^[${ALPHABET}]{${CODE_LENGTH}}$`);
  * a 7-character name, but a custom code (see `checkCustomCode`) can be any
  * word, so an unreserved `/pricing` could be claimed today and dead-end the
  * day a pricing page ships. `src/__tests__/custom-codes.test.ts` fails the
- * suite if a route under `src/app` is missing from this set.
+ * suite if a route under `src/app` is missing from this set, and likewise the
+ * first segment of every `proxy.ts` matcher entry and every `next.config.ts`
+ * rewrite or redirect source, which answer a path just as a route does.
  */
 export const RESERVED_CODES: ReadonlySet<string> = new Set([
   // The landing page's specimen. It is printed on a public page and answered
