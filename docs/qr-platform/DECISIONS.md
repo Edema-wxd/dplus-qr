@@ -2469,6 +2469,63 @@ and falls back to its fixed pages if it cannot.
 static route would shadow it. `blog` is now reserved, so no new one can be
 claimed.
 
+## Signing out ends every session, at once, 11 November 2026
+
+The sign-out button used to end only the session on the device that pressed
+it. Every other device stayed signed in, and even a revoked session kept
+working for up to five minutes, because Neon Auth gives each device a signed
+copy of its session (`session_data`) that the SDK trusts without asking
+anyone until it expires.
+
+Now signing out ends every session the person has, on every device, and
+each device notices on its next request:
+
+- **The action** (`signOutAction`, `src/app/(app)/auth/sign-in/actions.ts`):
+  - asks Neon Auth to revoke all the person's sessions (`revokeSessions`);
+  - deletes their rows from `neon_auth.session` directly (`endAllSessions`,
+    `src/lib/auth/sessions.ts`), so it holds even when that call fails;
+  - clears every `__Secure-neon-auth.*` cookie on this device, whatever
+    happened before.
+
+  If both the revoke and the delete fail, this device is still signed out,
+  the toast says the other devices could not be, and staff get the error.
+- **Every session read:** `auth.getSession()` in `src/lib/auth/server.ts`
+  checks the session's row still exists. It does this once per request per
+  session, and refuses a session whose row is gone, however fresh its cached
+  copy. Every page, Server Action, Route Handler and `resolveScope` goes
+  through it, so nothing needed changing at the call sites.
+- **The admin:** the proxy's staff check does the same, so a staff member's
+  other devices get the ordinary 404.
+
+**Choices**
+- **Deleting rows in `neon_auth` directly.** That schema belongs to the
+  managed service, which is why nothing has a foreign key into it. The two
+  statements name only `id`, `userId` and `expiresAt`, the columns Better
+  Auth's session model is built on. We delete as well as calling the API
+  because the delete is one statement in our own database: certain and
+  immediate, with no dependence on another service answering.
+- **A failed check trusts the cookie.** If the database cannot be asked,
+  `getSession` goes by the SDK's answer. Saying no instead would bounce
+  everyone to sign-in on a blip, and with the database down the page fails on
+  its own reads anyway. The cost is that a revoked session then lasts until
+  its cached copy expires, which is how sign-out behaved before.
+- **"On its next request", not pushed.** A page already open on another
+  device stays on screen until it is used. Its next load, form submission or
+  download is refused.
+- **Sign-out means everywhere, always.** There is no "this device only"
+  option. If one is wanted later, it is `auth.signOut()` behind a second
+  button.
+
+**Verified**
+- `sign-out-everywhere.test.ts` covers:
+  - the action, including each failure path;
+  - `getSession` refusing a dead session, trusting on a database error, and
+    skipping the check when there is no session;
+  - the proxy sending a dead staff session to the 404.
+- Both statements were run against production's `neon_auth.session` over the
+  pooled connection the app uses. The read was for a random id; the delete ran
+  inside a transaction that was rolled back.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.

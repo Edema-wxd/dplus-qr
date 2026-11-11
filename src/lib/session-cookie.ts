@@ -18,6 +18,23 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const SESSION_TOKEN_COOKIE = "__Secure-neon-auth.session_token";
 export const SESSION_DATA_COOKIE = "__Secure-neon-auth.local.session_data";
+/** Every Neon Auth cookie starts with this; sign-out clears them all. */
+export const AUTH_COOKIE_PREFIX = "__Secure-neon-auth.";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The session id in what `getSession` returned, when it is one the table can
+ * be asked about. Null when there is no session, or its shape is not the
+ * one expected, in which case the caller cannot check and goes by the SDK.
+ */
+export function sessionIdOf(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const session = (data as { session?: unknown }).session;
+  if (!session || typeof session !== "object") return null;
+  const id = (session as { id?: unknown }).id;
+  return typeof id === "string" && UUID.test(id) ? id : null;
+}
 
 function base64url(input: Buffer | string): string {
   return Buffer.from(input).toString("base64url");
@@ -36,6 +53,19 @@ function decodeJson(segment: string): Record<string, unknown> | null {
 
 /** The user id in a valid, unexpired `session_data` token, or null. */
 export function verifiedSessionUserId(token: string, secret: string, now = Date.now()): string | null {
+  return verifiedSession(token, secret, now)?.userId ?? null;
+}
+
+/**
+ * The user and session ids in a valid, unexpired `session_data` token, or
+ * null. The session id is null when the token does not carry one, so the
+ * caller cannot ask whether the session still exists.
+ */
+export function verifiedSession(
+  token: string,
+  secret: string,
+  now = Date.now()
+): { userId: string; sessionId: string | null } | null {
   const parts = token.split(".");
   if (parts.length !== 3 || !secret) return null;
   const [header, payload, signature] = parts;
@@ -52,7 +82,8 @@ export function verifiedSessionUserId(token: string, secret: string, now = Date.
 
   const user = claims.user as { id?: unknown } | undefined;
   const id = typeof user?.id === "string" ? user.id : claims.sub;
-  return typeof id === "string" && id !== "" && id !== "anonymous" ? id : null;
+  if (typeof id !== "string" || id === "" || id === "anonymous") return null;
+  return { userId: id, sessionId: sessionIdOf(claims) };
 }
 
 /** Sign a token the way Neon Auth does. For tests. */
