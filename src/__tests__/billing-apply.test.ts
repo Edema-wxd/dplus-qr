@@ -68,7 +68,7 @@ jest.mock("@/lib/billing-notify", () => ({
 
 jest.mock("@/lib/codes", () => ({ purgeDestination: async () => {} }));
 
-import { applyPaystackEvent } from "@/lib/billing";
+import { applyPaystackEvent, retryPaystackEvent, retryStuckEvents } from "@/lib/billing";
 
 const VICTIM = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";
@@ -148,6 +148,10 @@ describe("activating a subscription", () => {
     const [consume] = ran("update qr_checkout_intents");
     expect(consume.inTransaction).toBe(true);
     expect(consume.params).toEqual(["77", "SUB_new"]);
+    // Nothing outside the database happens until the caller has answered.
+    expect(disableSubscription).not.toHaveBeenCalled();
+    expect(notified).toEqual([]);
+    await outcome.followUp?.();
     expect(disableSubscription).toHaveBeenCalledTimes(1);
     expect(disableSubscription).toHaveBeenCalledWith("SUB_old", "tok_old");
     expect(notified).toEqual(["succeeded"]);
@@ -164,7 +168,8 @@ describe("activating a subscription", () => {
         ],
       }
     );
-    await applyPaystackEvent(create());
+    const outcome = await applyPaystackEvent(create());
+    await outcome.followUp?.();
     expect(disableSubscription).not.toHaveBeenCalled();
   });
 
@@ -183,6 +188,7 @@ describe("activating a subscription", () => {
     const quiet = jest.spyOn(console, "error").mockImplementation(() => {});
 
     const outcome = await applyPaystackEvent(create());
+    await outcome.followUp?.();
 
     expect(outcome.kind).toBe("applied");
     expect(alertOnce).toHaveBeenCalledTimes(1);
@@ -218,9 +224,10 @@ describe("events about a subscription", () => {
       JSON.stringify({ event: "subscription.disable", data: { id: 9, subscription_code: "SUB_old", customer: { email: "v@e" } } })
     );
     expect(outcome.kind).toBe("ignored");
+    expect(outcome.followUp).toBeUndefined();
     expect(ran("update qr_users")).toHaveLength(0);
     expect(notified).toEqual([]);
-    const [processed] = ran("processed_at = now(), error = $2");
+    const [processed] = ran("processed_at = now(), claimed_at = null, error = $2");
     expect(processed.params[1]).toContain("no live subscription");
   });
 
@@ -246,5 +253,86 @@ describe("events about a subscription", () => {
     const [write] = ran("current_period_end = coalesce($2, current_period_end)");
     expect(write.text).toContain("plan_id = $3");
     expect(write.params[2]).toBe(PRO.id);
+  });
+});
+
+describe("attempting an event again (DECISIONS.md, 11 November 2026)", () => {
+  const disable = () =>
+    JSON.stringify({ event: "subscription.disable", data: { id: 9, subscription_code: "SUB_old", customer: { email: "v@e" } } });
+
+  it("claims a delivery in the same statement that records it, and only while it is unprocessed", async () => {
+    await applyPaystackEvent(disable());
+    const [claim] = ran("insert into qr_payment_events");
+    expect(claim.text).toContain("on conflict (event_key) do update");
+    expect(claim.text).toContain("where qr_payment_events.processed_at is null");
+    expect(claim.text).toContain("claimed_at < now() - interval");
+  });
+
+  it("drops a delivery of an event already applied", async () => {
+    handlers = [
+      { match: "insert into qr_payment_events", rows: () => [] },
+      { match: "processed_at is not null as processed", rows: () => [{ processed: true }] },
+    ];
+    const outcome = await applyPaystackEvent(disable());
+    expect(outcome.kind).toBe("duplicate");
+    expect(ran("update qr_subscriptions")).toHaveLength(0);
+  });
+
+  it("answers busy, and changes nothing, while another attempt holds the event", async () => {
+    handlers = [
+      { match: "insert into qr_payment_events", rows: () => [] },
+      { match: "processed_at is not null as processed", rows: () => [{ processed: false }] },
+    ];
+    const outcome = await applyPaystackEvent(disable());
+    expect(outcome.kind).toBe("busy");
+    expect(ran("update qr_subscriptions")).toHaveLength(0);
+  });
+
+  it("leaves an event whose attempt threw unprocessed, so it can be tried again", async () => {
+    handlers.unshift({
+      match: "set status     = 'cancelled'",
+      rows: () => {
+        throw new Error("Connection terminated unexpectedly");
+      },
+    });
+    await expect(applyPaystackEvent(disable())).rejects.toThrow("Connection terminated");
+    expect(ran("processed_at = now()")).toHaveLength(0);
+  });
+
+  it("releases a deferred event and tells staff only once the caller has answered", async () => {
+    const outcome = await applyPaystackEvent(create());
+    expect(outcome.kind).toBe("deferred");
+    const [deferred] = ran("set claimed_at = null, error = $2");
+    expect(deferred.params[1]).toMatch(/no checkout started here/);
+    expect(alertOnce).not.toHaveBeenCalled();
+    await outcome.followUp?.();
+    expect(alertOnce).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries a stored event under its stored key, from its stored payload", async () => {
+    handlers.unshift(
+      {
+        match: "set attempts = attempts + 1, claimed_at = now()",
+        rows: () => [{ event_key: "subscription.disable:9", payload: JSON.parse(disable()) }],
+      },
+      { match: "set status     = 'cancelled'", rows: () => [{ id: "1" }] }
+    );
+    const outcome = await retryPaystackEvent("e1");
+    expect(outcome).toMatchObject({ kind: "applied", eventKey: "subscription.disable:9", change: "cancelled" });
+    expect(ran("insert into qr_payment_events")).toHaveLength(0);
+  });
+
+  it("says when the event to retry does not exist", async () => {
+    handlers = [];
+    expect((await retryPaystackEvent("404")).kind).toBe("missing");
+  });
+
+  it("sweeps only events that failed, not ones waiting on a person", async () => {
+    handlers = [{ match: "select id from qr_payment_events", rows: () => [] }];
+    const result = await retryStuckEvents();
+    expect(result.tried).toBe(0);
+    const [select] = ran("select id from qr_payment_events");
+    expect(select.text).toContain("error is null");
+    expect(select.text).toContain("processed_at is null");
   });
 });

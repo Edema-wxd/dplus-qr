@@ -12,6 +12,7 @@ import { naira } from "@/lib/plan-tiers";
 import { attentionCounts } from "@/lib/reports";
 import { pageReferrals } from "@/lib/signup-source";
 import { audit, requireStaff } from "./guard";
+import { RetryEvent } from "./RetryEvent";
 import { AdminShell, SectionHeading, Stat, day, tableClass, tdClass, thClass } from "./AdminShell";
 
 // No admin page names the admin in its title. A title is in the prerendered
@@ -207,7 +208,8 @@ export default async function AdminOverview() {
               {webhooks.unprocessed === 1 ? " has" : "s have"} not been applied
               {webhooks.failed > 0 ? `, ${webhooks.failed.toLocaleString("en-NG")} with an error` : ""}. Each is a
               payment, renewal or cancellation the database has not caught up with. An unknown plan code usually
-              means a plan was created in Paystack directly rather than connected from the Plans page.
+              means a plan was created in Paystack directly rather than connected from the Plans page. Fix the
+              cause, then retry the event. Events that only failed are retried by themselves each night.
             </p>
             <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--paper-rule)] bg-white">
               <table className={tableClass}>
@@ -216,6 +218,7 @@ export default async function AdminOverview() {
                     <th scope="col" className={thClass}>Received</th>
                     <th scope="col" className={thClass}>Type</th>
                     <th scope="col" className={thClass}>State</th>
+                    <th scope="col" className={thClass}><span className="sr-only">Retry</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -227,8 +230,14 @@ export default async function AdminOverview() {
                         {event.error ? (
                           <span className="text-[var(--struck-ink)]">Failed: {event.error}</span>
                         ) : (
-                          <span className="text-[var(--pending-ink)]">Waiting to be applied</span>
+                          <span className="text-[var(--pending-ink)]">
+                            Waiting to be applied
+                            {event.attempts > 1 ? ` (${event.attempts} attempts)` : ""}
+                          </span>
                         )}
+                      </td>
+                      <td className={tdClass}>
+                        <RetryEvent eventId={event.id} />
                       </td>
                     </tr>
                   ))}

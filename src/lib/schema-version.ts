@@ -14,4 +14,4 @@
  * `src/__tests__/schema-version.test.ts` fails if a migration is added
  * without updating it.
  */
-export const LATEST_MIGRATION = "032_blog_images";
+export const LATEST_MIGRATION = "032_qr_payment_event_attempts";

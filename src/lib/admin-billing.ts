@@ -155,7 +155,7 @@ export async function pastDueAccounts(limit = 20): Promise<PastDueAccount[]> {
 export type WebhookHealth = {
   unprocessed: number;
   failed: number;
-  recent: { id: number; type: string; receivedAt: Date; error: string | null }[];
+  recent: { id: number; type: string; receivedAt: Date; error: string | null; attempts: number }[];
 };
 
 /**
@@ -170,8 +170,8 @@ export async function webhookHealth(): Promise<WebhookHealth> {
               count(*) filter (where processed_at is null and error is not null) as failed
        from qr_payment_events`
     ),
-    query<{ id: string; type: string; received_at: Date; error: string | null }>(
-      `select id, type, received_at, error from qr_payment_events
+    query<{ id: string; type: string; received_at: Date; error: string | null; attempts: number }>(
+      `select id, type, received_at, error, attempts from qr_payment_events
        where processed_at is null
        order by received_at desc
        limit 10`
@@ -185,6 +185,7 @@ export async function webhookHealth(): Promise<WebhookHealth> {
       type: row.type,
       receivedAt: row.received_at,
       error: row.error,
+      attempts: Number(row.attempts),
     })),
   };
 }
