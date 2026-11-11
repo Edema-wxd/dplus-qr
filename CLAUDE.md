@@ -137,6 +137,11 @@ reliability for a feature, reliability wins. Everything below follows from that.
   Business", "₦4,000"). Read it from the rows: `src/lib/upgrade-offers.ts` for
   "which plan unlocks this", `src/lib/plan-tiers.ts` for price tables. Staff
   move flags between plans without a deploy, and hard-coded copy goes stale.
+- **Every upload endpoint checks the plan in its middleware**, before
+  UploadThing hands out a URL: page files need `hosted_pages` (or an
+  existing page) and must fit `features.storage_mb`
+  (`src/lib/storage-quota.ts`), which `recordFile` checks again under a lock.
+  A new endpoint that stores files for an account does the same.
 - **A locked control stays clickable** and opens the upgrade prompt
   (`LockedButton` / `UpgradeDialog` in `src/app/(app)/app/UpgradePrompt.tsx`).
   The server refuses the action as well; the prompt only explains.

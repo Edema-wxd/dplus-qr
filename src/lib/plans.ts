@@ -43,6 +43,8 @@ export type PlanFeatures = {
   hosted_pages?: boolean;
   /** Uploading video files to a video page. Without it, YouTube or Vimeo links only. */
   video_uploads?: boolean;
+  /** Page-file storage per account, in MB (migration 034). Absent: `DEFAULT_STORAGE_MB`. */
+  storage_mb?: number;
 } & Record<string, unknown>;
 
 type Row = {
