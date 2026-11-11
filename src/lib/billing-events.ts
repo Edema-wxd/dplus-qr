@@ -95,6 +95,28 @@ export function planCodeOf(event: PaystackEvent): string | null {
   return plan.plan_code ?? null;
 }
 
+/**
+ * The Paystack subscription an event is about, or null when it names none.
+ *
+ * `subscription.*` events carry `subscription_code` at the top of `data`;
+ * `invoice.*` events nest it under `data.subscription`. Both are read, and
+ * `data.subscription` is narrowed here rather than described in the schema,
+ * so a Paystack release that reshapes it can only make this null -- which
+ * defers the event to a person -- never fail the parse.
+ */
+export function subscriptionCodeOf(event: PaystackEvent): string | null {
+  const data = event.data ?? {};
+  if (typeof data.subscription_code === "string" && data.subscription_code !== "") {
+    return data.subscription_code;
+  }
+  const nested = (data as Record<string, unknown>).subscription;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    const code = (nested as Record<string, unknown>).subscription_code;
+    if (typeof code === "string" && code !== "") return code;
+  }
+  return null;
+}
+
 export function isHandled(event: string): event is HandledEvent {
   return (HANDLED_EVENTS as readonly string[]).includes(event);
 }
@@ -106,11 +128,19 @@ export type SubscriptionChange =
       emailToken: string | null;
       currentPeriodEnd: Date | null;
     }
-  | { kind: "extend"; currentPeriodEnd: Date | null }
-  | { kind: "past_due"; graceUntil: Date }
-  | { kind: "cancel_at_period_end" }
-  | { kind: "cancelled" }
-  | { kind: "ignore"; why: string };
+  /**
+   * A renewal. Matched to the live row on the charge's plan, and also on the
+   * subscription when the charge names one: a charge for one subscription
+   * must never renew another (DECISIONS.md, 10 November 2026).
+   */
+  | { kind: "extend"; subscriptionCode: string | null; currentPeriodEnd: Date | null }
+  /** These three always name their subscription; without it they are deferred. */
+  | { kind: "past_due"; subscriptionCode: string; graceUntil: Date }
+  | { kind: "cancel_at_period_end"; subscriptionCode: string }
+  | { kind: "cancelled"; subscriptionCode: string }
+  | { kind: "ignore"; why: string }
+  /** Needs a person: stored unprocessed, and staff are alerted. */
+  | { kind: "defer"; why: string };
 
 /**
  * One interval forward from a paid date.
@@ -158,13 +188,19 @@ export function decideChange(
 ): SubscriptionChange {
   const { plan, now } = context;
   const data = event.data ?? {};
+  const subscriptionCode = subscriptionCodeOf(event);
 
   switch (event.event) {
     case "subscription.create": {
       if (!plan) return { kind: "ignore", why: "no known plan on subscription.create" };
+      // Activating supersedes the account's current plan, so it has to know
+      // which subscription it is activating.
+      if (!subscriptionCode) {
+        return { kind: "defer", why: "subscription.create without a subscription code" };
+      }
       return {
         kind: "activate",
-        subscriptionCode: data.subscription_code ?? null,
+        subscriptionCode,
         emailToken: data.email_token ?? null,
         currentPeriodEnd:
           parseDate(data.next_payment_date) ??
@@ -180,6 +216,7 @@ export function decideChange(
       }
       return {
         kind: "extend",
+        subscriptionCode,
         currentPeriodEnd: nextPeriodEnd(parseDate(data.paid_at) ?? now, plan.interval),
       };
     }
@@ -190,14 +227,23 @@ export function decideChange(
       // would cut codes off instantly on a billing glitch, so this uses the
       // documented 7-day default.
       const graceDays = plan?.graceDays ?? 7;
-      return { kind: "past_due", graceUntil: addDays(now, graceDays) };
+      if (!subscriptionCode) {
+        return { kind: "defer", why: "invoice.payment_failed without a subscription code" };
+      }
+      return { kind: "past_due", subscriptionCode, graceUntil: addDays(now, graceDays) };
     }
 
     case "subscription.not_renew":
-      return { kind: "cancel_at_period_end" };
+      if (!subscriptionCode) {
+        return { kind: "defer", why: "subscription.not_renew without a subscription code" };
+      }
+      return { kind: "cancel_at_period_end", subscriptionCode };
 
     case "subscription.disable":
-      return { kind: "cancelled" };
+      if (!subscriptionCode) {
+        return { kind: "defer", why: "subscription.disable without a subscription code" };
+      }
+      return { kind: "cancelled", subscriptionCode };
 
     default:
       return { kind: "ignore", why: `unhandled event ${event.event}` };

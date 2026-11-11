@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { query, queryOne } from "@/lib/db";
 import { env } from "@/lib/env";
 import { seatRefusal, seatsHeldSql } from "@/lib/seats";
@@ -57,6 +58,15 @@ export function planRefusal(plan: Plan, codesHeld: number, seatsHeld = 1): Check
   return null;
 }
 
+/**
+ * A transaction reference of our own. Paystack accepts letters, digits and
+ * `-`, `.`, `=`; 24 hex characters cannot collide in practice, and the unique
+ * index would refuse it if one ever did.
+ */
+export function checkoutReference(): string {
+  return `qp_${randomBytes(12).toString("hex")}`;
+}
+
 export async function startCheckout(input: {
   userId: string;
   planSlug: string;
@@ -78,12 +88,24 @@ export async function startCheckout(input: {
   const refusal = planRefusal(plan, Number(owner.codes_held), Number(owner.seats_held));
   if (refusal) return refusal;
 
+  // Recorded before Paystack is called, so a payment can never arrive for a
+  // checkout we have no record of. The webhook activates a new subscription
+  // only against one of these (migration 031), because activating supersedes
+  // the account's current plan and stops it at Paystack.
+  const reference = checkoutReference();
+  await query(
+    `insert into qr_checkout_intents (user_id, plan_id, reference, amount_kobo)
+     values ($1, $2, $3, $4)`,
+    [input.userId, plan.id, reference, plan.amountKobo]
+  );
+
   const started = await initializeTransaction({
     email: owner.email,
     amountKobo: plan.amountKobo,
     planCode: plan.paystackPlanCode!,
     userId: input.userId,
     callbackUrl: `${env().QR_BASE_URL}/billing/confirming`,
+    reference,
   });
 
   return { ok: true, url: started.authorization_url, planName: plan.name };

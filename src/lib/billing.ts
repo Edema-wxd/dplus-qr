@@ -1,6 +1,8 @@
 import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { getPlanByPaystackCode, type Plan } from "@/lib/plans";
+import { disableSubscription } from "@/lib/paystack";
+import { alertOnce } from "@/lib/error-alerts";
 import {
   notifyCancelled,
   notifyPaymentFailed,
@@ -92,14 +94,34 @@ async function purgeOwnerCodes(userId: string): Promise<void> {
   await Promise.allSettled(rows.map((row) => purgeDestination(row.short_code)));
 }
 
-/** The SQL for each decision. Separated so the shapes stay readable. */
+type Run = <R extends Record<string, unknown>>(
+  text: string,
+  params?: readonly unknown[]
+) => Promise<R[]>;
+
+/** A Paystack subscription an activation replaced, to be stopped there. */
+export type Superseded = { code: string; emailToken: string };
+
+/**
+ * What a write did. `matched` is false when no live row was the one the event
+ * is about -- a renewal for a plan the account is not on, or an event for a
+ * subscription already replaced -- and then nothing was changed.
+ */
+type Written = { matched: boolean; superseded: Superseded[] };
+
+/**
+ * The SQL for each decision. Separated so the shapes stay readable.
+ *
+ * Every write names the row it is about. Before 10 November 2026 these
+ * matched any live row of the account, so after an upgrade the old
+ * subscription's renewal, failure or cancellation landed on the new plan:
+ * cancelling a leftover Starter subscription lapsed a paid Business plan,
+ * and a Starter renewal could clear a failed Business payment's grace.
+ */
 async function writeChange(
-  run: <R extends Record<string, unknown>>(
-    text: string,
-    params?: readonly unknown[]
-  ) => Promise<R[]>,
+  run: Run,
   input: { userId: string; plan: Plan | null; change: SubscriptionChange }
-): Promise<void> {
+): Promise<Written> {
   const { userId, plan, change } = input;
 
   switch (change.kind) {
@@ -107,13 +129,20 @@ async function writeChange(
       // Supersede whatever was live before: the partial unique index allows
       // only one row in ('active','past_due') per user, and an upgrade is a new
       // subscription rather than an edit of the old one. Old rows are kept as
-      // history, never deleted.
-      await run(
+      // history, never deleted. Their Paystack subscriptions are returned so
+      // the caller can stop them after the commit; one the customer already
+      // cancelled (`cancel_at_period_end`) has been stopped.
+      const replaced = await run<{
+        paystack_subscription_code: string | null;
+        paystack_email_token: string | null;
+        cancel_at_period_end: boolean;
+      }>(
         `update qr_subscriptions
            set status = 'cancelled', updated_at = now()
          where user_id = $1
            and status in ('active', 'past_due')
-           and ($2::text is null or paystack_subscription_code is distinct from $2)`,
+           and paystack_subscription_code is distinct from $2
+         returning paystack_subscription_code, paystack_email_token, cancel_at_period_end`,
         [userId, change.subscriptionCode]
       );
 
@@ -139,65 +168,155 @@ async function writeChange(
           change.currentPeriodEnd,
         ]
       );
-      return;
+
+      const superseded = replaced.flatMap((row) =>
+        row.paystack_subscription_code && row.paystack_email_token && !row.cancel_at_period_end
+          ? [{ code: row.paystack_subscription_code, emailToken: row.paystack_email_token }]
+          : []
+      );
+      return { matched: true, superseded };
     }
 
     case "extend": {
       // Back to active and grace cleared: a renewal after a failure is exactly
       // how a past_due account recovers, and INFRASTRUCTURE promises codes come
-      // back the moment a payment succeeds.
-      await run(
+      // back the moment a payment succeeds. Only the row on the charge's plan
+      // -- and on its subscription, when the charge names one -- is renewed.
+      const rows = await run(
         `update qr_subscriptions
            set status             = 'active',
                current_period_end = coalesce($2, current_period_end),
                grace_until        = null,
                updated_at         = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId, change.currentPeriodEnd]
+           and status in ('active', 'past_due')
+           and plan_id = $3
+           and ($4::text is null or paystack_subscription_code = $4)
+         returning id`,
+        [userId, change.currentPeriodEnd, plan!.id, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "past_due": {
-      await run(
+      const rows = await run(
         `update qr_subscriptions
            set status      = 'past_due',
                grace_until = $2,
                updated_at  = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId, change.graceUntil]
+           and status in ('active', 'past_due')
+           and paystack_subscription_code = $3
+         returning id`,
+        [userId, change.graceUntil, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "cancel_at_period_end": {
-      await run(
+      const rows = await run(
         `update qr_subscriptions
            set cancel_at_period_end = true,
                updated_at           = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId]
+           and status in ('active', 'past_due')
+           and paystack_subscription_code = $2
+         returning id`,
+        [userId, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "cancelled": {
-      await run(
+      const rows = await run(
         `update qr_subscriptions
            set status     = 'cancelled',
                updated_at = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId]
+           and status in ('active', 'past_due')
+           and paystack_subscription_code = $2
+         returning id`,
+        [userId, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "ignore":
-      return;
+    case "defer":
+      return { matched: false, superseded: [] };
+  }
+}
+
+/**
+ * Whether a `subscription.create` is one this account asked for.
+ *
+ * Paystack sends it without metadata, so the account comes from the customer
+ * email, and anyone can pay with someone else's email through Paystack
+ * Inline. Activating supersedes the account's plan and stops its current
+ * subscription at Paystack, so it must not happen on an email alone. Trusted
+ * when the subscription is already this account's (Paystack re-sending it), or
+ * when the account started a checkout for this plan here in the last seven
+ * days (migration 031). The matching checkout is returned so the same
+ * transaction can mark it used.
+ */
+async function activationOrigin(
+  userId: string,
+  planId: number,
+  subscriptionCode: string
+): Promise<{ trusted: true; intentId: string | null } | { trusted: false; why: string }> {
+  const existing = await queryOne<{ user_id: string }>(
+    "select user_id from qr_subscriptions where paystack_subscription_code = $1",
+    [subscriptionCode]
+  );
+  if (existing) {
+    return existing.user_id === userId
+      ? { trusted: true, intentId: null }
+      : { trusted: false, why: "subscription.create for a subscription held by another account" };
+  }
+
+  const intent = await queryOne<{ id: string }>(
+    `select id from qr_checkout_intents
+      where user_id = $1 and plan_id = $2 and consumed_at is null
+        and created_at > now() - interval '7 days'
+      order by created_at desc
+      limit 1`,
+    [userId, planId]
+  );
+  if (intent) return { trusted: true, intentId: intent.id };
+
+  return {
+    trusted: false,
+    why: "subscription.create with no checkout started here for that account and plan",
+  };
+}
+
+/**
+ * Stop the Paystack subscriptions an activation replaced, after the commit.
+ *
+ * Without this an upgrade kept the old plan billing at Paystack. A failure is
+ * not retried here -- the new plan is already live -- but staff are told,
+ * because until someone stops it the customer is charged for both.
+ */
+async function stopSuperseded(userId: string, superseded: Superseded[]): Promise<void> {
+  for (const old of superseded) {
+    try {
+      await disableSubscription(old.code, old.emailToken);
+    } catch (error) {
+      console.error("[paystack] could not stop a superseded subscription", old.code, error);
+      await alertOnce(
+        `paystack-supersede:${old.code}`,
+        "An old subscription is still billing",
+        [
+          "A customer moved to a new plan, but the subscription it replaced could",
+          "not be stopped at Paystack, so they may be charged for both.",
+          "",
+          `  Account: ${userId}`,
+          `  Old subscription: ${old.code}`,
+          "",
+          "Disable it in the Paystack dashboard (Subscriptions).",
+        ].join("\n")
+      );
+    }
   }
 }
 
@@ -241,6 +360,11 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
     );
   }
 
+  async function defer(why: string): Promise<ApplyOutcome> {
+    await query("update qr_payment_events set error = $2 where id = $1", [eventId, why]);
+    return { kind: "deferred", eventKey: key, why };
+  }
+
   if (!isHandled(event.event)) {
     await markProcessed(null);
     return { kind: "ignored", eventKey: key, why: `unhandled event ${event.event}` };
@@ -280,8 +404,37 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
     return { kind: "ignored", eventKey: key, why: change.why };
   }
 
-  await withTransaction(async (run) => {
-    await writeChange(run, { userId, plan, change });
+  if (change.kind === "defer") return defer(change.why);
+
+  let intentId: string | null = null;
+  if (change.kind === "activate") {
+    const origin = await activationOrigin(userId, plan!.id, change.subscriptionCode!);
+    if (!origin.trusted) return defer(origin.why);
+    intentId = origin.intentId;
+  }
+
+  const written = await withTransaction(async (run) => {
+    const result = await writeChange(run, { userId, plan, change });
+    if (!result.matched) {
+      await run("update qr_payment_events set processed_at = now(), error = $2 where id = $1", [
+        eventId,
+        "no live subscription matched this event; nothing changed",
+      ]);
+      return result;
+    }
+
+    if (intentId) {
+      const used = await run(
+        `update qr_checkout_intents
+            set consumed_at = now(), subscription_code = $2
+          where id = $1 and consumed_at is null
+          returning id`,
+        [intentId, change.kind === "activate" ? change.subscriptionCode : null]
+      );
+      // Another delivery used the same checkout a moment ago. Rolled back and
+      // left unprocessed, so a person decides rather than both activating.
+      if (used.length === 0) throw new Error("checkout intent already used by another subscription");
+    }
 
     // Remember the customer code the first time we see it, so a later event
     // carrying only that can still be matched to this account.
@@ -299,9 +452,18 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
       "update qr_payment_events set processed_at = now(), error = null where id = $1",
       [eventId]
     );
+    return result;
   });
 
-  // After the commit, never inside it: a cache purge is not part of the money.
+  // An event about a subscription that is no longer live -- the one an
+  // upgrade replaced, typically -- changes nothing and tells nobody.
+  if (!written.matched) {
+    return { kind: "ignored", eventKey: key, why: "no live subscription matched" };
+  }
+
+  // After the commit, never inside it: stopping the old plan at Paystack and
+  // purging the cache are not part of this transaction's money.
+  await stopSuperseded(userId, written.superseded);
   await purgeOwnerCodes(userId);
 
   // Also after the commit, and for a sharper reason. These are side effects on
@@ -360,6 +522,7 @@ async function notifyOf(input: {
       // day is how people learn to ignore billing mail.
       case "cancelled":
       case "ignore":
+      case "defer":
         return;
     }
   } catch (error) {
