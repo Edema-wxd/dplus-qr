@@ -2392,6 +2392,61 @@ Facebook, Netflix, and a plain email envelope.
 - Every mark on every pattern decodes in the test suite.
 - A preset mark on a phishing code is handled like any other abuse: blocked.
 
+## A new account's codes wait for its email, 11 November 2026
+
+Security audit M3. An account nobody had verified could make live codes at
+once, and sign-up was unthrottled, so a script with disposable addresses could
+mint `qriateplus.com/<code>` links to a fresh phishing page. A short link on
+this domain gets through mail and SMS filters that the phishing domain itself
+would not, and the domain's reputation (and Resend's, and Safe Browsing's view
+of it) pays for it. The `VerifyBanner` had said "your codes work either way"
+as a deliberate choice; this replaces that choice for new accounts only.
+
+**What happens now.** An account created unverified is held: every one of its
+codes answers with the paused page until the address is confirmed. A held
+code can be made, designed, downloaded and printed. It just does not open.
+
+- **Held at creation, never later.** `ensureProfile()` sets
+  `qr_users.codes_held_since` (migration 033) only when it *inserts* the
+  profile row. Every account from before this change keeps serving, verified
+  or not, and a verified account that switches to an address it has not
+  confirmed keeps serving. A printed code must not go dark because of an email
+  setting.
+- **Released once, for good.** The first page load whose session says the
+  email is verified clears the column and purges the account's codes from the
+  redirect cache, so they serve at once rather than after the cache's minute.
+- **The redirect reads our column, not Neon Auth's.** `qr_users` is already
+  joined for the owner's name and suspension, so this is one more column on
+  the same row. `neon_auth."user"."emailVerified"` is never read on the scan
+  path: that table belongs to a managed service that may reshape it.
+  `redirect-lookup.test.ts` fails if the lookup names it.
+- **The paused page, not a new one**, as for a suspension: a scanner is owed
+  "not active", never the reason. Blocked still wins over held, and a cached
+  entry without the field reads as not held, so the deploy takes nothing down.
+- **The owner is told where it matters.** The dashboard banner says plainly
+  that scans show a "not active" page until the link is clicked, and is not
+  dismissable while held. The onboarding's scan screen shows the same notice
+  above the watcher. Onboarding stays at six screens: confirming is not a
+  step, the scan step just cannot finish without it.
+- **"Send the link again"** on that banner, because the hold makes an expired
+  or spam-foldered link a dead end. It mails only the session's own address,
+  never one from the form, and is limited to five a day per account
+  (`allowVerificationEmail`), since each one comes from `onboarding@`.
+- Staff see "Email not confirmed, so codes show the paused page" on the
+  customer page.
+
+**Why not hold until verified at the redirect, from Neon Auth directly?** It
+would cover every account, including existing ones, and take live printed
+codes down on deploy. It would also make the one scan query depend on a
+managed table.
+
+**Why not refuse to create codes until verified?** It costs the onboarding its
+first code before the person has seen the product, and it protects nothing a
+hold does not: a code that cannot open cannot phish.
+
+The rest of M3 is not in this change: `WEB_RISK_API_KEY` is still unset in
+production (below), and the auth rate limits are H2.
+
 ## Billing events name their subscription, 10 November 2026
 
 From the security audit of 10 November. An upgrade is a new Paystack
@@ -2665,6 +2720,9 @@ Business decisions:
   of 7 November covers the dashboard and the nightly jobs but not a scanner:
   the first scan of a quiet code while the database is asleep can still reach
   the unavailable page (see that entry). Keeping it awake costs compute hours.
+- Whether holding a new account's codes until its email is confirmed (11
+  November entry) costs too many first scans. Watch "Scanned it" in the
+  onboarding funnel at `/admin/onboarding` after it ships.
 
 To set up outside the app:
 

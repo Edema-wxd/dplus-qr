@@ -32,7 +32,7 @@ export default async function FilesPage() {
   const { data: session } = await auth.getSession();
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  await ensureProfile({ id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified });
   // Which account this page shows, and as whom. Its own unless the person
   // is working in a team they belong to; every read below proves access.
   const scope = await resolveScope();

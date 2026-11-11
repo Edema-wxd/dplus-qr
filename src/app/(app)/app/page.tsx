@@ -51,7 +51,7 @@ export default async function CodesPage({
 
   // Also grants the free plan on first load, so a code created here can
   // actually serve traffic. See ensureFreeSubscription.
-  const profile = await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  const profile = await ensureProfile({ id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified });
   // Which account this page shows, and as whom. Its own unless the person
   // is working in a team they belong to; every read below proves access.
   // `resolveAccess` is cached per request, so the shell's notices reuse it.
@@ -155,7 +155,13 @@ export default async function CodesPage({
         warnings={warnings}
         ownerName={isOwner ? null : (access.team?.ownerName ?? "the account owner")}
       />
-      {user.emailVerified ? null : <VerifyBanner email={user.email} />}
+      {/*
+        The hold is on the person's own account. In a team they are looking
+        at someone else's codes, which their own address does not affect.
+      */}
+      {user.emailVerified ? null : (
+        <VerifyBanner email={user.email} held={ownAccount && profile.codesHeldSince !== null} />
+      )}
 
       {lapsed && hasCodes ? <LapsedNotice /> : null}
 

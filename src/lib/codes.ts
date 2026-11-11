@@ -36,6 +36,14 @@ export type Destination = {
    * entry cached without this field still never redirects.
    */
   archived?: boolean;
+  /**
+   * The owner signed up and has not yet confirmed their email (migration 033),
+   * so the code does not serve. Optional for the same reason as
+   * `ownerSuspended`: an entry cached before this field existed reads as "not
+   * held" and keeps serving, and the cache's short TTL brings in the real
+   * value within a minute.
+   */
+  ownerHeld?: boolean;
 };
 
 type Row = {
@@ -47,6 +55,7 @@ type Row = {
   subscription_ok: boolean;
   owner_suspended: boolean;
   archived: boolean;
+  owner_held: boolean;
 };
 
 /**
@@ -64,6 +73,7 @@ const LOOKUP_SQL = `
     c.destination_url,
     u.name as owner_name,
     u.suspended_at is not null as owner_suspended,
+    u.codes_held_since is not null as owner_held,
     c.archived_at is not null as archived,
     coalesce(
       s.status = 'active'
@@ -97,6 +107,7 @@ export async function lookupDestination(
       subscriptionOk: row.subscription_ok,
       ownerSuspended: row.owner_suspended,
       archived: row.archived,
+      ownerHeld: row.owner_held,
     };
   });
 
@@ -133,6 +144,12 @@ export function decide(destination: Destination | null): RedirectDecision {
   // Account suspended by an admin. Same page as a pause: a scanner is owed
   // "this code is not active", never the reason it is not active.
   if (destination.ownerSuspended) {
+    return { kind: "paused", ownerName: destination.ownerName };
+  }
+  // A new account whose email is not confirmed yet. Its codes wait, so a
+  // throwaway sign-up cannot put a live link on this domain (migration 033).
+  // The paused page, like a suspension: nothing about the reason.
+  if (destination.ownerHeld) {
     return { kind: "paused", ownerName: destination.ownerName };
   }
   if (!destination.subscriptionOk) {
