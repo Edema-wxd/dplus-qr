@@ -71,6 +71,12 @@ describe("signature verification", () => {
     expect(verifySignature("{}", "abc")).toBe(false);
   });
 
+  it("rejects a non-hex signature of the right length without throwing", () => {
+    // 128 characters, but "é" is two bytes in UTF-8: the byte lengths differ,
+    // which made timingSafeEqual throw and the webhook answer 500.
+    expect(verifySignature("{}", "é".repeat(128))).toBe(false);
+  });
+
   /**
    * The reason the route reads the raw body once. Re-serialising moves key
    * order and whitespace, so the bytes differ and a genuine delivery fails.
