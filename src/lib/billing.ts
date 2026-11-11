@@ -1,6 +1,8 @@
 import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
 import { getPlanByPaystackCode, type Plan } from "@/lib/plans";
+import { disableSubscription } from "@/lib/paystack";
+import { alertOnce } from "@/lib/error-alerts";
 import {
   notifyCancelled,
   notifyPaymentFailed,
@@ -25,11 +27,32 @@ import {
  * narrowed so it can only ever insert where no subscription exists at all.
  */
 
-export type ApplyOutcome =
+/**
+ * What became of one attempt at an event.
+ *
+ * `followUp` is what to do once the caller has answered: stop a replaced
+ * subscription at Paystack, purge cached destinations, email the customer,
+ * alert staff. None of it is part of the money, and the webhook runs it in
+ * `after()` so Paystack's request waits only on the database.
+ *
+ * `busy` means another attempt at the same event holds the claim right now;
+ * `duplicate` means the event has already been applied.
+ */
+export type ApplyOutcome = (
   | { kind: "duplicate"; eventKey: string }
+  | { kind: "busy"; eventKey: string }
   | { kind: "ignored"; eventKey: string; why: string }
   | { kind: "applied"; eventKey: string; change: SubscriptionChange["kind"] }
-  | { kind: "deferred"; eventKey: string; why: string };
+  | { kind: "deferred"; eventKey: string; why: string }
+) & { followUp?: () => Promise<void> };
+
+/**
+ * How long a claim on an event holds before another attempt may take it over.
+ * Long enough for any real attempt to finish; short enough that an attempt
+ * that died (a timeout, a deploy) does not hold the event past Paystack's
+ * next re-delivery.
+ */
+const CLAIM_LEASE = "2 minutes";
 
 /**
  * Who the event belongs to.
@@ -92,14 +115,34 @@ async function purgeOwnerCodes(userId: string): Promise<void> {
   await Promise.allSettled(rows.map((row) => purgeDestination(row.short_code)));
 }
 
-/** The SQL for each decision. Separated so the shapes stay readable. */
+type Run = <R extends Record<string, unknown>>(
+  text: string,
+  params?: readonly unknown[]
+) => Promise<R[]>;
+
+/** A Paystack subscription an activation replaced, to be stopped there. */
+export type Superseded = { code: string; emailToken: string };
+
+/**
+ * What a write did. `matched` is false when no live row was the one the event
+ * is about -- a renewal for a plan the account is not on, or an event for a
+ * subscription already replaced -- and then nothing was changed.
+ */
+type Written = { matched: boolean; superseded: Superseded[] };
+
+/**
+ * The SQL for each decision. Separated so the shapes stay readable.
+ *
+ * Every write names the row it is about. Before 10 November 2026 these
+ * matched any live row of the account, so after an upgrade the old
+ * subscription's renewal, failure or cancellation landed on the new plan:
+ * cancelling a leftover Starter subscription lapsed a paid Business plan,
+ * and a Starter renewal could clear a failed Business payment's grace.
+ */
 async function writeChange(
-  run: <R extends Record<string, unknown>>(
-    text: string,
-    params?: readonly unknown[]
-  ) => Promise<R[]>,
+  run: Run,
   input: { userId: string; plan: Plan | null; change: SubscriptionChange }
-): Promise<void> {
+): Promise<Written> {
   const { userId, plan, change } = input;
 
   switch (change.kind) {
@@ -107,13 +150,20 @@ async function writeChange(
       // Supersede whatever was live before: the partial unique index allows
       // only one row in ('active','past_due') per user, and an upgrade is a new
       // subscription rather than an edit of the old one. Old rows are kept as
-      // history, never deleted.
-      await run(
+      // history, never deleted. Their Paystack subscriptions are returned so
+      // the caller can stop them after the commit; one the customer already
+      // cancelled (`cancel_at_period_end`) has been stopped.
+      const replaced = await run<{
+        paystack_subscription_code: string | null;
+        paystack_email_token: string | null;
+        cancel_at_period_end: boolean;
+      }>(
         `update qr_subscriptions
            set status = 'cancelled', updated_at = now()
          where user_id = $1
            and status in ('active', 'past_due')
-           and ($2::text is null or paystack_subscription_code is distinct from $2)`,
+           and paystack_subscription_code is distinct from $2
+         returning paystack_subscription_code, paystack_email_token, cancel_at_period_end`,
         [userId, change.subscriptionCode]
       );
 
@@ -139,76 +189,206 @@ async function writeChange(
           change.currentPeriodEnd,
         ]
       );
-      return;
+
+      const superseded = replaced.flatMap((row) =>
+        row.paystack_subscription_code && row.paystack_email_token && !row.cancel_at_period_end
+          ? [{ code: row.paystack_subscription_code, emailToken: row.paystack_email_token }]
+          : []
+      );
+      return { matched: true, superseded };
     }
 
     case "extend": {
       // Back to active and grace cleared: a renewal after a failure is exactly
       // how a past_due account recovers, and INFRASTRUCTURE promises codes come
-      // back the moment a payment succeeds.
-      await run(
+      // back the moment a payment succeeds. Only the row on the charge's plan
+      // -- and on its subscription, when the charge names one -- is renewed.
+      const rows = await run(
         `update qr_subscriptions
            set status             = 'active',
                current_period_end = coalesce($2, current_period_end),
                grace_until        = null,
                updated_at         = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId, change.currentPeriodEnd]
+           and status in ('active', 'past_due')
+           and plan_id = $3
+           and ($4::text is null or paystack_subscription_code = $4)
+         returning id`,
+        [userId, change.currentPeriodEnd, plan!.id, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "past_due": {
-      await run(
+      const rows = await run(
         `update qr_subscriptions
            set status      = 'past_due',
                grace_until = $2,
                updated_at  = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId, change.graceUntil]
+           and status in ('active', 'past_due')
+           and paystack_subscription_code = $3
+         returning id`,
+        [userId, change.graceUntil, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "cancel_at_period_end": {
-      await run(
+      const rows = await run(
         `update qr_subscriptions
            set cancel_at_period_end = true,
                updated_at           = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId]
+           and status in ('active', 'past_due')
+           and paystack_subscription_code = $2
+         returning id`,
+        [userId, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "cancelled": {
-      await run(
+      const rows = await run(
         `update qr_subscriptions
            set status     = 'cancelled',
                updated_at = now()
          where user_id = $1
-           and status in ('active', 'past_due')`,
-        [userId]
+           and status in ('active', 'past_due')
+           and paystack_subscription_code = $2
+         returning id`,
+        [userId, change.subscriptionCode]
       );
-      return;
+      return { matched: rows.length > 0, superseded: [] };
     }
 
     case "ignore":
-      return;
+    case "defer":
+      return { matched: false, superseded: [] };
   }
 }
 
 /**
- * Record the delivery, then act on it, in one transaction.
+ * Whether a `subscription.create` is one this account asked for.
  *
- * Order matters. The insert goes first and carries the unique constraint on
- * `event_key`, so a replay fails there and never reaches the subscription
- * write. Marking it processed happens in the same transaction as the effect,
- * so there is no window where an event is logged as handled but did nothing --
- * Paystack does not re-send, so that window would lose money silently.
+ * Paystack sends it without metadata, so the account comes from the customer
+ * email, and anyone can pay with someone else's email through Paystack
+ * Inline. Activating supersedes the account's plan and stops its current
+ * subscription at Paystack, so it must not happen on an email alone. Trusted
+ * when the subscription is already this account's (Paystack re-sending it), or
+ * when the account started a checkout for this plan here in the last seven
+ * days (migration 031). The matching checkout is returned so the same
+ * transaction can mark it used.
+ */
+async function activationOrigin(
+  userId: string,
+  planId: number,
+  subscriptionCode: string
+): Promise<{ trusted: true; intentId: string | null } | { trusted: false; why: string }> {
+  const existing = await queryOne<{ user_id: string }>(
+    "select user_id from qr_subscriptions where paystack_subscription_code = $1",
+    [subscriptionCode]
+  );
+  if (existing) {
+    return existing.user_id === userId
+      ? { trusted: true, intentId: null }
+      : { trusted: false, why: "subscription.create for a subscription held by another account" };
+  }
+
+  const intent = await queryOne<{ id: string }>(
+    `select id from qr_checkout_intents
+      where user_id = $1 and plan_id = $2 and consumed_at is null
+        and created_at > now() - interval '7 days'
+      order by created_at desc
+      limit 1`,
+    [userId, planId]
+  );
+  if (intent) return { trusted: true, intentId: intent.id };
+
+  return {
+    trusted: false,
+    why: "subscription.create with no checkout started here for that account and plan",
+  };
+}
+
+/**
+ * Stop the Paystack subscriptions an activation replaced, after the commit.
+ *
+ * Without this an upgrade kept the old plan billing at Paystack. A failure is
+ * not retried here -- the new plan is already live -- but staff are told,
+ * because until someone stops it the customer is charged for both.
+ */
+async function stopSuperseded(userId: string, superseded: Superseded[]): Promise<void> {
+  for (const old of superseded) {
+    try {
+      await disableSubscription(old.code, old.emailToken);
+    } catch (error) {
+      console.error("[paystack] could not stop a superseded subscription", old.code, error);
+      await alertOnce(
+        `paystack-supersede:${old.code}`,
+        "An old subscription is still billing",
+        [
+          "A customer moved to a new plan, but the subscription it replaced could",
+          "not be stopped at Paystack, so they may be charged for both.",
+          "",
+          `  Account: ${userId}`,
+          `  Old subscription: ${old.code}`,
+          "",
+          "Disable it in the Paystack dashboard (Subscriptions).",
+        ].join("\n")
+      );
+    }
+  }
+}
+
+/**
+ * Record a delivery and claim it, in one statement.
+ *
+ * A new event is inserted already claimed. One seen before is claimed again
+ * only while it is unprocessed and nobody else holds it: before 11 November
+ * 2026 any existing row ended the delivery, so an event whose first attempt
+ * threw was never applied and Paystack's re-delivery of it was dropped as a
+ * duplicate. The payload of the first delivery is kept; Paystack re-sends the
+ * same body.
+ */
+async function claimDelivery(
+  key: string,
+  type: string,
+  rawBody: string
+): Promise<{ id: string } | { kind: "duplicate" | "busy" }> {
+  const claimed = await query<{ id: string }>(
+    `insert into qr_payment_events (event_key, type, payload, attempts, claimed_at)
+     values ($1, $2, $3::jsonb, 1, now())
+     on conflict (event_key) do update
+       set attempts = qr_payment_events.attempts + 1, claimed_at = now()
+       where qr_payment_events.processed_at is null
+         and (qr_payment_events.claimed_at is null
+              or qr_payment_events.claimed_at < now() - interval '${CLAIM_LEASE}')
+     returning id`,
+    [key, type, rawBody]
+  );
+  if (claimed.length > 0) return { id: claimed[0].id };
+  return { kind: await whyUnclaimed("event_key = $1", key) };
+}
+
+/** Whether an event that could not be claimed is done, or in someone's hands. */
+async function whyUnclaimed(where: string, value: string): Promise<"duplicate" | "busy"> {
+  const row = await queryOne<{ processed: boolean }>(
+    `select processed_at is not null as processed from qr_payment_events where ${where}`,
+    [value]
+  );
+  return row && !row.processed ? "busy" : "duplicate";
+}
+
+/**
+ * Record the delivery, then act on it.
+ *
+ * The claim goes first and carries the unique constraint on `event_key`, so
+ * an applied event fails there and never reaches the subscription write.
+ * Marking it processed happens in the same transaction as the effect, so there
+ * is no window where an event is logged as handled but did nothing. If the
+ * attempt throws, the row stays unprocessed and its claim lapses, and the next
+ * delivery, a staff retry or the daily sweep tries again.
  *
  * The signature must already have been verified by the caller. This function
  * trusts its input.
@@ -223,22 +403,94 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
 
   // Logged whether or not we act on it: the payload column is the record of
   // what Paystack actually sent, which is the only evidence in a dispute.
-  const inserted = await query<{ id: string }>(
-    `insert into qr_payment_events (event_key, type, payload)
-     values ($1, $2, $3::jsonb)
-     on conflict (event_key) do nothing
-     returning id`,
-    [key, event.event, rawBody]
+  const claim = await claimDelivery(key, event.event, rawBody);
+  if ("kind" in claim) return { kind: claim.kind, eventKey: key };
+
+  return processClaimed(claim.id, key, event);
+}
+
+/**
+ * Try a stored event again, by its row id: the admin's Retry and the daily
+ * sweep. Claimed exactly as a delivery is, so a retry racing Paystack's own
+ * re-delivery cannot apply it twice. The stored key is reused rather than
+ * recomputed, because `payload` is jsonb and no longer the bytes a body-hash
+ * key was made from.
+ */
+export async function retryPaystackEvent(eventId: string): Promise<ApplyOutcome | { kind: "missing" }> {
+  const rows = await query<{ event_key: string; payload: unknown }>(
+    `update qr_payment_events
+        set attempts = attempts + 1, claimed_at = now()
+      where id = $1
+        and processed_at is null
+        and (claimed_at is null or claimed_at < now() - interval '${CLAIM_LEASE}')
+      returning event_key, payload`,
+    [eventId]
+  );
+  if (rows.length === 0) {
+    const exists = await queryOne<{ id: string }>("select id from qr_payment_events where id = $1", [eventId]);
+    if (!exists) return { kind: "missing" };
+    const kind = await whyUnclaimed("id = $1", eventId);
+    return { kind, eventKey: "" };
+  }
+
+  const { event_key: key, payload } = rows[0];
+  const parsed = eventSchema.safeParse(payload);
+  if (!parsed.success) {
+    throw new Error(`stored Paystack payload did not parse: ${parsed.error.message}`);
+  }
+  return processClaimed(eventId, key, parsed.data);
+}
+
+export type SweepResult = { tried: number; applied: number; deferred: number; failed: number };
+
+/**
+ * The daily backstop for events whose attempts all threw and that Paystack has
+ * stopped re-sending. Only rows with no recorded reason: a deferred event is
+ * waiting on a person, and trying it again changes nothing until they act.
+ * A fortnight back at most, and a few at a time, so one bad payload cannot
+ * make the job run long.
+ */
+export async function retryStuckEvents(limit = 20): Promise<SweepResult> {
+  const stuck = await query<{ id: string }>(
+    `select id from qr_payment_events
+      where processed_at is null
+        and error is null
+        and received_at > now() - interval '14 days'
+        and (claimed_at is null or claimed_at < now() - interval '1 hour')
+      order by received_at
+      limit $1`,
+    [limit]
   );
 
-  if (inserted.length === 0) return { kind: "duplicate", eventKey: key };
-  const eventId = inserted[0].id;
+  const result: SweepResult = { tried: 0, applied: 0, deferred: 0, failed: 0 };
+  for (const { id } of stuck) {
+    result.tried++;
+    try {
+      const outcome = await retryPaystackEvent(id);
+      if (outcome.kind === "applied") result.applied++;
+      if (outcome.kind === "deferred") result.deferred++;
+      if ("followUp" in outcome && outcome.followUp) await outcome.followUp();
+    } catch (error) {
+      result.failed++;
+      console.error("[paystack] retry of a stuck event failed", id, error);
+    }
+  }
+  return result;
+}
 
+/** Act on an event this attempt holds the claim on. */
+async function processClaimed(eventId: string, key: string, event: PaystackEvent): Promise<ApplyOutcome> {
   async function markProcessed(note: string | null): Promise<void> {
     await query(
-      "update qr_payment_events set processed_at = now(), error = $2 where id = $1",
+      "update qr_payment_events set processed_at = now(), claimed_at = null, error = $2 where id = $1",
       [eventId, note]
     );
+  }
+
+  // Released, so a person who fixes the cause can retry it at once.
+  async function defer(why: string, stored = why): Promise<ApplyOutcome> {
+    await query("update qr_payment_events set claimed_at = null, error = $2 where id = $1", [eventId, stored]);
+    return { kind: "deferred", eventKey: key, why, followUp: () => alertDeferred(key, why) };
   }
 
   if (!isHandled(event.event)) {
@@ -251,27 +503,16 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
 
   // A plan code Paystack knows and we do not means the dashboard has a plan
   // this database was never told about. Left unprocessed on purpose, so it can
-  // be replayed once the row is seeded rather than quietly losing a sale.
+  // be retried once the row is seeded rather than quietly losing a sale.
   if (planCode && !plan) {
-    await query("update qr_payment_events set error = $2 where id = $1", [
-      eventId,
-      `unknown paystack plan code ${planCode}`,
-    ]);
-    return {
-      kind: "deferred",
-      eventKey: key,
-      why: `unknown plan code ${planCode}; seed qr_plans and replay`,
-    };
+    return defer(
+      `unknown plan code ${planCode}; connect the plan, then retry`,
+      `unknown paystack plan code ${planCode}`
+    );
   }
 
   const userId = await resolveUserId(event);
-  if (!userId) {
-    await query("update qr_payment_events set error = $2 where id = $1", [
-      eventId,
-      "no matching qr_users row",
-    ]);
-    return { kind: "deferred", eventKey: key, why: "no matching account" };
-  }
+  if (!userId) return defer("no matching account", "no matching qr_users row");
 
   const change = decideChange(event, { plan, now: new Date() });
 
@@ -280,8 +521,37 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
     return { kind: "ignored", eventKey: key, why: change.why };
   }
 
-  await withTransaction(async (run) => {
-    await writeChange(run, { userId, plan, change });
+  if (change.kind === "defer") return defer(change.why);
+
+  let intentId: string | null = null;
+  if (change.kind === "activate") {
+    const origin = await activationOrigin(userId, plan!.id, change.subscriptionCode!);
+    if (!origin.trusted) return defer(origin.why);
+    intentId = origin.intentId;
+  }
+
+  const written = await withTransaction(async (run) => {
+    const result = await writeChange(run, { userId, plan, change });
+    if (!result.matched) {
+      await run(
+        "update qr_payment_events set processed_at = now(), claimed_at = null, error = $2 where id = $1",
+        [eventId, "no live subscription matched this event; nothing changed"]
+      );
+      return result;
+    }
+
+    if (intentId) {
+      const used = await run(
+        `update qr_checkout_intents
+            set consumed_at = now(), subscription_code = $2
+          where id = $1 and consumed_at is null
+          returning id`,
+        [intentId, change.kind === "activate" ? change.subscriptionCode : null]
+      );
+      // Another delivery used the same checkout a moment ago. Rolled back and
+      // left unprocessed, so a person decides rather than both activating.
+      if (used.length === 0) throw new Error("checkout intent already used by another subscription");
+    }
 
     // Remember the customer code the first time we see it, so a later event
     // carrying only that can still be matched to this account.
@@ -296,21 +566,52 @@ export async function applyPaystackEvent(rawBody: string): Promise<ApplyOutcome>
     }
 
     await run(
-      "update qr_payment_events set processed_at = now(), error = null where id = $1",
+      "update qr_payment_events set processed_at = now(), claimed_at = null, error = null where id = $1",
       [eventId]
     );
+    return result;
   });
 
-  // After the commit, never inside it: a cache purge is not part of the money.
-  await purgeOwnerCodes(userId);
+  // An event about a subscription that is no longer live -- the one an
+  // upgrade replaced, typically -- changes nothing and tells nobody.
+  if (!written.matched) {
+    return { kind: "ignored", eventKey: key, why: "no live subscription matched" };
+  }
 
-  // Also after the commit, and for a sharper reason. These are side effects on
-  // the outside world: a mail failure inside the transaction would roll back a
-  // payment we have already taken, and a throw here would make Paystack retry
-  // a charge already applied. `notify*` swallow their own errors.
-  await notifyOf({ userId, plan, change });
+  return {
+    kind: "applied",
+    eventKey: key,
+    change: change.kind,
+    // After the commit, never inside it, and after the caller has answered.
+    // Stopping the old plan at Paystack and purging the cache are not part of
+    // this transaction's money. The emails are side effects on the outside
+    // world: a mail failure inside the transaction would roll back a payment
+    // we have already taken. `notify*` swallow their own errors.
+    followUp: async () => {
+      await stopSuperseded(userId, written.superseded);
+      await purgeOwnerCodes(userId);
+      await notifyOf({ userId, plan, change });
+    },
+  };
+}
 
-  return { kind: "applied", eventKey: key, change: change.kind };
+/** Tell staff an event is waiting on them. One email per reason per hour. */
+async function alertDeferred(key: string, why: string): Promise<void> {
+  console.error("[paystack] deferred", key, why);
+  await alertOnce(
+    `paystack-deferred:${why}`,
+    "A Paystack event needs a person",
+    [
+      "A Paystack event could not be applied on its own:",
+      "",
+      `  ${why}`,
+      "",
+      "It is listed under Payments on the admin overview, with a Retry button",
+      "for once the cause is fixed. Until it is dealt with, a customer's plan",
+      "may not match what they paid for.",
+      "Further events deferred for the same reason are not emailed for an hour.",
+    ].join("\n")
+  );
 }
 
 /**
@@ -360,6 +661,7 @@ async function notifyOf(input: {
       // day is how people learn to ignore billing mail.
       case "cancelled":
       case "ignore":
+      case "defer":
         return;
     }
   } catch (error) {
