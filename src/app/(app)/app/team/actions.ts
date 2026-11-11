@@ -34,6 +34,10 @@ export async function inviteAction(_previous: TeamState, formData: FormData): Pr
   const parsed = inviteSchema.safeParse({ email: formData.get("email"), role: formData.get("role") });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the form." };
 
+  // Before the quota: a viewer or editor must not spend the owner's daily
+  // invitations on attempts createInvite would refuse anyway (audit L1).
+  if (scope.role !== "owner") return { error: "Only the account owner can invite people." };
+
   if (!(await allowInvite(scope.accountId))) {
     return { error: "That is a lot of invitations for one day. Please try again tomorrow." };
   }

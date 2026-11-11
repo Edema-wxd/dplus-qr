@@ -54,6 +54,47 @@ export async function shouldCountScan(ip: string | null): Promise<boolean> {
   }
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The key for a visitor whose address is unknown. They share one budget
+ * rather than none: on Vercel an address is always present, so this only
+ * matters if a request somehow arrives without one.
+ */
+const NO_ADDRESS = "no-address";
+
+/** Most keys one instance remembers per limiter before it forgets the oldest. */
+const MEMORY_KEYS = 10_000;
+
+const memory = new Map<string, Map<string, number[]>>();
+
+/**
+ * A sliding-window count kept in this instance's memory: the fallback for the
+ * session-less limiters when Redis cannot be reached. Each serverless
+ * instance counts on its own, so the real ceiling is the limit times the
+ * instances running, which is still a ceiling. Exported for tests.
+ */
+export function memoryAllow(
+  name: string,
+  key: string,
+  limit: number,
+  windowMs: number,
+  now: number = Date.now()
+): boolean {
+  let counts = memory.get(name);
+  if (!counts) {
+    counts = new Map();
+    memory.set(name, counts);
+  }
+  const recent = (counts.get(key) ?? []).filter((at) => now - at < windowMs);
+  const allowed = recent.length < limit;
+  if (allowed) recent.push(now);
+  counts.delete(key);
+  counts.set(key, recent);
+  if (counts.size > MEMORY_KEYS) counts.delete(counts.keys().next().value!);
+  return allowed;
+}
+
 /**
  * Abuse-report limiter: 5 reports an hour per visitor.
  *
@@ -91,23 +132,23 @@ function reportLimiter(): Ratelimit | null {
 /**
  * True when this report may be accepted.
  *
- * Fails open, like the scan limiter: Redis being unreachable must not be the
- * reason a real abuse report about a live scam is turned away. A limiter is a
- * brake on volume, not the thing standing between us and a bad destination --
- * that is the screener and the block.
+ * When Redis is unreachable this falls back to a count kept by this server
+ * instance (`memoryAllow`), not to allowing everything: each report writes a
+ * row and emails `support@`, so an outage must not open the flood gate
+ * (audit L8). A real reporter is still let through, since one person sends
+ * nowhere near the limit even to a single instance.
  */
 export async function allowReport(key: string | null): Promise<boolean> {
-  if (!key) return true;
-
+  const subject = key ?? NO_ADDRESS;
   const rl = reportLimiter();
-  if (!rl) return true;
+  if (!rl) return memoryAllow("report", subject, REPORT_LIMIT, HOUR_MS);
 
   try {
-    const { success } = await rl.limit(key);
+    const { success } = await rl.limit(subject);
     return success;
   } catch (error) {
     console.error("[ratelimit] report check failed", error);
-    return true;
+    return memoryAllow("report", subject, REPORT_LIMIT, HOUR_MS);
   }
 }
 
@@ -138,19 +179,18 @@ function feedbackLimiter(): Ratelimit | null {
   return feedbackRl;
 }
 
-/** Fails open, like the others: a Redis outage does not turn a customer away. */
+/** Falls back to this instance's own count, like `allowReport`. */
 export async function allowFeedback(key: string | null): Promise<boolean> {
-  if (!key) return true;
-
+  const subject = key ?? NO_ADDRESS;
   const rl = feedbackLimiter();
-  if (!rl) return true;
+  if (!rl) return memoryAllow("feedback", subject, FEEDBACK_LIMIT, HOUR_MS);
 
   try {
-    const { success } = await rl.limit(key);
+    const { success } = await rl.limit(subject);
     return success;
   } catch (error) {
     console.error("[ratelimit] feedback check failed", error);
-    return true;
+    return memoryAllow("feedback", subject, FEEDBACK_LIMIT, HOUR_MS);
   }
 }
 

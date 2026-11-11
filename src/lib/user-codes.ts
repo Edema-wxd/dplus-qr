@@ -468,7 +468,7 @@ export async function renameCode(
 ): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_codes set name = $3, updated_at = now()
-     where user_id = $1 and id = $2 and ${access(4)}
+     where user_id = $1 and id = $2 and archived_at is null and ${access(4)}
      returning id`,
     [scope.accountId, id, name.trim(), ...accessArgs(scope, "write")]
   );
@@ -495,7 +495,7 @@ export async function setCodeStyle(
     `update qr_codes
        set style = style || $3::jsonb,
            updated_at = now()
-     where user_id = $1 and id = $2 and ${access(4)}
+     where user_id = $1 and id = $2 and archived_at is null and ${access(4)}
      returning id`,
     [scope.accountId, id, JSON.stringify(style), ...accessArgs(scope, "write")]
   );
@@ -503,6 +503,25 @@ export async function setCodeStyle(
 }
 
 export type ChangeResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Why a code's destination or content may not be changed, or null when it
+ * may. A blocked code is under staff review: re-pointing it somewhere benign
+ * to win an unblock, then pointing it back, must not be possible (audit L3).
+ * An archived code is gone from the dashboard and stays as it was left. The
+ * update statements repeat both conditions, so a block landing between this
+ * read and the write still wins.
+ */
+export function notEditable(
+  code: { status: string; archived: boolean } | null
+): { ok: false; reason: string } | null {
+  if (!code) return { ok: false, reason: "That code could not be found." };
+  if (code.status === "blocked") {
+    return { ok: false, reason: "This code is blocked. A blocked code can only be restored by support." };
+  }
+  if (code.archived) return { ok: false, reason: "That code could not be found." };
+  return null;
+}
 
 /**
  * Re-point a code, and write what it used to be to `qr_destination_history`.
@@ -520,15 +539,17 @@ export async function changeDestination(
   // and must stay on Instagram. A page type has no destination to change --
   // its content is edited instead -- so it is refused rather than re-pointed
   // away from its own page.
-  const current = await queryOne<{ kind: string }>(
-    `select kind from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
+  const current = await queryOne<{ kind: string; status: string; archived: boolean }>(
+    `select kind, status, archived_at is not null as archived
+     from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
     [scope.accountId, id, ...accessArgs(scope, "write")]
   );
-  if (!current) return { ok: false, reason: "That code could not be found." };
-  if (!isLinkKind(current.kind)) {
+  const refused = notEditable(current);
+  if (refused) return refused;
+  if (!isLinkKind(current!.kind)) {
     return { ok: false, reason: "This code shows a page. Edit its content instead." };
   }
-  const screened = linkDestination(current.kind, destinationUrl);
+  const screened = linkDestination(current!.kind, destinationUrl);
   if (!screened.ok) return { ok: false, reason: screened.reason };
   const unsafe = await firstFlagged([screened.normalised]);
   if (unsafe) return { ok: false, reason: flaggedReason(unsafe.url, unsafe.threats) };
@@ -537,7 +558,8 @@ export async function changeDestination(
     `with prev as (
        select id, short_code, destination_url
        from qr_codes
-       where user_id = $1 and id = $2 and kind = $4 and ${access(5)}
+       where user_id = $1 and id = $2 and kind = $4
+         and status <> 'blocked' and archived_at is null and ${access(5)}
      ), updated as (
        update qr_codes c
          set destination_url = $3, updated_at = now()
@@ -551,7 +573,7 @@ export async function changeDestination(
      select short_code from updated`,
     // changed_by is the person who made the change ($5, the actor), not the
     // account: on a team that is how the history says which member did it.
-    [scope.accountId, id, screened.normalised, current.kind, ...accessArgs(scope, "write")]
+    [scope.accountId, id, screened.normalised, current!.kind, ...accessArgs(scope, "write")]
   );
 
   if (!row) return { ok: false, reason: "That code could not be found." };
@@ -575,11 +597,14 @@ export async function updateCodeContent(
   id: string,
   raw: unknown
 ): Promise<ChangeResult> {
-  const current = await queryOne<{ kind: string; content: unknown }>(
-    `select kind, content from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
+  const found = await queryOne<{ kind: string; content: unknown; status: string; archived: boolean }>(
+    `select kind, content, status, archived_at is not null as archived
+     from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
     [scope.accountId, id, ...accessArgs(scope, "write")]
   );
-  if (!current) return { ok: false, reason: "That code could not be found." };
+  const refused = notEditable(found);
+  if (refused) return refused;
+  const current = found!;
   if (!isPageKind(current.kind)) {
     return { ok: false, reason: "This code is a link. Change where it points instead." };
   }
@@ -601,7 +626,8 @@ export async function updateCodeContent(
 
   const row = await queryOne<{ id: string }>(
     `update qr_codes set content = $4::jsonb, updated_at = now()
-     where user_id = $1 and id = $2 and kind = $3 and ${access(5)}
+     where user_id = $1 and id = $2 and kind = $3
+       and status <> 'blocked' and archived_at is null and ${access(5)}
      returning id`,
     [scope.accountId, id, current.kind, JSON.stringify(checked.content), ...accessArgs(scope, "write")]
   );
@@ -991,13 +1017,19 @@ export async function analyticsForCode(
 export async function scanRows(
   scope: AccountScope,
   id: string,
-  days: number
+  days: number,
+  historyDays: number
 ): Promise<
   { scannedAt: Date; country: string | null; device: string | null; os: string | null; browser: string | null }[]
 > {
-  // Individual scans only ever cover a daily window: raw rows are pruned to
-  // the plan's history anyway, and a year of rows is not what this file is for.
-  const window = Math.min(analyticsWindow(days), LONGEST_DAILY_WINDOW);
+  // Individual scans only ever cover a daily window, and never further back
+  // than the plan's scan history. Raw rows are pruned to that history only
+  // when the retention sweep runs, so the bound is applied here as well
+  // (audit L2: a 7-day plan asked for `?days=90` and got 90 days of rows).
+  const window = Math.max(
+    1,
+    Math.trunc(Math.min(analyticsWindow(days), LONGEST_DAILY_WINDOW, historyDays))
+  );
 
   const rows = await query<{
     scanned_at: Date;

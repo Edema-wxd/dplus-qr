@@ -233,6 +233,17 @@ export async function assignPlan(
   plan: Plan
 ): Promise<{ ok: true; previous: string | null } | { ok: false; error: string }> {
   const result = await withTransaction(async (run) => {
+    // Locked, so an erasure cannot land between this check and the insert.
+    // An erased account keeps its row with nothing in it; giving it a plan
+    // would put a subscription back on an account that no longer exists
+    // (audit L9).
+    const account = await run<{ erased: boolean }>(
+      `select erased_at is not null as erased from qr_users where id = $1 for update`,
+      [userId]
+    );
+    if (!account[0]) return { ok: false as const, error: "That account does not exist." };
+    if (account[0].erased) return { ok: false as const, error: "That account has been erased." };
+
     const live = await run<{ id: string; paystack_subscription_code: string | null; slug: string }>(
       `select s.id, s.paystack_subscription_code, p.slug
          from qr_subscriptions s join qr_plans p on p.id = s.plan_id

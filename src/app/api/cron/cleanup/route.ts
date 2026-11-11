@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { env } from "@/lib/env";
+import { cronAuthorized } from "@/lib/cron-auth";
 import { reportError } from "@/lib/error-alerts";
 import { runRetentionSweep, sweepEnabled } from "@/lib/retention";
 import { runUploadCleanup } from "@/lib/upload-cleanup";
@@ -24,8 +24,7 @@ import { runUploadCleanup } from "@/lib/upload-cleanup";
 export async function GET(request: Request) {
   await connection();
 
-  const secret = env().CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!cronAuthorized(request)) {
     return new Response("Not found", { status: 404 });
   }
 

@@ -26,6 +26,14 @@ export function isAdminRole(role: string | null | undefined): boolean {
     .includes("admin");
 }
 
+/**
+ * Said when staff aim an action (suspend, block, archive, warn) at another
+ * staff account, which is refused: one compromised or careless staff account
+ * must not be able to act against the rest (security audit L9).
+ */
+export const STAFF_TARGET =
+  "That is a staff account. Remove its staff role in the database first if this is really needed.";
+
 /** True only for an admin account that has not been banned. */
 export async function isAdmin(userId: string): Promise<boolean> {
   const row = await queryOne<{ role: string | null; banned: boolean | null }>(

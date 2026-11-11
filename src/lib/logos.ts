@@ -157,7 +157,7 @@ export async function setCodeLogo(
            style = case when $4::text is null then c.style - 'presetLogo'
                         else c.style || jsonb_build_object('presetLogo', $4::text) end,
            updated_at = now()
-     where c.user_id = $1 and c.id = $2 and ${access(5)}
+     where c.user_id = $1 and c.id = $2 and c.archived_at is null and ${access(5)}
        and (
          $3::bigint is null
          or exists (

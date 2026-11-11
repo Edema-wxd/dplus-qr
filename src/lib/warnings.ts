@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { query, queryOne, withTransaction } from "@/lib/db";
 import { purgeDestination } from "@/lib/codes";
+import { isAdmin, STAFF_TARGET } from "@/lib/admin";
 import { CODE_HOST, PRODUCT_NAME, SUPPORT_EMAIL } from "@/lib/brand";
 
 /**
@@ -278,6 +279,9 @@ export async function suspendForWarning(
     );
     if (!warning[0]) return { ok: false as const, error: "That is not an open final warning." };
     const { user_id: userId, early } = warning[0];
+    // A warning issued before staff targets were refused, or to someone made
+    // staff since, must not become a suspension of a staff account (audit L9).
+    if (await isAdmin(userId)) return { ok: false as const, error: STAFF_TARGET };
 
     const account = await run<{ id: string }>(
       `update qr_users set suspended_at = coalesce(suspended_at, now()), updated_at = now()

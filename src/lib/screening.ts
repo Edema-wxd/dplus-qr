@@ -38,6 +38,20 @@ const OWN_HOSTS = new Set([
   "dplus-qr.vercel.app",
 ]);
 
+/**
+ * This Vercel project's own deployment addresses: per-deployment URLs
+ * (`dplus-<hash>-francis-woods-projects.vercel.app`) and branch aliases
+ * (`dplus-qr-git-<branch>-francis-woods-projects.vercel.app`). Each serves
+ * codes like the production host does.
+ */
+const OWN_DEPLOYMENT = /^dplus-[a-z0-9-]+-francis-woods-projects\.vercel\.app$/;
+
+/** True for any host that serves this platform's codes. */
+export function isOwnHost(host: string): boolean {
+  const bare = host.toLowerCase().replace(/\.+$/, "").replace(/^www\./, "");
+  return OWN_HOSTS.has(bare) || OWN_DEPLOYMENT.test(bare);
+}
+
 export type ScreenResult =
   | { ok: true; normalised: string }
   | { ok: false; reason: string };
@@ -99,7 +113,10 @@ export function screenUrl(input: string): ScreenResult {
     };
   }
 
-  const host = url.hostname.toLowerCase();
+  // A trailing dot names the same host in DNS (`qriateplus.com.` is
+  // `qriateplus.com`), so it is dropped before any check below compares
+  // hosts; otherwise it slips past every list (audit L11).
+  const host = url.hostname.toLowerCase().replace(/\.+$/, "");
 
   if (isIpHost(host)) {
     return { ok: false, reason: "Links to a bare IP address cannot be used." };
@@ -120,7 +137,7 @@ export function screenUrl(input: string): ScreenResult {
   // to another and defeat screening. Every host that has ever served codes
   // belongs here, not just the current one: codes printed against an older
   // host keep resolving for years.
-  if (OWN_HOSTS.has(host) || OWN_HOSTS.has(host.replace(/^www\./, ""))) {
+  if (isOwnHost(host)) {
     return { ok: false, reason: "A code cannot point at another code." };
   }
 
