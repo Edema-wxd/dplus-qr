@@ -178,9 +178,19 @@ describe("every path the proxy or next.config claims is reserved", () => {
     return [...matcher.matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
   }
 
+  /**
+   * Sources of `rewrites()` and `redirects()` only. A `headers()` source such
+   * as `/:path*` adds headers to whatever answers and claims nothing, so it is
+   * left out; each section runs from its `async name()` to the next one.
+   */
   function configSources(): string[] {
     const source = readFileSync(path.join(root, "next.config.ts"), "utf8");
-    return [...source.matchAll(/source:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+    const sections = source.split(/(?=async\s+\w+\s*\()/);
+    return sections
+      .filter((section) => /^async\s+(rewrites|redirects)\s*\(/.test(section))
+      .flatMap((section) =>
+        [...section.matchAll(/source:\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1])
+      );
   }
 
   const matchers = matcherPaths();
@@ -188,6 +198,10 @@ describe("every path the proxy or next.config claims is reserved", () => {
 
   it("reads the proxy's matcher", () => {
     expect(matchers).toEqual(expect.arrayContaining(["/app/:path*", "/admin/:path*"]));
+  });
+
+  it("reads next.config's rewrites", () => {
+    expect(sources).toContain("/blog/:slug.md");
   });
 
   it("never lets the proxy match every path, which would include every code", () => {
