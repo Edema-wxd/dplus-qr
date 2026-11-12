@@ -70,7 +70,9 @@ export async function GET(
     return csvResponse(tableCsv(table, data, insights), `${code.shortCode}-${table}-${window}d.csv`);
   }
 
-  const rows = await scanRows(scope, id, days);
+  // Clamped rather than refused: the page links `?days=30` whatever the plan,
+  // so a shorter plan gets its own history, never more.
+  const rows = await scanRows(scope, id, days, chartDaysAllowed(entitlement));
 
   const header = "scanned_at,country,device,os,browser";
   const lines = rows.map((row) =>

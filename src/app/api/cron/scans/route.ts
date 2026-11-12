@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { env } from "@/lib/env";
+import { cronAuthorized } from "@/lib/cron-auth";
 import { reportError } from "@/lib/error-alerts";
 import { pruneScans, rollupScans } from "@/lib/rollup";
 import { pruneInvites } from "@/lib/team";
@@ -20,10 +20,7 @@ export async function GET(request: Request) {
   // Reads a request header, so it must never be evaluated at build time.
   await connection();
 
-  const secret = env().CRON_SECRET;
-  const offered = request.headers.get("authorization");
-
-  if (!secret || offered !== `Bearer ${secret}`) {
+  if (!cronAuthorized(request)) {
     return new Response("Not found", { status: 404 });
   }
 

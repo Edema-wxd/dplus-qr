@@ -60,7 +60,7 @@ export async function createShare(scope: AccountScope, codeId: string): Promise<
     const row = await queryOne<{ token: string; created_at: Date }>(
       `insert into qr_stat_shares (qr_id, user_id, token)
        select c.id, c.user_id, $3 from qr_codes c
-       where c.user_id = $1 and c.id = $2 and ${access(4)}
+       where c.user_id = $1 and c.id = $2 and c.archived_at is null and ${access(4)}
        returning token, created_at`,
       [scope.accountId, codeId, newShareToken(), ...accessArgs(scope, "write")]
     );
