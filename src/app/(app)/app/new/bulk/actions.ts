@@ -153,6 +153,11 @@ export async function createBulkAction(
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check your rows first." };
 
+  // Before the quota: a viewer must not spend the account's hourly batches on
+  // a create checkBatch would refuse anyway (audit L1).
+  const may = writable(scope);
+  if (!may.ok) return { error: may.reason };
+
   if (!(await allowBulkImport(scope.accountId))) {
     return { error: "That is a lot of batches in one hour. Please wait a little and try again." };
   }

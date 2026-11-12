@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { Ratelimit } from "@upstash/ratelimit";
+import { env } from "@/lib/env";
 import { redis } from "@/lib/redis";
 
 /**
@@ -52,6 +54,47 @@ export async function shouldCountScan(ip: string | null): Promise<boolean> {
   }
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The key for a visitor whose address is unknown. They share one budget
+ * rather than none: on Vercel an address is always present, so this only
+ * matters if a request somehow arrives without one.
+ */
+const NO_ADDRESS = "no-address";
+
+/** Most keys one instance remembers per limiter before it forgets the oldest. */
+const MEMORY_KEYS = 10_000;
+
+const memory = new Map<string, Map<string, number[]>>();
+
+/**
+ * A sliding-window count kept in this instance's memory: the fallback for the
+ * session-less limiters when Redis cannot be reached. Each serverless
+ * instance counts on its own, so the real ceiling is the limit times the
+ * instances running, which is still a ceiling. Exported for tests.
+ */
+export function memoryAllow(
+  name: string,
+  key: string,
+  limit: number,
+  windowMs: number,
+  now: number = Date.now()
+): boolean {
+  let counts = memory.get(name);
+  if (!counts) {
+    counts = new Map();
+    memory.set(name, counts);
+  }
+  const recent = (counts.get(key) ?? []).filter((at) => now - at < windowMs);
+  const allowed = recent.length < limit;
+  if (allowed) recent.push(now);
+  counts.delete(key);
+  counts.set(key, recent);
+  if (counts.size > MEMORY_KEYS) counts.delete(counts.keys().next().value!);
+  return allowed;
+}
+
 /**
  * Abuse-report limiter: 5 reports an hour per visitor.
  *
@@ -63,7 +106,8 @@ export async function shouldCountScan(ip: string | null): Promise<boolean> {
  *
  * Five an hour is far above what a genuine reporter needs and far below what a
  * flood looks like. Everything else behind a session is bounded by the account
- * it needs, and auth itself is rate limited by Managed Auth, not here.
+ * it needs; signing in, signing up and password resets have their own limits
+ * below (`allowAuth`).
  */
 const REPORT_LIMIT = 5;
 
@@ -88,23 +132,23 @@ function reportLimiter(): Ratelimit | null {
 /**
  * True when this report may be accepted.
  *
- * Fails open, like the scan limiter: Redis being unreachable must not be the
- * reason a real abuse report about a live scam is turned away. A limiter is a
- * brake on volume, not the thing standing between us and a bad destination --
- * that is the screener and the block.
+ * When Redis is unreachable this falls back to a count kept by this server
+ * instance (`memoryAllow`), not to allowing everything: each report writes a
+ * row and emails `support@`, so an outage must not open the flood gate
+ * (audit L8). A real reporter is still let through, since one person sends
+ * nowhere near the limit even to a single instance.
  */
 export async function allowReport(key: string | null): Promise<boolean> {
-  if (!key) return true;
-
+  const subject = key ?? NO_ADDRESS;
   const rl = reportLimiter();
-  if (!rl) return true;
+  if (!rl) return memoryAllow("report", subject, REPORT_LIMIT, HOUR_MS);
 
   try {
-    const { success } = await rl.limit(key);
+    const { success } = await rl.limit(subject);
     return success;
   } catch (error) {
     console.error("[ratelimit] report check failed", error);
-    return true;
+    return memoryAllow("report", subject, REPORT_LIMIT, HOUR_MS);
   }
 }
 
@@ -135,19 +179,18 @@ function feedbackLimiter(): Ratelimit | null {
   return feedbackRl;
 }
 
-/** Fails open, like the others: a Redis outage does not turn a customer away. */
+/** Falls back to this instance's own count, like `allowReport`. */
 export async function allowFeedback(key: string | null): Promise<boolean> {
-  if (!key) return true;
-
+  const subject = key ?? NO_ADDRESS;
   const rl = feedbackLimiter();
-  if (!rl) return true;
+  if (!rl) return memoryAllow("feedback", subject, FEEDBACK_LIMIT, HOUR_MS);
 
   try {
-    const { success } = await rl.limit(key);
+    const { success } = await rl.limit(subject);
     return success;
   } catch (error) {
     console.error("[ratelimit] feedback check failed", error);
-    return true;
+    return memoryAllow("feedback", subject, FEEDBACK_LIMIT, HOUR_MS);
   }
 }
 
@@ -229,6 +272,139 @@ export async function allowInvite(accountId: string): Promise<boolean> {
     return success;
   } catch (error) {
     console.error("[ratelimit] invite check failed", error);
+    return true;
+  }
+}
+
+/**
+ * Verification-link limiter: 5 a day per account.
+ *
+ * A new account's codes are held until its email is confirmed, so a person
+ * whose link expired or went to spam needs a way to ask for another. Each
+ * one is an email from the onboarding address, and it only ever goes to the
+ * signed-in person's own address, so this caps how hard one account can lean
+ * on that sender. Fails open like the others: without Redis, Neon Auth's own
+ * limits still apply.
+ */
+const VERIFY_LIMIT = 5;
+
+let verifyRl: Ratelimit | null | undefined;
+
+function verifyLimiter(): Ratelimit | null {
+  if (verifyRl !== undefined) return verifyRl;
+
+  const client = redis();
+  verifyRl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(VERIFY_LIMIT, "1 d"),
+        prefix: "rl:verify",
+        analytics: false,
+      })
+    : null;
+
+  return verifyRl;
+}
+
+export async function allowVerificationEmail(userId: string): Promise<boolean> {
+  const rl = verifyLimiter();
+  if (!rl) return true;
+
+  try {
+    const { success } = await rl.limit(userId);
+    return success;
+  } catch (error) {
+    console.error("[ratelimit] verification check failed", error);
+    return true;
+  }
+}
+
+/**
+ * Sign-in, sign-up and password-reset limits.
+ *
+ * Managed Auth has its own per-IP limit, but it never sees the visitor's IP:
+ * the Neon Auth SDK calls it from this server and forwards only the cookie and
+ * the origin, so every attempt arrives from Vercel's addresses. Its limit is
+ * therefore keyed on infrastructure, not on whoever is guessing passwords
+ * (security audit, 10 November 2026). These are the limits that see the
+ * visitor.
+ *
+ *   - sign-in, per visitor: every attempt counts. Stops one machine running a
+ *     leaked password list across many accounts.
+ *   - sign-in, per account: failures only, checked before trying. Stops one
+ *     account's password being guessed from many machines. Someone can use it
+ *     to keep an account's sign-in shut for its window by failing on purpose;
+ *     a password reset still works, and that is the usual price of the check.
+ *   - sign-up, per visitor: throwaway accounts are how a free QR host gets
+ *     used for phishing links.
+ *   - reset, per visitor and per address: each request is an email from the
+ *     onboarding address, whose reputation verification mail depends on.
+ *
+ * Fail open, like the others: a Redis outage must not lock everyone out.
+ */
+export const AUTH_LIMITS = {
+  "sign-in-visitor": { limit: 30, window: "15 m" },
+  "sign-in-account": { limit: 10, window: "15 m" },
+  "sign-up-visitor": { limit: 5, window: "1 h" },
+  "reset-visitor": { limit: 5, window: "1 h" },
+  "reset-account": { limit: 3, window: "1 h" },
+} as const satisfies Record<string, { limit: number; window: `${number} ${"m" | "h"}` }>;
+
+export type AuthLimit = keyof typeof AUTH_LIMITS;
+
+const authLimiters = new Map<AuthLimit, Ratelimit | null>();
+
+function authLimiter(kind: AuthLimit): Ratelimit | null {
+  if (authLimiters.has(kind)) return authLimiters.get(kind)!;
+  const client = redis();
+  const { limit, window } = AUTH_LIMITS[kind];
+  const rl = client
+    ? new Ratelimit({
+        redis: client,
+        limiter: Ratelimit.slidingWindow(limit, window),
+        prefix: `rl:auth:${kind}`,
+        analytics: false,
+      })
+    : null;
+  authLimiters.set(kind, rl);
+  return rl;
+}
+
+/**
+ * A rate-limiting key for an email address, never the address itself: the key
+ * is stored in Redis, and no address is kept there. Lowercased, so `A@b` and
+ * `a@B` share one budget.
+ */
+export function emailRateKey(email: string): string {
+  const salt = env().SCAN_IP_SALT ?? "";
+  return createHash("sha256")
+    .update(`ratelimit-email${email.trim().toLowerCase()}${salt}`)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/** Spend one attempt; true when it is allowed. A null key is not limited. */
+export async function allowAuth(kind: AuthLimit, key: string | null): Promise<boolean> {
+  if (!key) return true;
+  const rl = authLimiter(kind);
+  if (!rl) return true;
+  try {
+    return (await rl.limit(key)).success;
+  } catch (error) {
+    console.error("[ratelimit] auth check failed", kind, error);
+    return true;
+  }
+}
+
+/** True while attempts remain, without spending one. For failure-only limits. */
+export async function authBudgetLeft(kind: AuthLimit, key: string | null): Promise<boolean> {
+  if (!key) return true;
+  const rl = authLimiter(kind);
+  if (!rl) return true;
+  try {
+    return (await rl.getRemaining(key)).remaining > 0;
+  } catch (error) {
+    console.error("[ratelimit] auth check failed", kind, error);
     return true;
   }
 }

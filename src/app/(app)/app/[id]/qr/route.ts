@@ -1,6 +1,8 @@
+import { after } from "next/server";
 import { resolveScope } from "@/lib/resolve-scope";
 import { getCode, parseCodeId } from "@/lib/user-codes";
 import { LogoUnavailable, renderArtwork } from "@/lib/qr-artwork";
+import { recordStepQuietly } from "@/lib/onboarding";
 
 /**
  * The downloadable artwork for one code. The drawing itself is
@@ -44,6 +46,12 @@ export async function GET(
 
   try {
     const body = await renderArtwork(code, format, size);
+    // A download is the onboarding's "got the artwork" step, recorded here
+    // rather than on the button so it counts only a file that was served.
+    // It writes nothing for an account with no onboarding, or for a team
+    // the person is working in (onboarding is their own account's), and
+    // runs after the response so it never delays the file.
+    after(() => recordStepQuietly(scope, "artwork_downloaded"));
     return new Response(body as BodyInit, { headers });
   } catch (error) {
     if (!(error instanceof LogoUnavailable)) throw error;

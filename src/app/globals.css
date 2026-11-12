@@ -131,105 +131,393 @@ body {
 }
 
 /*
- * The landing page owns its ground.
+ * The landing page owns its ground: a concourse painted in the full brand
+ * palette, with black split-flap boards hung on its walls.
  *
- * It is one composition of two materials — a paper specimen panel against an
- * ink field — and the argument lives in the seam between them. Inverting that
- * with the system colour scheme would not darken the page, it would destroy
- * the composition, so these values are fixed in both schemes. The status and
- * account pages keep following `prefers-color-scheme` as before.
- *
- * Derived from BRAND_COLORS in src/lib/brand.ts: cyan is the pin, green is
- * reserved for the one live row, amber is pending, coral is struck through.
+ * Each benefit group is a "line" with its own wall colour, taken straight from
+ * BRAND_COLORS in src/lib/brand.ts. The boards are objects, so they stay black
+ * on every wall, and the whole layer is fixed against `prefers-color-scheme`:
+ * a painted wall does not change colour at night. Status, auth and account
+ * pages keep following the scheme as before.
  */
 .lp {
-  --paper: oklch(0.985 0.004 85);
-  --paper-ink: oklch(0.17 0.006 226);
-  --paper-soft: oklch(0.44 0.006 226);
-  --paper-rule: oklch(0.87 0.004 85);
-  --field: oklch(0.165 0.006 226);
-  --field-raised: oklch(0.205 0.006 226);
-  --field-ink: oklch(0.97 0.002 226);
-  --field-soft: oklch(0.74 0.006 226);
-  --field-rule: oklch(0.31 0.008 226);
-  --pin: oklch(0.8 0.1 220);
-  --field-muted: oklch(0.66 0.006 226);
-  --live: oklch(0.8 0.19 133);
-  /*
-   * Paper-safe counterparts. The accents above were tuned against the ink
-   * field; on the paper panel they go faint, so each one is taken down far
-   * enough to hold its own against near-white.
-   */
-  --live-ink: oklch(0.52 0.16 133);
-  --pin-ink: oklch(0.58 0.12 220);
-  --pending-ink: oklch(0.65 0.14 72);
-  --struck-ink: oklch(0.58 0.2 25);
-  --pending: oklch(0.83 0.15 81);
-  --struck: oklch(0.72 0.18 23);
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ink: #1a1a1a;
+  --chalk: #f6f5f0;
+  --chalk-soft: oklch(0.8 0.004 90);
+  --chalk-muted: oklch(0.68 0.004 90);
+  --cyan: #5bc5e8;
+  --green: #7dc242;
+  --amber: #f5b335;
+  --coral: #f1595c;
 
-  background: var(--field);
-  color: var(--field-ink);
-  /* Clears the sticky phone header when an in-page anchor is followed. */
-  scroll-padding-top: 5rem;
-  --qr-ground: transparent;
-  --qr-ink: var(--paper-ink);
+  /* The board: housing, flap faces, and the split between their halves. */
+  --board: #141416;
+  --board-rule: #2c2d31;
+  --flap-top: #2b2c30;
+  --flap-bottom: #232428;
+  --flap-split: rgba(0, 0, 0, 0.45);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --focus: var(--cyan);
+
+  /* Shared components (LegalLinks tone="field") read these names. */
+  --field-muted: var(--chalk-muted);
+  --field-ink: var(--chalk);
+
+  background: var(--ink);
+  color: var(--chalk);
+  scroll-padding-top: 5.5rem;
+  scrollbar-color: var(--chalk-muted) var(--ink);
+  --qr-ground: #ffffff;
+  --qr-ink: var(--ink);
 }
 
-/* Browser surfaces the page did not draw still belong to it. */
+/*
+ * A wall. Text on it is ink; secondary text is ink mixed toward the wall's own
+ * hue rather than grey, so it reads as paint on that wall.
+ */
+.lp-wall {
+  background: var(--wall);
+  color: var(--ink);
+  --wall-soft: color-mix(in oklch, var(--ink) 80%, var(--wall));
+  --focus: var(--ink);
+}
+.lp-cyan { --wall: var(--cyan); }
+.lp-green { --wall: var(--green); }
+.lp-amber { --wall: var(--amber); }
+.lp-coral { --wall: var(--coral); }
+
 .lp ::selection {
-  background: var(--pin);
-  color: oklch(0.17 0.006 226);
+  background: var(--ink);
+  color: var(--cyan);
 }
 .lp :focus-visible {
-  outline: 2px solid var(--pin);
+  outline: 2px solid var(--focus);
   outline-offset: 3px;
-  border-radius: 2px;
+  border-radius: 4px;
 }
 .lp a:where(:not([data-plain])) {
   text-underline-offset: 0.22em;
   text-decoration-thickness: from-font;
 }
-
-/* The paper panel is the one place the scheme flips, by material not by mode. */
-.lp-paper {
-  background: var(--paper);
-  color: var(--paper-ink);
-}
-
-/* Pulls a one-word last line back up beside its paragraph. */
 .lp p,
 .lp dd {
   text-wrap: pretty;
 }
-
-/* Tabular figures everywhere a number can be compared down a column. */
 .lp-num {
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
 }
 
+/* The board hung on a wall. */
+.lp-board {
+  background: var(--board);
+  color: var(--chalk);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 18px 40px -18px rgba(0, 0, 0, 0.55);
+  --focus: var(--cyan);
+}
+.lp-board-rule {
+  border-color: var(--board-rule);
+}
+
+/*
+ * A row of flaps: one fixed cell per character, two-tone faces split by a
+ * hairline, the way a real split-flap board is built.
+ */
+.lp-flaps {
+  display: inline-flex;
+  gap: 2px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.lp-flap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 0.86em;
+  height: 1.42em;
+  border-radius: 2px;
+  background: linear-gradient(var(--flap-top) 0 50%, var(--flap-bottom) 50% 100%);
+  color: var(--flap-ink, var(--chalk));
+  font-variant-numeric: tabular-nums;
+}
+.lp-flap::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--flap-split);
+  /* Behind the character, as the hinge is on a real flap, so it never reads
+     as a strike-through. */
+  z-index: -1;
+}
+.lp-flap { isolation: isolate; }
+/* On a painted flap the two-tone face already shows the hinge. */
+.lp-flaps[data-tone]:not([data-tone="dim"]) .lp-flap::after { display: none; }
+/* State flaps take the colour of their state. */
+.lp-flaps[data-tone="live"] .lp-flap { --flap-top: #86ca4d; --flap-bottom: var(--green); --flap-ink: var(--ink); }
+.lp-flaps[data-tone="new"] .lp-flap { --flap-top: #f7bd4f; --flap-bottom: var(--amber); --flap-ink: var(--ink); }
+.lp-flaps[data-tone="off"] .lp-flap { --flap-top: #f36a6d; --flap-bottom: var(--coral); --flap-ink: var(--ink); }
+.lp-flaps[data-tone="cyan"] .lp-flap { --flap-top: #6ccbea; --flap-bottom: var(--cyan); --flap-ink: var(--ink); }
+.lp-flaps[data-tone="dim"] .lp-flap { --flap-ink: var(--chalk-muted); }
+
+/* Buttons: painted, pressable, and set in Sarlotte like signage. */
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+  font-family: var(--font-sarlotte), Georgia, serif;
+  text-decoration: none;
+  transition:
+    transform 160ms var(--ease-out),
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.lp-btn:active {
+  transform: scale(0.97);
+}
+.lp-btn-ink { background: var(--ink); color: var(--chalk); }
+.lp-btn-cyan { background: var(--cyan); color: var(--ink); }
+.lp-btn-line {
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+@media (hover: hover) and (pointer: fine) {
+  .lp-btn-ink:hover { background: #2e2f33; }
+  .lp-btn-cyan:hover { background: #7cd2ee; }
+  .lp-btn-line:hover { background: color-mix(in oklch, currentColor 10%, transparent); }
+}
+
+.lp-field {
+  background: #0c0c0e;
+  color: var(--chalk);
+  border: 1px solid var(--board-rule);
+  border-radius: 10px;
+  caret-color: var(--cyan);
+  transition: border-color 150ms ease;
+}
+.lp-field::placeholder { color: var(--chalk-muted); }
+.lp-field:focus { border-color: var(--cyan); }
+
+/* FAQ disclosure marker, drawn rather than the browser triangle. */
+.lp-faq summary { list-style: none; cursor: pointer; }
+.lp-faq summary::-webkit-details-marker { display: none; }
+.lp-faq .lp-plus { transition: transform 200ms var(--ease-out); }
+.lp-faq[open] .lp-plus { transform: rotate(45deg); }
+
+/*
+ * The one authored motion: a flap turning over to its new character. Each
+ * cell is offset by its index so a destination cascades along the row.
+ */
 @media (prefers-reduced-motion: no-preference) {
-  /* Short on purpose: the row is the answer to a click, and a long fade read
-     as the demo lagging behind the button. */
-  .lp-rise {
-    animation: lp-rise 240ms var(--ease-out) both;
+  .lp-flaps[data-flip] .lp-flap {
+    animation: lp-flip 420ms var(--ease-out) backwards;
+    animation-delay: calc(var(--i, 0) * 22ms + var(--d, 0ms));
   }
-  .lp-swap {
-    animation: lp-swap 200ms var(--ease-out) both;
+}
+@keyframes lp-flip {
+  from {
+    transform: perspective(400px) rotateX(-88deg);
+    opacity: 0.35;
   }
 }
 
-@keyframes lp-rise {
-  from {
-    opacity: 0.25;
-    transform: translateY(6px);
+/*
+ * The blog.
+ *
+ * The index stays on the concourse (`.lp`): the posts are a departures board,
+ * one row per post, its date on flaps. A post is read end to end, so it is set
+ * on paper, the legal pages' reading surface, inside the same concourse frame:
+ * ink header, paper sheet, ink closing band.
+ *
+ * Fixed against `prefers-color-scheme`, like the rest of `.lp`.
+ */
+.blog-row {
+  transition: background-color 120ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .blog-row:hover {
+    background: rgba(255, 255, 255, 0.035);
+  }
+  .blog-row:hover .blog-row-title {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
   }
 }
 
-@keyframes lp-swap {
-  from {
-    opacity: 0.3;
+.post-sheet {
+  --paper: oklch(0.985 0.004 85);
+  --paper-ink: oklch(0.17 0.006 226);
+  --paper-soft: oklch(0.44 0.006 226);
+  --paper-rule: oklch(0.87 0.004 85);
+  --paper-raised: oklch(0.96 0.004 85);
+  --pin-ink: oklch(0.5 0.13 243);
+  --pending-ink: oklch(0.58 0.13 70);
+  --focus: var(--pin-ink);
+  background: var(--paper);
+  color: var(--paper-ink);
+}
+.post-sheet ::selection {
+  background: var(--pin-ink);
+  color: var(--paper);
+}
+.post-sheet p,
+.post-sheet li,
+.post-sheet dd {
+  text-wrap: pretty;
+}
+
+/* The body: Markdown rendered by src/lib/blog-markdown.ts. */
+.post-body {
+  font-size: 18px;
+  line-height: 1.7;
+}
+.post-body > * + * {
+  margin-top: 1.1em;
+}
+.post-body h2,
+.post-body h3 {
+  font-family: var(--font-sarlotte), Georgia, serif;
+  font-weight: 400;
+  text-wrap: balance;
+  scroll-margin-top: 5.5rem;
+}
+.post-body h2 {
+  margin-top: 2.1em;
+  font-size: clamp(1.6rem, 3.2vw, 1.95rem);
+  line-height: 1.1;
+  letter-spacing: -0.012em;
+}
+.post-body h3 {
+  margin-top: 1.7em;
+  font-size: 1.32rem;
+  line-height: 1.2;
+}
+.post-body h4,
+.post-body h5,
+.post-body h6 {
+  margin-top: 1.6em;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.post-body :is(h2, h3, h4) + * {
+  margin-top: 0.55em;
+}
+.post-body a {
+  color: var(--pin-ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+@media (hover: hover) and (pointer: fine) {
+  .post-body a:hover {
+    text-decoration-thickness: 2px;
+  }
+}
+.post-body strong {
+  font-weight: 600;
+}
+.post-body :is(ul, ol) {
+  padding-left: 1.3em;
+}
+.post-body ul {
+  list-style: disc;
+}
+.post-body ol {
+  list-style: decimal;
+}
+.post-body li::marker {
+  color: var(--paper-soft);
+  font-variant-numeric: tabular-nums;
+}
+.post-body li + li {
+  margin-top: 0.4em;
+}
+.post-body blockquote {
+  border-left: 1px solid var(--paper-ink);
+  padding-left: 1.25rem;
+  font-size: 1.1em;
+  line-height: 1.6;
+}
+.post-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.86em;
+  background: var(--paper-raised);
+  border-radius: 2px;
+  padding: 0.1em 0.35em;
+}
+.post-body pre {
+  overflow-x: auto;
+  border-top: 1px solid var(--paper-rule);
+  border-bottom: 1px solid var(--paper-rule);
+  background: var(--paper-raised);
+  padding: 1rem 1.25rem;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.post-body pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+.post-body hr {
+  margin: 2.4em 0;
+  border: 0;
+  border-top: 1px solid var(--paper-rule);
+}
+.post-body figure {
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+.post-body img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.post-body figcaption {
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--paper-rule);
+  padding-top: 0.6rem;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--paper-soft);
+}
+.post-table {
+  overflow-x: auto;
+  border-top: 1px solid var(--paper-ink);
+}
+.post-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.post-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 0.6rem 1rem 0.6rem 0;
+  border-bottom: 1px solid var(--paper-rule);
+}
+.post-table td {
+  padding: 0.6rem 1rem 0.6rem 0;
+  border-bottom: 1px solid color-mix(in oklch, var(--paper-rule) 70%, transparent);
+  vertical-align: top;
+}
+
+@media print {
+  .post-chrome {
+    display: none !important;
+  }
+  .post-sheet {
+    background: #fff;
   }
 }
 
@@ -335,6 +623,16 @@ body {
 }
 
 /*
+ * Behind a transparent code in the design preview: the usual checkerboard, so
+ * the owner can see the background really is left out of the download.
+ */
+.qr-checker {
+  background-color: #ffffff;
+  background-image: conic-gradient(#e8e8e8 25%, #ffffff 0 50%, #e8e8e8 0 75%, #ffffff 0);
+  background-size: 16px 16px;
+}
+
+/*
  * Notifications.
  *
  * Toasts (sonner, through `src/components/ui/sonner.tsx`) are drawn in the
@@ -381,4 +679,46 @@ body {
 }
 .toaster[data-sonner-toaster] [data-type="error"] [data-icon] {
   color: var(--toast-struck);
+}
+
+/*
+ * The onboarding's one orchestrated moment: when the first code is made, the
+ * real symbol is read into place top to bottom, the way a scanner's line
+ * passes over it, replacing the outline that stood in for it. It runs once,
+ * on the screen that follows "Create code", and nowhere else.
+ *
+ * Only `clip-path` and `opacity` animate, both composited. With reduced
+ * motion the symbol is simply there.
+ */
+@keyframes ob-read {
+  from {
+    clip-path: inset(0 0 100% 0);
+    opacity: 0.4;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+/* The scan's record arriving: an answer to something the person just did. */
+@keyframes ob-slip {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ob-reveal {
+    animation: ob-read 720ms var(--ease-out) 120ms both;
+  }
+
+  .ob-slip {
+    animation: ob-slip 260ms var(--ease-out) both;
+  }
 }

@@ -26,8 +26,20 @@ export const FLASH_MESSAGES = {
   },
   "team-left": { title: "You left the team" },
   "account-switched": { title: "Switched account" },
-  "signed-out": { title: "Signed out" },
+  "setup-finished": {
+    title: "Your first code is set up",
+    description: "Every scan of it appears on this page.",
+  },
+  "signed-out": { title: "Signed out", description: "You are signed out on every device." },
+  "signed-out-here-only": {
+    title: "Signed out on this device",
+    description: "Your other devices could not be signed out just now. Sign in and sign out again to retry.",
+  },
   "plan-created": { title: "Plan created" },
+  "post-created": { title: "Post created", description: "It is a draft until you publish it." },
+  "post-deleted": { title: "Draft deleted" },
+  "post-published": { title: "Published", description: "The post is live on the blog." },
+  "post-scheduled": { title: "Scheduled", description: "The post goes live on its publish date." },
 } as const satisfies Record<string, { title: string; description?: string }>;
 
 export type FlashKey = keyof typeof FLASH_MESSAGES;

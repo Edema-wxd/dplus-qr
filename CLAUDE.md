@@ -41,7 +41,9 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - **Adding a route means adding its name to `RESERVED_CODES`** in
   `src/lib/short-code.ts`. Codes share a URL namespace with pages on this host,
   so an unreserved route name can be issued as a code and dead-end a printed
-  code.
+  code. The same goes for a new `proxy.ts` matcher entry or a `next.config.ts`
+  rewrite or redirect: each answers its path ahead of the code. The test in
+  `src/__tests__/custom-codes.test.ts` checks all three.
 - Collisions are resolved by the unique index and a retry, never by checking
   first — checking races.
 
@@ -110,6 +112,19 @@ reliability for a feature, reliability wins. Everything below follows from that.
   on every authenticated page load so it also repairs a missed row.
 - Deliberately no cross-schema foreign key to `neon_auth."user"`: that table
   belongs to a managed service that may reshape it.
+- **A new account's codes are held until its email is confirmed.**
+  `ensureProfile()` sets `qr_users.codes_held_since` only when it creates the
+  row unverified, and clears it (purging the cache) the first time the session
+  says verified. It never sets it on an existing row, so pass the session's
+  `emailVerified` at every call; the type requires it. The redirect reads the
+  column from `qr_users`, never Neon Auth's table (DECISIONS.md, 11 November).
+- **Signing out ends every session on every device, at once.** The action
+  revokes them through Neon Auth and deletes their rows in `neon_auth.session`,
+  and `auth.getSession()` (`src/lib/auth/server.ts`) refuses any session whose
+  row is gone, because the SDK otherwise trusts a device's cached
+  `session_data` copy for five minutes. Read sessions only through
+  `auth.getSession()`, never by decoding the cookie yourself, or a signed-out
+  device gets back in (`src/lib/auth/sessions.ts`).
 - `proxy.ts` guards pages. A proxy matcher protects pages, not data — check the
   session again inside any Route Handler or Server Action that reads or writes.
 - Never give the matcher a catch-all: it would redirect CSS and JS for
@@ -129,6 +144,11 @@ reliability for a feature, reliability wins. Everything below follows from that.
   Business", "₦4,000"). Read it from the rows: `src/lib/upgrade-offers.ts` for
   "which plan unlocks this", `src/lib/plan-tiers.ts` for price tables. Staff
   move flags between plans without a deploy, and hard-coded copy goes stale.
+- **Every upload endpoint checks the plan in its middleware**, before
+  UploadThing hands out a URL: page files need `hosted_pages` (or an
+  existing page) and must fit `features.storage_mb`
+  (`src/lib/storage-quota.ts`), which `recordFile` checks again under a lock.
+  A new endpoint that stores files for an account does the same.
 - **A locked control stays clickable** and opens the upgrade prompt
   (`LockedButton` / `UpgradeDialog` in `src/app/(app)/app/UpgradePrompt.tsx`).
   The server refuses the action as well; the prompt only explains.
@@ -137,8 +157,14 @@ reliability for a feature, reliability wins. Everything below follows from that.
   where it lives: the free-plan grant (`profile.ts`), staff assignment
   (`plan-admin.ts`, refused for an account paying through Paystack), the
   grace-period lapse (`grace.ts`), the optimistic not-renewing flag on cancel
-  (`checkout.ts`) and account erasure (`moderation.ts`). Any new writer needs
-  a reason recorded in DECISIONS.md.
+  (`checkout.ts`), account erasure (`moderation.ts`) and the period-end
+  check that reads overdue subscriptions back from Paystack
+  (`billing-reconcile.ts`). Any new writer needs a reason recorded in
+  DECISIONS.md.
+- **A webhook that fails answers 500, so Paystack re-delivers it.** Only a
+  processed `qr_payment_events` row stops a delivery; an unprocessed one is
+  claimed (`claimed_at`, a two-minute lease) and tried again. Side effects
+  run after the answer, as the outcome's `followUp`.
 - A plan's price and interval are fixed once it has a `paystack_plan_code`,
   because Paystack charges its own copy. A new price is a new plan.
 
@@ -157,10 +183,11 @@ reliability for a feature, reliability wins. Everything below follows from that.
   read needed. Signed in: it verifies Neon Auth's signed `session_data` cookie
   (`src/lib/session-cookie.ts`) and reads the role from the database. When it
   cannot tell (unreadable cookie, database down) it lets the page decide, so
-  it can only hide the admin, never lock staff out. It never redirects
-  `/admin` to sign-in. Being in the matcher also refreshes the session there:
-  a page cannot write cookies, so a refresh attempted by `requireStaff()`
-  threw.
+  it can only hide the admin, never lock staff out, and then the shell does
+  go out, so no admin page names the admin in its `metadata` title
+  (`src/__tests__/admin-titles.test.ts`). It never redirects `/admin` to
+  sign-in. Being in the matcher also refreshes the session there: a page
+  cannot write cookies, so a refresh attempted by `requireStaff()` threw.
 - Every page view, search and change writes `qr_admin_audit` (`audit()` after
   the response, `recordChange()` awaited).
 
@@ -345,6 +372,15 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
 - Staff admin: overview with what needs attention, abuse-report queue,
   customers (filters, plan assignment, suspend, archive, erase), codes
   (block, pause, archive, re-screen), plans and features, pricing-page copy.
+- Onboarding: sign-up to a first code and a test scan in six steps
+  (`/app/start`, never more than seven, enforced by a test), each step
+  recorded, with the drop-off funnel at `/admin/onboarding`. Only ever in
+  the person's own account, never a team they work in.
+- Blog at `/blog`, written by staff at `/admin/blog`: Markdown typed or
+  imported from `.md` files, search, answer-engine and sourcing fields with a
+  live checklist, scheduled publishing, a feed, `.md` copies listed in
+  `llms.txt`, and 404/308 decided in `proxy.ts` so posts never soft-404.
+  Raw HTML in a post is never rendered.
 - Production deploys apply pending migrations before building.
 - Monitoring: server errors emailed to staff (throttled, production only,
   `src/lib/error-alerts.ts`) and a Monday summary email. The outside uptime

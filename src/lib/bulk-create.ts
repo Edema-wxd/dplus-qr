@@ -9,6 +9,7 @@ import { flaggedReason, reputationOfMany } from "@/lib/reputation";
 import { AccessLost, withCodeSlots, type TxRun } from "@/lib/user-codes";
 import { access, accessArgs, writable, type AccountScope } from "@/lib/account-scope";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
+import { readPresetLogo, type PresetLogoId } from "@/lib/preset-logos";
 
 /**
  * Making a checked batch of codes, and reading a batch back.
@@ -171,6 +172,8 @@ export type BatchCode = {
   /** For the artwork, read as a single code's download reads them. */
   style: QrStyle;
   logo: { id: string; url: string } | null;
+  /** A ready-made mark chosen later on the code's page; never fetched. */
+  presetLogo: PresetLogoId | null;
   createdAt: Date;
 };
 
@@ -255,6 +258,7 @@ export async function getBatch(scope: AccountScope, importId: string): Promise<B
       status: c.status,
       style: readQrStyle(c.style),
       logo: c.logo_id && c.logo_url ? { id: String(c.logo_id), url: c.logo_url } : null,
+      presetLogo: readPresetLogo(c.style),
       createdAt: c.created_at,
     })),
   };

@@ -1,8 +1,8 @@
 import sharp from "sharp";
 import jsQR from "jsqr";
 import { buildStaticPayload } from "@/lib/static-payload";
-import { DEFAULT_QR_STYLE, type QrStyle } from "@/lib/qr-style";
-import { levelFor, logoBox, QUIET_ZONE, qrGeometry } from "@/lib/qr-render";
+import { DEFAULT_QR_STYLE } from "@/lib/qr-style";
+import { levelFor, logoBox, QUIET_ZONE, qrGeometry, renderQrSvg } from "@/lib/qr-render";
 import {
   containRect,
   LOGO_FAILED_NOTICE,
@@ -10,6 +10,7 @@ import {
   LOGO_TOO_LONG_NOTICE,
   paintStaticArtwork,
   planStaticArtwork,
+  plainStyle,
   pngScale,
   STATIC_PLAIN_LEVEL,
   staticLevel,
@@ -17,6 +18,7 @@ import {
   type ArtworkCanvas,
   type LogoState,
   type StaticArtwork,
+  type StaticColours,
 } from "@/lib/static-artwork";
 
 /**
@@ -26,7 +28,7 @@ import {
  * decoded with jsQR back to the exact content.
  */
 
-const BRAND: QrStyle = { dark: "#0B3D5C", light: "#FFF8EC" };
+const BRAND: StaticColours = { dark: "#0B3D5C", light: "#FFF8EC" };
 
 function payload(kind: Parameters<typeof buildStaticPayload>[0], fields: Record<string, string>) {
   const result = buildStaticPayload(kind, fields);
@@ -209,12 +211,24 @@ describe("planStaticArtwork", () => {
 describe("staticSvg", () => {
   it("is the dynamic renderer's output at the static level, colours and logo included", async () => {
     const plan = planStaticArtwork(WIFI, BRAND, await readyLogo(noisyRaster(64, 64)));
-    const svg = staticSvg(artworkOf(plan), 1024);
-    expect(svg).toContain(qrGeometry(WIFI, "H").path);
+    const artwork = artworkOf(plan);
+    const svg = staticSvg(artwork, 1024);
+    expect(svg).toBe(
+      renderQrSvg({ content: WIFI, style: plainStyle(BRAND), px: 1024, level: "H", logoHref: artwork.logo!.href })
+    );
     expect(svg).toContain('fill="#0B3D5C"');
     expect(svg).toContain('fill="#FFF8EC"');
     expect(svg).toContain('href="data:image/png;base64,');
     expect(svg).toContain('width="1024"');
+  });
+
+  it("stays on the plain square design whatever the style object carries", () => {
+    // Static codes are not offered patterns; the canvas PNG draws squares only.
+    const plan = planStaticArtwork(WIFI, BRAND, { status: "none" });
+    const artwork = artworkOf(plan);
+    const fancy = { ...artwork, style: { ...DEFAULT_QR_STYLE, ...BRAND, pattern: "dots", transparent: true } };
+    expect(staticSvg(fancy as StaticArtwork, 512)).toBe(staticSvg(artwork, 512));
+    expect(staticSvg(artwork, 512)).toContain('shape-rendering="crispEdges"');
   });
 });
 

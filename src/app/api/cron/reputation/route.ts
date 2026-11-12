@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { env } from "@/lib/env";
+import { cronAuthorized } from "@/lib/cron-auth";
 import { reportError } from "@/lib/error-alerts";
 import { recheckDestinations } from "@/lib/reputation-sweep";
 
@@ -17,8 +17,7 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   await connection();
 
-  const secret = env().CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!cronAuthorized(request)) {
     return new Response("Not found", { status: 404 });
   }
 

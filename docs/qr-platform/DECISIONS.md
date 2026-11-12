@@ -1871,6 +1871,25 @@ invitations settled more than 30 days ago (accepted, cancelled and expired
 alike), kept live and recently settled ones, and deleted nothing on a second
 run.
 
+## Admin page titles no longer name the admin, 7 November 2026
+
+Reverses "Staff keep descriptive tab titles: nobody else ever receives
+them" in the entry above. Someone else can receive them. When the proxy
+cannot tell who is staff (a session cookie that does not verify, the
+database not answering), it passes the request on to the page, and the page
+sends its prerendered shell with a 200 before `requireStaff()` refuses. The
+title is in that shell. That entry's own database-down test saw a customer
+get it.
+
+- Every admin page's `metadata` title drops "· Admin": "Customers", "Plans",
+  "Code" and so on. The overview, titled "Admin", becomes "Overview". With
+  the root template they read "Customers · QRiate+".
+- In that fallback a customer can still tell that some page answered with a
+  200, but nothing in it names the admin.
+- What staff lose is "Admin" in their tab titles. The sidebar still says
+  where they are.
+
+
 ## Destination reputation: Google Web Risk, 8 November 2026
 
 `checkReputation` was a stub that always answered `unavailable`. It is now a
@@ -2023,6 +2042,811 @@ a local Postgres 16 with rows either side of each boundary: a sign-up at
 waited for next week, and a safety block at 04:50 that morning counted while
 last Monday's did not.
 
+## First-code onboarding and drop-off tracking, 10 November 2026
+
+Written on 6 November and brought up to date with `main` on 10 November,
+after team seats: the migration is now `029`, and every query goes through
+an `AccountScope` (see "Onboarding and teams" below).
+
+Decided with Francis: a new account is walked from sign-up to a first code
+in **seven steps at most**, every step is recorded so staff can see where
+people stop, and the walk ends on the code's first scan. Six steps, with the
+code made on step 4:
+
+| # | Screen | Records |
+| --- | --- | --- |
+| 1 | The sign-up form, unchanged; it now lands on `/app/start` | `account_created` |
+| 2 | What the code will go on, one tap | `purpose_chosen` |
+| 3 | Where a scan leads: website, Instagram or Facebook | `destination_set` |
+| 4 | Name and colour (logo optional), then "Create code" | `code_created` |
+| 5 | Download the artwork (optional) | `artwork_downloaded` |
+| 6 | Scan it; the screen shows the scan as it arrives | `test_scanned`, then `completed` |
+
+- **The limit is a test.** `ONBOARDING_STEPS` in `src/lib/onboarding-steps.ts`
+  is the list, and `onboarding.test.ts` fails if it passes seven or if the code
+  is made after step 7.
+- **Migration `029`**: `qr_onboarding` (one row per account: origin, purpose,
+  the draft link, the code it made, skipped and from where, finished) and
+  `qr_onboarding_steps` (the first time each step was reached). New tables
+  only; nothing that exists is altered. A reload or a second download never
+  counts twice. The draft link lives on the server, so it never rides in a
+  URL and a person can finish on another device; it is cleared once the code
+  holds it. Account erasure deletes both.
+- **Who sees it.** `/app` sends an account with no codes there until it
+  finishes or skips. Skipping is remembered and never forced again; the empty
+  dashboard offers the way back. Accounts with codes never see it. Older
+  accounts with no codes are walked through it too, as `origin = 'existing'`,
+  and the funnel counts only `signup`.
+- **Never in the way.** Every step write is best-effort, and `/app` treats an
+  onboarding it cannot read as no onboarding, so a preview ahead of 029 still
+  opens the dashboard.
+- **Link codes only**, because a new account is always on Free. Step 4 goes
+  through `createCode`, so the first code meets the same screening, plan
+  limits, Web Risk check and short-code rules as any other; step 3 screens
+  the link early so a refusal is shown where it was typed.
+- **The redirect path is untouched.** The scan screen polls
+  `/app/start/scan`, which reads the account's own code's `qr_scans` rows
+  (bots excluded) that the redirect already writes in `after()`. "Made a code"
+  and "scanned" on the staff page are read from the codes and scans
+  themselves, raw rows and rollup both, so they also count a code made on the
+  dashboard after skipping and a first scan from a customer days later.
+- **Before the code exists the panel shows an outline that cannot be
+  scanned**: finder squares and an empty dot grid, no format information and
+  no data. A real-looking symbol would invite printing a code that leads
+  nowhere. The real symbol is revealed once, on the screen after "Create code".
+- The download step is recorded by the download route when it serves a file,
+  not by the button.
+- **Staff see it at `/admin/onboarding`**: 7, 30 or 90 days of sign-ups, how
+  many reached each step, the share of the step before (scanning and
+  finishing measured against making the code, since downloading is optional),
+  median time on each step, skips by screen, the biggest drop in one line,
+  what first codes are for, and made / scanned / confirmed-email outcomes.
+  Its tab title is "Onboarding", not naming the admin (7 November).
+- **Privacy:** onboarding answers and steps are account data. The policy now
+  says so, with legitimate interest as the basis, and that they are recorded on
+  our servers with no cookie and no analytics service. Nothing new is recorded
+  about people who scan.
+
+**Onboarding and teams** (decided 10 November 2026). Onboarding belongs to
+the person's own account and is never about a team's first code:
+
+- Every function in `src/lib/onboarding.ts` takes the `AccountScope` from
+  `resolveScope()` and reads nothing and writes nothing unless it is the
+  person's own account (`isOwnAccount`). Each statement still carries
+  `access()`, which for one's own account is `$1 = $n` and reads no members
+  table; `onboarding.ts` is now one of the modules
+  `scope-guard.test.ts` reads, with `qr_onboarding` and
+  `qr_onboarding_steps` as customer tables. Two functions are named
+  exemptions: `startOnboardingAtSignUp` (the sign-up action, which has the
+  id Neon Auth just returned and no session yet) and `onboardingFunnel`
+  (staff, behind `requireStaff`).
+- **Working in a team**, `/app` never sends anyone to the setup, the empty
+  team dashboard does not offer it, `/app/start` and its actions send the
+  person to the dashboard, and a download of a team code records no step. A
+  first-code form drawn in one's own account and submitted after switching
+  to a team in another tab makes nothing: the action sees a team scope and
+  goes to the dashboard instead of making the code in the team.
+- **Signing up through an invitation** starts no onboarding and goes back to
+  the invitation as before. Such a person came to work in the team, and
+  counting them would show a drop-off that is not one.
+- **A live member of any team who never started the onboarding** is not sent
+  to it from their own empty account either; their empty dashboard still
+  offers "Set up your first code step by step", which opens it as
+  `existing`. Someone who did start it (they signed up on their own and
+  joined a team later) carries on as before in their own account. A member
+  whose team is locked out works in their own account and is likewise not
+  sent. If membership cannot be read, nobody is sent.
+
+Tested: unit tests for the screen rules, resume and skip, the funnel maths,
+the migration's allowed values, the preset colours' contrast, the scan
+check's account filter and its route, the own-account rule (a team scope
+reads and writes nothing), and the privacy wording; the scope guard covers
+every onboarding query. On 6 November, in the browser against a local
+Postgres at desktop and phone width: the whole flow from step 2 to the code
+page, a refused link keeping what was typed, the colour preview, the reveal,
+a download and a scan each recorded once, skip and return, and the staff
+page over synthetic sign-ups (sign-in stubbed, since Neon Auth is hosted;
+the stub was never committed). On 10 November, on a scratch local Postgres
+14 with migrations 001 to 029 applied in order by `scripts/migrate.ts` and
+a stub `neon_auth."user"`: a sign-up opened one onboarding however often it
+ran; purpose, draft, a code made through `createCode` and attached, a
+coloured style, a download recorded once, a bot scan ignored and a real one
+seen; another account could neither attach that code nor see its scans;
+finishing stuck and a later skip changed nothing; a member working in a
+team read nothing and wrote nothing to the team owner's onboarding; an
+invited sign-up had no row; membership was seen, and not once removed; a
+member opening the setup from their own account got an `existing` row; the
+staff funnel counted only sign-ups and read made / scanned / verified
+correctly; erasure deleted the onboarding and its steps.
+
+## Staff warnings and the watch lists, 10 November 2026
+
+The last part of staff moderation (27 October entry: "warnings and monitoring
+follow"). First written on 27 October as PR #16, with its own abuse-report
+queue and overview box; by the time it was brought up to date, `main` had the
+reports queue and the overview's "Needs attention" (28 October), team seats
+and the weekly summary. So this adds only what `main` lacked, folded into the
+pages that already exist: **staff warnings** and **`/admin/monitor`**. PR #16's
+reports page, report buttons and "most reported" list were dropped as
+duplicates.
+
+**Warnings have three levels**: a notice, a warning, and a final warning that
+gives the owner 3, 7 or 14 days. **A final warning falling due changes
+nothing on its own** (Francis, 27 Oct 2026: "final suspension needs an admin
+tied to it"). It appears under "Needs attention" on the overview, as a badge
+on Watch lists in the sidebar, among what is waiting in the Monday summary,
+and at the top of `/admin/monitor`. A staff member then suspends the account
+from the warning, which closes it with the suspension as its reason and
+records who did it, or closes it as put right, or withdraws it. Suspending
+before the date is allowed behind a confirmation and audited as early.
+
+- **Sent from** the customer page (about the account or one of its codes) or
+  a code's page (about that code). Emailed from `support@`, replies to the
+  apex inbox. If the email fails the warning is still recorded and shown, and
+  staff are told; the audit row says the email was not sent.
+- **Migration `030`** adds `qr_account_warnings`, keyed on the account (the
+  owner's id) like every account table. Constraints: a date exactly when the
+  level is final, a resolution exactly when it is closed. Additive only, and
+  `if not exists`, because the PR #16 draft (numbered 018) predates migrations
+  applying on deploy and might have been run by hand somewhere; the shape is
+  unchanged. Numbered 030 because another change has 029; the runner applies
+  whatever is pending by name, so the gap and a later 029 are both fine
+  (tested on a scratch database: 029 applied after 030). Nothing on the
+  redirect path reads the table.
+- **The audit row keeps the level and id, never the text, and erasure deletes
+  the warnings** (`eraseAccountData`, staff and retention sweep alike), so no
+  copy of the message outlives an erasure.
+- **The dashboard says when an account is suspended**, which it never did.
+  Owners only: a member never works in a suspended owner's account, because
+  `resolveAccess` already sends them home with its own notice.
+
+**Who sees a warning on a team account** (decided 10 Nov 2026): the owner,
+with "I've read this"; and every member, editor or viewer, read-only, with
+"Sent to {owner}, who manages this account". Members work on the codes a
+warning is usually about, and an editor may be the one to fix it, so hiding
+it from them would hide the problem from the person able to solve it. Only
+the owner's reading counts, because the owner is answerable for the account
+(Terms, "Teams"), and a member marking it read would take it off the owner's
+dashboard. The dashboard side is `src/lib/dashboard-warnings.ts`, scoped with
+`access()` and read by `scope-guard.test.ts`; marking read uses `access()`
+with no member roles, so only `$1 = actor`, the owner, passes. The warning
+email goes to the owner only.
+
+**`/admin/monitor`** ("Watch lists"; no admin page names the admin in its
+title). Each list is a prompt to look, never a verdict:
+
+- Final warnings past due, each with its suspend / put right / withdraw.
+- **Scan spikes**: at least 50 human scans since midnight UTC and 5× the
+  code's daily average over the previous seven days. Today's partial count
+  against a full day's average can only understate, so a spike flagged at
+  noon is real.
+- **Live link codes failing today's screening rules**, over the newest 5,000
+  on each page load: how destinations saved before a rule (such as the
+  userinfo rule of PR #15) are found. Threat-list matches are not repeated
+  here; the weekly Web Risk re-check blocks those itself.
+- **Accounts under 14 days old that re-pointed a code this week.**
+
+Not added, because `main` has them: the abuse-report queue (`/admin/reports`),
+codes with open reports (its "N open on this code" tag and the Codes filter),
+and the overview's attention list, which gains one line rather than a second
+box.
+
+**Previews.** They share the production database and never apply migrations,
+so until 030 ships a preview has no `qr_account_warnings`. The overview and
+nav count, the customer page and the codes list each read warnings with their
+own failure, and show the page without them; only the Watch lists page and
+sending a warning need the table.
+
+Tested: `npm test` with new unit tests for validation, email wording, the
+reply address, the spike rule, the scoped dashboard statements and the
+summary line. On a local Postgres 14 with every migration and real rows (42
+checks): a code from another account is refused; the database refuses a
+final warning with no date, a date on a notice and a resolution with no time;
+the owner, an editor and a viewer of the owner's team each see the open
+warnings, an outsider with a forged scope sees none; the editor, the viewer
+and the outsider cannot mark one read, the owner can, once; a read notice
+leaves every dashboard while a read final warning stays; nothing is due
+before the date, and falling due suspends nothing; suspending from a due
+warning suspends the account, closes the warning as suspended by that staff
+member, refuses a repeat, and sends team members home; suspending early is
+reported as early; a closed warning cannot be closed twice; the three watch
+lists flag exactly the seeded spike, userinfo look-alike and new account;
+erasure deletes the account's warnings and leaves others', and an erased
+account cannot be warned. Not checked in a browser: signing in needs Neon
+Auth credentials this environment does not have.
+
+## Code design: patterns, corners and colours, 10 November 2026
+
+Written 27 October on a branch (PR #17) and brought up to date with `main`
+on 10 November, after bulk creation, static code colours and team seats had
+landed; this entry describes the design as merged.
+
+Owners can design a code's artwork when they create it and on its page
+afterwards (Francis, 27 Oct 2026: every plan; frames with custom text and
+preset logos follow in a second PR).
+
+- **Six patterns** (square, dots, rounded, extra-rounded, classy,
+  classy-rounded), **corner frames** (match the pattern, square, rounded,
+  circle), **corner dots** (match, square, dot), separate colours for the
+  dots, background, corner frames and corner dots, a swap button and a
+  transparent background.
+- **No migration.** It all lives in `qr_codes.style`. Every new key is
+  optional and defaults, so a code saved before this reads, previews and
+  downloads exactly as it did. `readQrStyle` keeps each key only if it is
+  valid and the whole still scans, so one bad key costs that key, not the
+  design. A test rasterises the download of a colours-only row and checks
+  every module, centre and corner, against the level-Q matrix.
+- **One drawing for everything.** `src/lib/qr-draw.ts` is pure and
+  encoder-free: it turns a module matrix and a style into shapes.
+  `renderQrSvg` (`qr-render.ts`) encodes and draws with it, and
+  `renderArtwork` (`qr-artwork.ts`, from bulk creation) now calls
+  `renderQrSvg` for every download, logo or not, rasterising with sharp for
+  PNG. So the single download, the bulk zip, the dashboard specimens (the
+  codes list, a code's page and the first-code onboarding) and the live
+  preview in the browser all draw with the one module; the browser never
+  runs a QR encoder, it is sent the matrix. A plain code's download used to
+  come straight from the `qrcode` package; it is now the same modules drawn
+  by the shared renderer, so its bytes differ while every module is where it
+  was. The zip is still byte for byte the single download (tested).
+- **Every colour is held to the scan rule**: darker than the background and
+  at least 4.5:1, corner colours included, since the corners are how a
+  scanner finds the code. A refusal names the colour, quotes its contrast and
+  says whether it is inverted, as the code colour's already did. The swap
+  button is disabled when swapping would make the code light on dark.
+- **A transparent background** is checked against the background colour,
+  which the form says is then the surface the owner must print on. A
+  transparent PNG keeps its alpha (tested).
+- **Hosted pages judge colours only.** `pageBrand` returns null for the
+  default colours whatever the pattern, so picking a pattern alone does not
+  restyle a code's page buttons.
+- **Static codes stay on the plain design**: two colours and a logo, as
+  since 6 November. Their PNG is painted module by module on a canvas in the
+  browser, which draws squares only, so `staticSvg` passes `plainStyle()` and
+  the SVG cannot drift from the PNG. Offering patterns there would need a
+  path-drawing painter and its own decode tests; not done.
+- **Bulk codes** are created plain and take whatever design is saved on
+  them later; the zip reads each code's style like the single download.
+- Saving the design is a toast ("Design saved"); a refusal stays inline.
+  The save carries `access(n)` like every other code write.
+
+**Scan testing, and the choice of reader.** Every pattern × corner frame ×
+corner dot combination (72) is rendered and decoded in the test suite: small
+and plain, with a deliberately hostile checkerboard logo, in four brand
+colours with a long custom link, and transparent. The gate is **ZXing**
+(`@zxing/library`, test-only), the engine many Android scanner apps are built
+on, which reads all of them. **jsQR**, which the suite already used, failed
+130 of 504 styled cases: it is far stricter about non-square corner shapes
+than phone cameras, and is kept for the default artwork only, which it reads
+as before. Apple's and Google's camera readers cannot be run here, so a
+phone test of a styled code before a large print run is still advised. If
+real scans of a combination ever fail, remove it from `QR_PATTERNS` /
+`CORNER_FRAMES` / `CORNER_DOTS` and the tests follow.
+
+The one size where ZXing failed was 300px with the checkerboard logo, and it
+fails there for the default style too: an artefact of that test logo's fine
+pattern, not of any design.
+
+## Code design: frames and ready-made logos, 10 November 2026
+
+Written 27 October on a branch (PR #18, stacked on the entry above) and
+brought up to date with `main` on 10 November; this entry describes it as
+merged. The second half of code design (Francis, 27 Oct 2026: custom frame
+text, and every logo in the reference screenshot).
+
+**Frames.** Seven printed frames around the code: box, banner below, banner
+above, speech bubble, tag, corners and pill, each with its own colour and up
+to 24 characters of the owner's own call to action ("Scan me!" by default).
+Stored as `frame`, `frameText` and `frameColor` in `qr_codes.style`, defaulted
+like the other design keys, so no migration.
+
+- **Frames never touch the symbol.** Every frame sits wholly outside the
+  quiet zone, and frames that fill the area around the code (the tag) paint
+  the quiet zone light themselves, even on a transparent style. Every frame
+  with every pattern is decoded in the test suite, and the square ones by
+  jsQR as well as ZXing.
+- **Frame text is drawn as outlines, not set in a font.** The PNG renderer
+  on a server has no fonts, so `<text>` would come out blank or in a
+  fallback face. Glyph outlines are generated once by `npm run
+  design:assets` into `src/lib/design-assets.generated.ts` (committed), so
+  the preview and the download draw identical text with no font parser at
+  runtime. The face is **Inter Bold (SIL OFL 1.1)**, not the brand's
+  Sarlotte, whose licence was never checked for outlining text into artwork
+  customers print. The charset is printable ASCII plus ₦ € £ and ’; the
+  schema refuses anything else, so every character typed can be drawn.
+- Text on a filled band is black or white automatically; a frame colour used
+  for lines and text on the background must reach 3:1 against it (WCAG large
+  text). That is a legibility rule, not a scanning one: a frame is never read
+  by a scanner.
+- A framed download is the width asked for and taller than wide. Frames
+  are drawn by `qr-draw.ts` like the rest of the artwork, so the single
+  download, the bulk zip and the live preview on the create form and the
+  code's page all carry them. The codes-list thumbnails show the symbol
+  alone, too small for the text to mean anything.
+- **Static codes get no frame**, as they get no pattern: `plainStyle()`
+  drops it (see the entry above).
+
+**Ready-made logos.** Twelve marks in the logo picker beside uploads, drawn
+as vector shapes in the logo box with nothing to fetch:
+X, YouTube, Instagram, TikTok, LinkedIn, Pinterest, Apple, Gmail, WhatsApp,
+Facebook, Netflix, and a plain email envelope.
+
+- From **Simple Icons (CC0)**. The marks remain their owners' trademarks.
+  **The Twitter bird and Outlook are not available**: Simple Icons removed
+  both at their owners' request, and copying them from an older release would
+  ignore that request. X stands in for the bird (same platform today) and a
+  generic envelope for Outlook.
+- Stored as `presetLogo` in `qr_codes.style`, but owned by the logo form, not
+  the design panel: `setCodeLogo` sets `logo_id` and `presetLogo` in one
+  statement, so a code never has both, and saving the design can never change
+  a logo choice. The picker posts `preset:<name>` in the same field as an
+  uploaded logo's id. `setCodeLogo` carries `access(n)` like every code
+  write.
+- Offered where a dynamic code's logo is chosen: the create form and the
+  code's page (`LogoPicker`'s `presets`). **Not on bulk creation or static
+  codes**, whose forms take an uploaded logo only; a bulk code can take a
+  mark later on its own page, and its zip then draws it with nothing to
+  fetch.
+- **Not shown at the top of a hosted page.** That spot shows an uploaded
+  logo only (`public-page.ts` reads `logo_id`); a code with a mark keeps the
+  standard page header.
+- Every mark on every pattern decodes in the test suite.
+- A preset mark on a phishing code is handled like any other abuse: blocked.
+
+## A new account's codes wait for its email, 11 November 2026
+
+Security audit M3. An account nobody had verified could make live codes at
+once, and sign-up was unthrottled, so a script with disposable addresses could
+mint `qriateplus.com/<code>` links to a fresh phishing page. A short link on
+this domain gets through mail and SMS filters that the phishing domain itself
+would not, and the domain's reputation (and Resend's, and Safe Browsing's view
+of it) pays for it. The `VerifyBanner` had said "your codes work either way"
+as a deliberate choice; this replaces that choice for new accounts only.
+
+**What happens now.** An account created unverified is held: every one of its
+codes answers with the paused page until the address is confirmed. A held
+code can be made, designed, downloaded and printed. It just does not open.
+
+- **Held at creation, never later.** `ensureProfile()` sets
+  `qr_users.codes_held_since` (migration 033) only when it *inserts* the
+  profile row. Every account from before this change keeps serving, verified
+  or not, and a verified account that switches to an address it has not
+  confirmed keeps serving. A printed code must not go dark because of an email
+  setting.
+- **Released once, for good.** The first page load whose session says the
+  email is verified clears the column and purges the account's codes from the
+  redirect cache, so they serve at once rather than after the cache's minute.
+- **The redirect reads our column, not Neon Auth's.** `qr_users` is already
+  joined for the owner's name and suspension, so this is one more column on
+  the same row. `neon_auth."user"."emailVerified"` is never read on the scan
+  path: that table belongs to a managed service that may reshape it.
+  `redirect-lookup.test.ts` fails if the lookup names it.
+- **The paused page, not a new one**, as for a suspension: a scanner is owed
+  "not active", never the reason. Blocked still wins over held, and a cached
+  entry without the field reads as not held, so the deploy takes nothing down.
+- **The owner is told where it matters.** The dashboard banner says plainly
+  that scans show a "not active" page until the link is clicked, and is not
+  dismissable while held. The onboarding's scan screen shows the same notice
+  above the watcher. Onboarding stays at six screens: confirming is not a
+  step, the scan step just cannot finish without it.
+- **"Send the link again"** on that banner, because the hold makes an expired
+  or spam-foldered link a dead end. It mails only the session's own address,
+  never one from the form, and is limited to five a day per account
+  (`allowVerificationEmail`), since each one comes from `onboarding@`.
+- Staff see "Email not confirmed, so codes show the paused page" on the
+  customer page.
+
+**Why not hold until verified at the redirect, from Neon Auth directly?** It
+would cover every account, including existing ones, and take live printed
+codes down on deploy. It would also make the one scan query depend on a
+managed table.
+
+**Why not refuse to create codes until verified?** It costs the onboarding its
+first code before the person has seen the product, and it protects nothing a
+hold does not: a code that cannot open cannot phish.
+
+The rest of M3 is not in this change: `WEB_RISK_API_KEY` is still unset in
+production (below), and the auth rate limits are H2.
+
+## Billing events name their subscription, 10 November 2026
+
+From the security audit of 10 November. An upgrade is a new Paystack
+subscription (Paystack has no plan swap), but nothing ever stopped the old
+one, and every webhook write matched *any* live row of the account. So an
+upgrader was billed for both plans, and the old subscription's events landed
+on the new plan:
+
+- cancelling the leftover Starter subscription, or its card failing, lapsed
+  the paid Business row, and the account's codes paused;
+- a Starter renewal cleared a failed Business payment's grace, so an account
+  could keep Business while paying the Starter price.
+
+What changed (`src/lib/billing.ts`, `src/lib/billing-events.ts`):
+
+- **Every write names its row.** `invoice.payment_failed`,
+  `subscription.not_renew` and `subscription.disable` match on
+  `paystack_subscription_code`, read from the top of `data` or from
+  `data.subscription`, where invoice events nest it. One that names no
+  subscription is deferred to staff instead of guessed at. `charge.success`
+  renews only the live row on the charge's plan (and on its subscription when
+  the charge names one). An event that matches no live row changes nothing
+  and sends no email: that is the replaced subscription's own events arriving.
+- **An upgrade stops the subscription it replaces.** `activate` returns the
+  rows it superseded and, after the commit, calls `disableSubscription` for
+  each one still renewing. A failure there leaves the new plan live and
+  emails staff, since the customer is then billed twice until someone
+  disables it in the Paystack dashboard.
+- **Activation must have been asked for.** `subscription.create` carries no
+  metadata, so the account comes from the customer email, and anyone can pay
+  with someone else's address through Paystack Inline. Since activating now
+  also stops the account's current subscription, a forged one would cancel a
+  real customer's plan. So `startCheckout` records each checkout in
+  `qr_checkout_intents` (migration 031), with a reference of our own passed
+  to `transaction/initialize`, *before* calling Paystack. An activation is
+  applied only when it matches an unused checkout for that account and plan
+  from the last seven days, or when the subscription is already this
+  account's (Paystack re-sending it). Anything else is deferred, alerted and
+  left unprocessed. The checkout is marked used in the same transaction.
+
+Consequences:
+
+- A subscription created by hand in the Paystack dashboard no longer
+  activates on its own. It is deferred, and staff assign the plan from
+  `/admin/customers`.
+- Narrow residual: within seven days of someone starting, and not finishing,
+  a checkout for plan X, a payment for plan X made with their email still
+  activates. It needs the victim's own recent, abandoned checkout for that
+  exact plan.
+- Still open from the same audit: matching by email and `metadata.user_id` at
+  all (charges should be accepted only for a reference we issued, with the
+  plan's amount). Retrying an unprocessed event and a period-end backstop
+  followed on 11 November.
+
+Checked against a local Postgres with every migration applied: a forged
+`subscription.create` deferred with the Starter row untouched; the real
+upgrade cancelled Starter, activated Business, used up the checkout and tried
+to stop `SUB_old`; the old subscription's disable and renewal then changed
+nothing; the new subscription's failure and renewal applied to it alone.
+`src/__tests__/billing-apply.test.ts` covers the same decisions without a
+database.
+
+## Paystack events are retried, and period ends are checked, 11 November 2026
+
+From the security audit of 10 November (M2). Two ways a payment state went
+wrong and stayed wrong:
+
+- **A failed event was never tried again.** The webhook answered 200 first and
+  applied the event in `after()`, so Paystack never re-sent anything, and the
+  log row was written before processing, so if Paystack had re-sent, the
+  re-delivery would have been dropped as a duplicate. A database cold start
+  while a `charge.success` was being applied left a paying customer
+  unactivated, with nothing to bring it back. Deferred events waited on a
+  "replay" that did not exist.
+- **Nothing backed up a lost webhook.** No code that serves a code looks at
+  `current_period_end`. A lost `subscription.disable` left a cancelled account
+  on its paid plan for good.
+
+What changed:
+
+- **The webhook applies the event, then answers** (`route.ts`). 200 for
+  applied, ignored, duplicate and deferred; 500 when applying throws, so
+  Paystack re-delivers it; 503 while another attempt holds it. Only the
+  database work is waited on. Stopping a replaced subscription, purging
+  cached destinations, customer email and staff alerts come back from
+  `applyPaystackEvent` as `followUp` and run in `after()`. This reverses the
+  route's old rule "never 500 on our own bug": Paystack retrying an event that
+  fails the same way each time costs a throttled error email, while a lost
+  event costs a customer their plan.
+- **Only a processed event stops a delivery** (migration 032). The log
+  insert is now a claim: a new event is inserted claimed; one seen before is
+  claimed again if it is unprocessed and its claim (`claimed_at`) is older
+  than two minutes. So a re-delivery that overlaps a slow first attempt gets
+  503 instead of applying the charge twice, and one that follows a failed
+  attempt applies it. `attempts` counts claims. Applied and deferred events
+  release their claim; a thrown attempt leaves it to lapse.
+- **Staff can retry an event** from Unapplied Paystack events on the admin
+  overview (`retryPaystackEvent`, `payment-actions.ts`). It goes through the
+  same claim and checks as a delivery, under the event's stored key, so it
+  cannot apply an event twice or activate a plan the webhook would refuse.
+  Each retry is recorded in `qr_admin_audit`.
+- **A daily job, `/api/cron/billing` at 03:20, before the grace job:**
+  - `retryStuckEvents` retries up to 20 unprocessed events from the last
+    fortnight that have no recorded reason (they threw, not deferred) and
+    have been untouched for an hour. Deferred ones wait for staff.
+  - `reconcileOverdueSubscriptions` (`src/lib/billing-reconcile.ts`) reads
+    back from Paystack every subscription still `active` here two days after
+    its period ended:
+    - `cancelled` or `completed` there ends it here;
+    - `active` or `non-renewing` with a later next payment date moves the
+      period on;
+    - `attention` starts the plan's grace period and emails the customer, as
+      a failed invoice would.
+    
+    Anything else, a plan that differs, or a failed read changes nothing and
+    goes to staff in one email a day. Each write requires the row to be
+    exactly as read, so a webhook that lands meanwhile wins.
+
+The reconciliation is a **new writer of `qr_subscriptions`**. The reason: the
+evidence it acts on is Paystack's own record, read with our secret key. That
+is the authority a webhook carries, so this is the webhook's answer fetched
+rather than pushed. It acts only where the answer is plain, and never on our
+own clock alone: a period end passing without a renewal is not, by itself,
+reason to take a printed code down.
+
+Not changed: past-due rows are not read back, because the grace job already
+ends them; and free and staff-assigned plans have no Paystack subscription
+to check.
+
+`src/__tests__/billing-apply.test.ts`, `paystack-webhook-route.test.ts` and
+`billing-reconcile.test.ts` cover the claim, the status codes and each
+reconciliation rule.
+
+## Sign-in, sign-up and resets are limited here, 10 November 2026
+
+From the security audit of 10 November. These were left to Managed Auth's
+own rate limit, but the Neon Auth SDK calls Managed Auth from this server and
+forwards only the cookie and the origin, never the visitor's IP
+(`@neondatabase/auth` server, `fetchWithAuth` and `PROXY_HEADERS`). Managed
+Auth therefore saw every attempt as coming from Vercel's addresses: either no
+limit on one machine running a password list, or one limit shared by everyone
+on that address. And `/api/auth/[...path]` proxied the whole auth API, so
+`sign-in/email`, `sign-up/email` and `request-password-reset` could be called
+directly, around any limit the Server Actions had.
+
+- **Limits that see the visitor** (`allowAuth` in `src/lib/ratelimit.ts`,
+  Upstash, sliding windows):
+  - sign-in: 30 attempts per visitor per 15 minutes, and 10 *failures* per
+    account per 15 minutes;
+  - sign-up: 5 per visitor per hour;
+  - password reset: 5 per visitor and 3 per address per hour.
+
+  Visitors are keyed by `ipRateKey`, addresses by `emailRateKey`, a salted
+  hash, so no address is stored in Redis. They fail open like every other
+  limiter here, so a Redis outage never locks anyone out.
+- **The answers reveal nothing new.** The account limit says "too many failed
+  attempts for that email", which is true whether or not the account exists.
+  A reset over its limit sends nothing and answers exactly as a sent one, so
+  it cannot be used to tell which addresses are being asked about.
+- **The cost of the account limit.** Someone can keep an account's sign-in
+  shut for 15 minutes at a time by failing on purpose. A password reset still
+  works. That is the usual trade for stopping a password being guessed from
+  many machines.
+- **`/api/auth` takes GETs only.** Nothing in the app writes through it:
+  every auth call is a Server Action, and `authClient` is not used by any
+  page. Writes answer 404. GETs pass through, which covers the verification
+  and reset links and an OAuth callback. The scaffold's comment that the
+  route "must not be narrowed" predates any of that and is replaced. The OAuth
+  verifier exchange runs in `proxy.ts` through the SDK middleware, which calls
+  Managed Auth directly, so it is unaffected. A browser-side auth call added
+  later needs its path opened there, with the same limits in front of it.
+
+Still open from the same audit: whether Managed Auth can be told the
+visitor's IP (a question for Neon), and holding a new account's codes until
+its email is verified.
+
+## The blog, 10 November 2026
+
+A blog at `/blog`, written and published by staff from `/admin/blog`, built
+to be found by search engines and quoted by answer and generative engines.
+Admins only (Francis, 10 Nov 2026): the existing Neon Auth `admin` role, no
+new role. A blog-only "editor" role can come later if writers who are not
+staff need it.
+
+**Posts live in the database, not in files.** Staff publish without a
+deploy, the same reason the pricing copy is `site_content`. Migration `031`
+adds `blog_posts` and `blog_post_slugs`; `032` adds `blog_images`. Additive,
+nothing on the redirect path reads them.
+
+**Markdown, and never HTML.** Bodies are Markdown, rendered by
+`src/lib/blog-markdown.ts` (markdown-it with `html: false`): raw HTML is
+escaped and shown as text, links are limited to http(s), mailto, tel,
+site-relative and `#`, and images must be https. Safe by construction rather
+than by sanitising afterwards. The editor's preview, the page and the feed
+all call the same function.
+
+**`.md` files come in two ways.** One file into the editor (button or drop),
+which fills every field its frontmatter names and says which, with an undo;
+or up to ten at once from the post list, each becoming a draft. Frontmatter
+is parsed by `yaml`, never `gray-matter`, whose `---js` blocks run code. Keys
+from Hugo, Jekyll and Astro are understood (`date`, `lastmod`, `image`,
+`summary`, `categories`); unknown keys are named back. Staff can download a
+template and any post as `.md`.
+
+**The fields, by who reads them.**
+- Search: search title, description, focus keyword, keywords, canonical
+  override, noindex, and the checklist (`auditPost`), which is guidance and
+  never blocks a publish.
+- Answer engines: a short answer of 40–60 words (shown first, marked
+  `abstract` and `speakable`), key takeaways, a FAQ (FAQPage) and steps
+  (HowTo).
+- Generative engines: sources (`citation`), topics (`about`), a named author
+  with role, and a clean Markdown copy of each post at its address plus
+  `.md`, listed in `llms.txt`.
+- Sharing: a generated 1200×630 card per post with a real QR of the post's
+  address, unless staff set their own image. Versioned by the last save, so
+  a re-share picks up an edit.
+
+**Public means published and dated in the past.** One predicate, used by
+the index, the post, the feed, the sitemap and llms.txt, so a future date
+schedules a post with no job to run.
+
+**Honest dates.** The visible "Updated" date moves only when staff tick
+"Mark as updated today". A typo fix never fakes freshness.
+
+**Statuses decided in the proxy.** The post page streams, so a `notFound()`
+or redirect inside it would arrive after a 200. For an indexed page that is a
+soft 404 and a meta-refresh redirect, so `proxy.ts` now matches `/blog/:slug`
+(one segment: never the index, the card or the feed) and answers first:
+404 for anything not public, 308 from an address a post used to have or one
+typed in capitals. One small `failFast` query; when it cannot tell, the page
+decides, as with `/admin`. Neon Auth's middleware is not run for blog
+paths. 308 is correct here: this is the blog, not the redirect path, whose
+codes stay 302.
+
+**Renames keep their links.** Changing the slug of a post that was ever
+live stores the old one in `blog_post_slugs`, which then redirects. Another
+post cannot take an address that redirects to a different post.
+
+**Read per request**, like `/pricing`: an edit is live on the next load, and
+`next build` still needs no database. The sitemap now reads the database too
+and falls back to its fixed pages if it cannot.
+
+**Images.** A staff-only UploadThing endpoint, `blogImage` (PNG, JPEG, WebP,
+4 MB), checked against the admin role in its middleware, recorded in
+`blog_images`. A table of its own because the upload cleanup sweeps
+`qr_files` rows no code points at, and a cover would look like one.
+
+**Before merging:** check no account holds `blog` as a custom code
+(`select short_code from qr_codes where lower(short_code) = 'blog'`). The
+static route would shadow it. `blog` is now reserved, so no new one can be
+claimed.
+
+## Page-file uploads need hosted pages, and storage has a limit, 11 November 2026
+
+Security audit M4. The photo, PDF and audio endpoints checked only the
+session, although Free has no hosted pages (22 October entry), and no plan had
+a storage limit. A free account could script 16MB uploads, ten audio files a
+request, and each was public at once on `fmctfyekk3.ufs.sh`: free file hosting
+on the company's UploadThing bill, and a reason for UploadThing to suspend the
+app, which would break every hosted page's photos and PDFs.
+
+**Who may upload a page file.** A plan with `hosted_pages`, or an account
+that already has a hosted page (not archived). Page files exist only to be
+shown on a page; the exception keeps the rule that a page that exists stays
+editable whatever the plan, since replacing a menu photo is an edit. Video
+still needs `video_uploads` as well. Refused in the upload middleware, before
+UploadThing hands out a URL, with the usual upgrade sentence.
+
+**How much an account may store.** `features.storage_mb`, a new numeric
+feature edited from `/admin/plans`. Migration 034 sets starting values where a
+plan has none: Free 25 MB (only reachable by an account that kept its pages),
+Starter 250 MB, Pro 2 GB, Business 10 GB. **These are a first guess, set by
+the audit fix, for the business to adjust.** A plan without a value gets
+100 MB (`DEFAULT_STORAGE_MB`), never unlimited. Not advertised on the price
+table: that is a copy decision, and `storage_mb` has no `advertise` until
+someone makes it.
+
+- **Everything held counts**, used or not, because that is what is paid
+  for. Owners cannot delete files themselves; a file replaced on a page drops
+  out only when the upload sweep clears it, a week unused, and the sweep is
+  still switched off (below). Until it is on, an owner who replaces files often
+  will eventually reach the limit and need staff to raise it. The Files page
+  shows "x of y used" so it is never a surprise.
+- **Checked twice.** The middleware refuses a request whose declared sizes
+  would not fit (UploadThing then refuses a file that is bigger than declared).
+  Several requests can pass it before any file lands, so `recordFile` checks
+  again against what is stored, under a per-account advisory lock, and a file
+  that does not fit is deleted from UploadThing. Ten 4 MB files landing at once
+  against 10 MB kept two (verified against Postgres).
+- **Lowering a limit deletes nothing.** An account over it keeps every file
+  and every page; only new uploads are refused.
+- Logos are not counted: 1MB each and a fixed number per library.
+
+## Smaller hardening from the security audit, 11 November 2026
+
+The confirmed Low findings of the 10 November audit, fixed together. Each
+was a check in the wrong place or missing, not a design change.
+
+- **Quota before role (L1).** `inviteAction` spent the owner's daily invites,
+  and `createBulkAction` the account's hourly batches, before learning the
+  caller could not invite or write. A viewer could use both up. The role is
+  now checked first; the library functions still check it too.
+- **The raw-scan CSV reached past the plan (L2).** Only the per-table export
+  held the window to `history_days`. `scanRows` now takes the plan's history
+  and never goes further back. It clamps rather than refusing, because the
+  page links `?days=30` whatever the plan.
+- **Blocked and archived codes could be edited by a forged form (L3).** Only
+  `setStatus` excluded them. A customer could re-point a blocked code
+  somewhere harmless to win an unblock, then point it back. Destination and
+  content changes now refuse a blocked or archived code, and say so for a
+  blocked one. Renames, styles, logos and share links skip archived codes.
+  Each update statement repeats the condition, so a block that lands between
+  the read and the write still wins.
+- **Feedback and reports (L8).**
+  - Their limiters no longer allow everything when Redis is unreachable.
+    They fall back to a count kept by the server instance, per limiter and
+    key. That ceiling is per instance, not global, which is still a ceiling.
+  - Every per-visitor key now treats an IPv6 address as its /64. One
+    connection usually holds a whole /64, so keying on the full address
+    could be dodged by changing addresses. This covers the sign-in limits too.
+  - A feedback answer is saved only while the page itself would be shown, by
+    the same `decide()` a scan gets. A suspended, lapsed, held or archived
+    owner's code takes none.
+- **Staff against staff (L9).** Suspend, block-all, archive, warn and
+  suspend-for-warning refuse a staff account (`STAFF_TARGET` in `admin.ts`).
+  One compromised or careless staff login must not be able to act against
+  the rest. Lifting a suspension or archive stays allowed, since that only
+  undoes. `assignPlan` refuses an erased account, holding its row locked
+  against an erasure in between.
+- **Codes pointing back at this host (L11).** `qriateplus.com.` (trailing
+  dot) slipped past the own-host list, and past the shortener and IP checks
+  too. Trailing dots are now dropped before any host comparison, and the
+  project's own `*.vercel.app` deployment and branch hosts count as own
+  hosts.
+- **Cron secret comparison (L13).** One `cronAuthorized()` in
+  `src/lib/cron-auth.ts` compares SHA-256 digests with `timingSafeEqual`,
+  so the timing reveals neither the secret's content nor its length. Every
+  cron route uses it.
+
+Not in this change: L4 (Web Risk quota, dormant until the key is set), L10
+(logo-cap race, document and zip limits) and L12 (dependencies).
+
+## Signing out ends every session, at once, 11 November 2026
+
+The sign-out button used to end only the session on the device that pressed
+it. Every other device stayed signed in, and even a revoked session kept
+working for up to five minutes, because Neon Auth gives each device a signed
+copy of its session (`session_data`) that the SDK trusts without asking
+anyone until it expires.
+
+Now signing out ends every session the person has, on every device, and
+each device notices on its next request:
+
+- **The action** (`signOutAction`, `src/app/(app)/auth/sign-in/actions.ts`):
+  - asks Neon Auth to revoke all the person's sessions (`revokeSessions`);
+  - deletes their rows from `neon_auth.session` directly (`endAllSessions`,
+    `src/lib/auth/sessions.ts`), so it holds even when that call fails;
+  - clears every `__Secure-neon-auth.*` cookie on this device, whatever
+    happened before.
+
+  If both the revoke and the delete fail, this device is still signed out,
+  the toast says the other devices could not be, and staff get the error.
+- **Every session read:** `auth.getSession()` in `src/lib/auth/server.ts`
+  checks the session's row still exists. It does this once per request per
+  session, and refuses a session whose row is gone, however fresh its cached
+  copy. Every page, Server Action, Route Handler and `resolveScope` goes
+  through it, so nothing needed changing at the call sites.
+- **The admin:** the proxy's staff check does the same, so a staff member's
+  other devices get the ordinary 404.
+
+**Choices**
+- **Deleting rows in `neon_auth` directly.** That schema belongs to the
+  managed service, which is why nothing has a foreign key into it. The two
+  statements name only `id`, `userId` and `expiresAt`, the columns Better
+  Auth's session model is built on. We delete as well as calling the API
+  because the delete is one statement in our own database: certain and
+  immediate, with no dependence on another service answering.
+- **A failed check trusts the cookie.** If the database cannot be asked,
+  `getSession` goes by the SDK's answer. Saying no instead would bounce
+  everyone to sign-in on a blip, and with the database down the page fails on
+  its own reads anyway. The cost is that a revoked session then lasts until
+  its cached copy expires, which is how sign-out behaved before.
+- **"On its next request", not pushed.** A page already open on another
+  device stays on screen until it is used. Its next load, form submission or
+  download is refused.
+- **Sign-out means everywhere, always.** There is no "this device only"
+  option. If one is wanted later, it is `auth.signOut()` behind a second
+  button.
+
+**Verified**
+- `sign-out-everywhere.test.ts` covers:
+  - the action, including each failure path;
+  - `getSession` refusing a dead session, trusting on a database error, and
+    skipping the check when there is no session;
+  - the proxy sending a dead staff session to the 404.
+- Both statements were run against production's `neon_auth.session` over the
+  pooled connection the app uses. The read was for a random id; the delete ran
+  inside a transaction that was rolled back.
+
 ## Backups: nightly, restore-tested, encrypted on GitHub, 8 November 2026
 
 The plan's "nightly backup to S3 and a tested restore", built differently
@@ -2057,7 +2881,7 @@ hand), with the work in `scripts/backup/`:
   and never reaches GitHub, so neither GitHub nor anyone with access to the
   repository can read a copy. The plain dump never leaves the job's
   temporary directory.
-- Each run, ok or failed, is logged in `qr_backups` (migration 029): sizes,
+- Each run, ok or failed, is logged in `qr_backups` (migration 035): sizes,
   counts and a link to the run, no personal data. That is how the app knows.
 
 The script refuses a pooled source URL, and refuses to restore into the
@@ -2117,6 +2941,12 @@ Business decisions:
   of 7 November covers the dashboard and the nightly jobs but not a scanner:
   the first scan of a quiet code while the database is asleep can still reach
   the unavailable page (see that entry). Keeping it awake costs compute hours.
+- Each plan's page-file storage (`storage_mb`, 11 November entry). The
+  starting values were set by the audit fix, not by the business.
+
+- Whether holding a new account's codes until its email is confirmed (11
+  November entry) costs too many first scans. Watch "Scanned it" in the
+  onboarding funnel at `/admin/onboarding` after it ships.
 
 To set up outside the app:
 
@@ -2138,6 +2968,9 @@ Built but switched off:
 - The retention and upload sweeps run only with `DELETION_SWEEPS_ENABLED=true`.
   When to turn them on in production is open; read a dry run against
   production first (see the 30 October entry).
+  Since 11 November the upload sweep is also what frees page-file storage:
+  until it runs, a replaced file counts against the account's `storage_mb`
+  for good.
 
 Closed since this list was first written:
 

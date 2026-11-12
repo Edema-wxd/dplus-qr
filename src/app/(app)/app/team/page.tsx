@@ -59,7 +59,7 @@ export default async function TeamPage() {
   if (!user) redirect("/auth/sign-in");
   if (!teamSeatsLive()) notFound();
 
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  await ensureProfile({ id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified });
   const scope = await resolveScope();
   if (!scope) redirect("/auth/sign-in");
 

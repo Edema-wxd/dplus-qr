@@ -25,6 +25,7 @@ import { listPublicPlans } from "@/lib/plans";
 import { featureOffer, offerRefusal } from "@/lib/upgrade-offers";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
 import { ownsLiveLogo } from "@/lib/logos";
+import { readPresetLogo, type PresetLogoId } from "@/lib/preset-logos";
 import { featureRefusal } from "@/lib/refusals";
 import { firstFlagged, flaggedReason, pageLinks } from "@/lib/reputation";
 import {
@@ -88,6 +89,8 @@ export type OwnedCode = {
   style: QrStyle;
   /** The logo drawn in the middle, if any. Still shown if since archived. */
   logo: { id: string; url: string } | null;
+  /** A ready-made mark in place of an uploaded logo. The two never coexist. */
+  presetLogo: PresetLogoId | null;
   createdAt: Date;
   updatedAt: Date;
   scansToday: number;
@@ -132,6 +135,7 @@ function toOwnedCode(row: CodeRow): OwnedCode {
       row.logo_id && row.logo_url
         ? { id: String(row.logo_id), url: row.logo_url }
         : null,
+    presetLogo: readPresetLogo(row.style),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     scansToday: Number(row.scans_today),
@@ -231,6 +235,10 @@ export type CreateInput =
       destinationUrl: string;
       logoId?: string | null;
       customCode?: string | null;
+      /** Already checked by the caller with `checkQrStyle`. */
+      style?: QrStyle;
+      /** A ready-made mark; `logoId` must then be null. */
+      presetLogo?: PresetLogoId | null;
     }
   | {
       kind: PageKind;
@@ -238,6 +246,10 @@ export type CreateInput =
       content: unknown;
       logoId?: string | null;
       customCode?: string | null;
+      /** Already checked by the caller with `checkQrStyle`. */
+      style?: QrStyle;
+      /** A ready-made mark; `logoId` must then be null. */
+      presetLogo?: PresetLogoId | null;
     };
 
 /**
@@ -358,8 +370,8 @@ export async function createCode(
         const rows = await run<{ id: string }>(
           `-- scope: proved by withCodeSlots, in this transaction
            insert into qr_codes
-             (user_id, short_code, name, kind, destination_url, content, logo_id)
-           values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint)
+             (user_id, short_code, name, kind, destination_url, content, logo_id, style)
+           values ($1, $2, $3, $4, $5, $6::jsonb, $7::bigint, $8::jsonb)
            on conflict (short_code) do nothing
            returning id`,
           [
@@ -370,6 +382,10 @@ export async function createCode(
             destination ?? pagePath(shortCode),
             content === null ? null : JSON.stringify(content),
             logoId,
+            JSON.stringify({
+              ...(input.style ?? {}),
+              ...(input.presetLogo && !logoId ? { presetLogo: input.presetLogo } : {}),
+            }),
           ]
         );
         // A fresh code has no history row: there is no previous destination to
@@ -452,7 +468,7 @@ export async function renameCode(
 ): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_codes set name = $3, updated_at = now()
-     where user_id = $1 and id = $2 and ${access(4)}
+     where user_id = $1 and id = $2 and archived_at is null and ${access(4)}
      returning id`,
     [scope.accountId, id, name.trim(), ...accessArgs(scope, "write")]
   );
@@ -461,10 +477,10 @@ export async function renameCode(
 }
 
 /**
- * Save the colours a code's artwork is drawn in.
+ * Save a code's design: colours, pattern and corners.
  *
- * Merged into the `style` object rather than replacing it, so a later key
- * (a logo's placement, say) is not wiped by a colour change. The caller has
+ * Merged into the `style` object rather than replacing it, so a key this form
+ * does not own (a frame, say) is not wiped by a design change. The caller has
  * already run `checkQrStyle`; this only writes.
  *
  * No cache purge: `style` is never read by the redirect path, and changing it
@@ -477,16 +493,35 @@ export async function setCodeStyle(
 ): Promise<boolean> {
   const row = await queryOne<{ id: string }>(
     `update qr_codes
-       set style = style || jsonb_build_object('dark', $3::text, 'light', $4::text),
+       set style = style || $3::jsonb,
            updated_at = now()
-     where user_id = $1 and id = $2 and ${access(5)}
+     where user_id = $1 and id = $2 and archived_at is null and ${access(4)}
      returning id`,
-    [scope.accountId, id, style.dark, style.light, ...accessArgs(scope, "write")]
+    [scope.accountId, id, JSON.stringify(style), ...accessArgs(scope, "write")]
   );
   return row !== null;
 }
 
 export type ChangeResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Why a code's destination or content may not be changed, or null when it
+ * may. A blocked code is under staff review: re-pointing it somewhere benign
+ * to win an unblock, then pointing it back, must not be possible (audit L3).
+ * An archived code is gone from the dashboard and stays as it was left. The
+ * update statements repeat both conditions, so a block landing between this
+ * read and the write still wins.
+ */
+export function notEditable(
+  code: { status: string; archived: boolean } | null
+): { ok: false; reason: string } | null {
+  if (!code) return { ok: false, reason: "That code could not be found." };
+  if (code.status === "blocked") {
+    return { ok: false, reason: "This code is blocked. A blocked code can only be restored by support." };
+  }
+  if (code.archived) return { ok: false, reason: "That code could not be found." };
+  return null;
+}
 
 /**
  * Re-point a code, and write what it used to be to `qr_destination_history`.
@@ -504,15 +539,17 @@ export async function changeDestination(
   // and must stay on Instagram. A page type has no destination to change --
   // its content is edited instead -- so it is refused rather than re-pointed
   // away from its own page.
-  const current = await queryOne<{ kind: string }>(
-    `select kind from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
+  const current = await queryOne<{ kind: string; status: string; archived: boolean }>(
+    `select kind, status, archived_at is not null as archived
+     from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
     [scope.accountId, id, ...accessArgs(scope, "write")]
   );
-  if (!current) return { ok: false, reason: "That code could not be found." };
-  if (!isLinkKind(current.kind)) {
+  const refused = notEditable(current);
+  if (refused) return refused;
+  if (!isLinkKind(current!.kind)) {
     return { ok: false, reason: "This code shows a page. Edit its content instead." };
   }
-  const screened = linkDestination(current.kind, destinationUrl);
+  const screened = linkDestination(current!.kind, destinationUrl);
   if (!screened.ok) return { ok: false, reason: screened.reason };
   const unsafe = await firstFlagged([screened.normalised]);
   if (unsafe) return { ok: false, reason: flaggedReason(unsafe.url, unsafe.threats) };
@@ -521,7 +558,8 @@ export async function changeDestination(
     `with prev as (
        select id, short_code, destination_url
        from qr_codes
-       where user_id = $1 and id = $2 and kind = $4 and ${access(5)}
+       where user_id = $1 and id = $2 and kind = $4
+         and status <> 'blocked' and archived_at is null and ${access(5)}
      ), updated as (
        update qr_codes c
          set destination_url = $3, updated_at = now()
@@ -535,7 +573,7 @@ export async function changeDestination(
      select short_code from updated`,
     // changed_by is the person who made the change ($5, the actor), not the
     // account: on a team that is how the history says which member did it.
-    [scope.accountId, id, screened.normalised, current.kind, ...accessArgs(scope, "write")]
+    [scope.accountId, id, screened.normalised, current!.kind, ...accessArgs(scope, "write")]
   );
 
   if (!row) return { ok: false, reason: "That code could not be found." };
@@ -559,11 +597,14 @@ export async function updateCodeContent(
   id: string,
   raw: unknown
 ): Promise<ChangeResult> {
-  const current = await queryOne<{ kind: string; content: unknown }>(
-    `select kind, content from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
+  const found = await queryOne<{ kind: string; content: unknown; status: string; archived: boolean }>(
+    `select kind, content, status, archived_at is not null as archived
+     from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
     [scope.accountId, id, ...accessArgs(scope, "write")]
   );
-  if (!current) return { ok: false, reason: "That code could not be found." };
+  const refused = notEditable(found);
+  if (refused) return refused;
+  const current = found!;
   if (!isPageKind(current.kind)) {
     return { ok: false, reason: "This code is a link. Change where it points instead." };
   }
@@ -585,7 +626,8 @@ export async function updateCodeContent(
 
   const row = await queryOne<{ id: string }>(
     `update qr_codes set content = $4::jsonb, updated_at = now()
-     where user_id = $1 and id = $2 and kind = $3 and ${access(5)}
+     where user_id = $1 and id = $2 and kind = $3
+       and status <> 'blocked' and archived_at is null and ${access(5)}
      returning id`,
     [scope.accountId, id, current.kind, JSON.stringify(checked.content), ...accessArgs(scope, "write")]
   );
@@ -975,13 +1017,19 @@ export async function analyticsForCode(
 export async function scanRows(
   scope: AccountScope,
   id: string,
-  days: number
+  days: number,
+  historyDays: number
 ): Promise<
   { scannedAt: Date; country: string | null; device: string | null; os: string | null; browser: string | null }[]
 > {
-  // Individual scans only ever cover a daily window: raw rows are pruned to
-  // the plan's history anyway, and a year of rows is not what this file is for.
-  const window = Math.min(analyticsWindow(days), LONGEST_DAILY_WINDOW);
+  // Individual scans only ever cover a daily window, and never further back
+  // than the plan's scan history. Raw rows are pruned to that history only
+  // when the retention sweep runs, so the bound is applied here as well
+  // (audit L2: a 7-day plan asked for `?days=90` and got 90 days of rows).
+  const window = Math.max(
+    1,
+    Math.trunc(Math.min(analyticsWindow(days), LONGEST_DAILY_WINDOW, historyDays))
+  );
 
   const rows = await query<{
     scanned_at: Date;

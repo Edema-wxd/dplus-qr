@@ -8,7 +8,12 @@ import {
   qrStyleSchema,
   qrStyleVars,
   readQrStyle,
+  weakestContrast,
+  type QrStyle,
 } from "@/lib/qr-style";
+
+/** A style that differs from the default only in its two colours. */
+const pair = (dark: string, light: string): QrStyle => ({ ...DEFAULT_QR_STYLE, dark, light });
 
 /**
  * The style module decides which colour pairs a customer may print. A pair
@@ -36,11 +41,11 @@ describe("checkQrStyle", () => {
   });
 
   it("accepts a dark brand colour on a light ground", () => {
-    expect(checkQrStyle({ dark: "#0B3D5C", light: "#FFF8EC" }).ok).toBe(true);
+    expect(checkQrStyle(pair("#0B3D5C", "#FFF8EC")).ok).toBe(true);
   });
 
   it("refuses an inverted code even at full contrast, because many scanners cannot read one", () => {
-    const result = checkQrStyle({ dark: "#FFFFFF", light: "#000000" });
+    const result = checkQrStyle(pair("#FFFFFF", "#000000"));
     if (result.ok) throw new Error("expected refusal");
     expect(result.inverted).toBe(true);
     expect(result.reason).toMatch(/must be the darker one/i);
@@ -61,12 +66,12 @@ describe("checkQrStyle", () => {
   });
 
   it("refuses identical colours", () => {
-    expect(checkQrStyle({ dark: "#336699", light: "#336699" }).ok).toBe(false);
+    expect(checkQrStyle(pair("#336699", "#336699")).ok).toBe(false);
   });
 
   it("refuses a pair below the minimum and quotes the ratio", () => {
     // Mid grey on white: about 4.0:1, under the 4.5 floor.
-    const result = checkQrStyle({ dark: "#808080", light: "#FFFFFF" });
+    const result = checkQrStyle(pair("#808080", "#FFFFFF"));
     if (result.ok) throw new Error("expected refusal");
     expect(result.reason).toContain(`${MIN_QR_CONTRAST}:1`);
     expect(result.reason).toMatch(/\d\.\d:1/);
@@ -74,16 +79,13 @@ describe("checkQrStyle", () => {
 
   it("accepts a pair just above the minimum", () => {
     // #767676 on white is the classic 4.54:1.
-    expect(checkQrStyle({ dark: "#767676", light: "#FFFFFF" }).ok).toBe(true);
+    expect(checkQrStyle(pair("#767676", "#FFFFFF")).ok).toBe(true);
   });
 });
 
 describe("qrStyleSchema", () => {
   it("normalises to uppercase", () => {
-    expect(qrStyleSchema.parse({ dark: "#0b3d5c", light: " #ffffff " })).toEqual({
-      dark: "#0B3D5C",
-      light: "#FFFFFF",
-    });
+    expect(qrStyleSchema.parse({ dark: "#0b3d5c", light: " #ffffff " })).toEqual(pair("#0B3D5C", "#FFFFFF"));
   });
 
   it.each(["0B3D5C", "#FFF", "#GGGGGG", "#0B3D5C80", "red", "", null, 42])(
@@ -98,16 +100,13 @@ describe("qrStyleSchema", () => {
 
 describe("readQrStyle", () => {
   it("reads a valid stored pair", () => {
-    expect(readQrStyle({ dark: "#0b3d5c", light: "#FFF8EC" })).toEqual({
-      dark: "#0B3D5C",
-      light: "#FFF8EC",
-    });
+    expect(readQrStyle({ dark: "#0b3d5c", light: "#FFF8EC" })).toEqual(pair("#0B3D5C", "#FFF8EC"));
   });
 
   it("keeps the colours when other keys share the object", () => {
     expect(
       readQrStyle({ dark: "#0B3D5C", light: "#FFFFFF", logo: { size: 0.2 } })
-    ).toEqual({ dark: "#0B3D5C", light: "#FFFFFF" });
+    ).toEqual(pair("#0B3D5C", "#FFFFFF"));
   });
 
   it.each([
@@ -131,14 +130,126 @@ describe("readQrStyle", () => {
   });
 });
 
+describe("patterns and corners", () => {
+  it("reads a row saved before patterns existed as the artwork it always drew", () => {
+    expect(readQrStyle({ dark: "#0B3D5C", light: "#FFFFFF" })).toMatchObject({
+      pattern: "square",
+      cornerFrame: "auto",
+      cornerDot: "auto",
+      cornerFrameColor: null,
+      cornerDotColor: null,
+      transparent: false,
+    });
+  });
+
+  it("reads a full style", () => {
+    const stored = {
+      dark: "#000000",
+      light: "#FFFFFF",
+      pattern: "classy-rounded",
+      cornerFrame: "circle",
+      cornerDot: "dot",
+      cornerFrameColor: "#2E6B2E",
+      cornerDotColor: "#1A4F8A",
+      transparent: true,
+    };
+    expect(readQrStyle(stored)).toEqual({ ...stored, frame: "none", frameText: "Scan me!", frameColor: null });
+  });
+
+  it("drops one bad key without losing the rest", () => {
+    const style = readQrStyle({
+      dark: "#0B3D5C",
+      light: "#FFFFFF",
+      pattern: "hearts",
+      cornerFrame: "circle",
+      cornerFrameColor: "#EEEEEE", // far too pale to scan
+    });
+    expect(style).toMatchObject({ dark: "#0B3D5C", pattern: "square", cornerFrame: "circle", cornerFrameColor: null });
+  });
+
+  it("holds the corner colours to the same rule as the code colour", () => {
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, cornerFrameColor: "#72C166" }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, cornerDotColor: "#1BA3DD" }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, cornerFrameColor: "#2E6B2E", cornerDotColor: "#1A4F8A" }).ok).toBe(true);
+  });
+
+  it("names the colour that fails", () => {
+    const result = checkQrStyle({ ...DEFAULT_QR_STYLE, cornerDotColor: "#FFFFFF" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/corner dot/);
+  });
+
+  it("calls a corner colour lighter than the ground inverted, and one too close not", () => {
+    const light = checkQrStyle({ ...DEFAULT_QR_STYLE, light: "#EEEEEE", cornerFrameColor: "#FFFFFF" });
+    const close = checkQrStyle({ ...DEFAULT_QR_STYLE, cornerFrameColor: "#999999" });
+    if (light.ok || close.ok) throw new Error("expected refusal");
+    expect(light.inverted).toBe(true);
+    expect(light.reason).toMatch(/corner frame/);
+    expect(close.inverted).toBe(false);
+    expect(close.reason).toMatch(/corner frame/);
+  });
+
+  it("quotes the weakest contrast among the inks", () => {
+    const style = { ...DEFAULT_QR_STYLE, dark: "#000000", cornerFrameColor: "#767676" };
+    expect(weakestContrast(style)).toBeCloseTo(contrastRatio("#767676", "#FFFFFF"));
+  });
+
+  it.each([
+    ["an unknown pattern", { pattern: "hearts" }],
+    ["an unknown corner", { cornerFrame: "star" }],
+    ["a malformed corner colour", { cornerDotColor: "blue" }],
+    ["a non-boolean transparency", { transparent: "yes" }],
+  ])("the schema refuses %s", (_name, extra) => {
+    expect(qrStyleSchema.safeParse({ dark: "#000000", light: "#FFFFFF", ...extra }).success).toBe(false);
+  });
+
+  it("counts any change from the default as not default", () => {
+    expect(isDefaultQrStyle({ ...DEFAULT_QR_STYLE, pattern: "dots" })).toBe(false);
+    expect(isDefaultQrStyle({ ...DEFAULT_QR_STYLE, transparent: true })).toBe(false);
+  });
+});
+
+describe("frames", () => {
+  it("defaults to no frame with the standard call to action", () => {
+    expect(readQrStyle({ dark: "#000000", light: "#FFFFFF" })).toMatchObject({
+      frame: "none",
+      frameText: "Scan me!",
+      frameColor: null,
+    });
+  });
+
+  it("checks the frame colour is readable on the background", () => {
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "box", frameColor: "#DDDDDD" }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "box", frameColor: "#1A4F8A" }).ok).toBe(true);
+  });
+
+  it("ignores the frame colour when there is no frame", () => {
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "none", frameColor: "#FFFFFF" }).ok).toBe(true);
+  });
+
+  it("refuses frame text it cannot draw, or none at all", () => {
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "pill", frameText: "Scan 🙂" }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "pill", frameText: "  " }).ok).toBe(false);
+    expect(checkQrStyle({ ...DEFAULT_QR_STYLE, frame: "pill", frameText: "Pay ₦500 here" }).ok).toBe(true);
+  });
+
+  it("the schema holds the same rules", () => {
+    const base = { dark: "#000000", light: "#FFFFFF", frame: "box" };
+    expect(qrStyleSchema.safeParse({ ...base, frameText: "x".repeat(25) }).success).toBe(false);
+    expect(qrStyleSchema.safeParse({ ...base, frameText: "日本" }).success).toBe(false);
+    expect(qrStyleSchema.safeParse({ ...base, frame: "starburst" }).success).toBe(false);
+    expect(qrStyleSchema.safeParse({ ...base, frameText: "See our menu" }).success).toBe(true);
+  });
+});
+
 describe("helpers", () => {
   it("knows the default", () => {
     expect(isDefaultQrStyle(DEFAULT_QR_STYLE)).toBe(true);
-    expect(isDefaultQrStyle({ dark: "#000000", light: "#FFFFFF" })).toBe(false);
+    expect(isDefaultQrStyle(pair("#000000", "#FFFFFF"))).toBe(false);
   });
 
   it("maps a style onto the properties QrSymbol paints with", () => {
-    expect(qrStyleVars({ dark: "#0B3D5C", light: "#FFF8EC" })).toEqual({
+    expect(qrStyleVars(pair("#0B3D5C", "#FFF8EC"))).toEqual({
       "--qr-ink": "#0B3D5C",
       "--qr-ground": "#FFF8EC",
       "--qr-ground-solid": "#FFF8EC",
@@ -151,24 +262,29 @@ describe("pageBrand", () => {
     expect(pageBrand(DEFAULT_QR_STYLE)).toBeNull();
   });
 
+  it("judges the colours only, so a new pattern alone does not rebrand the page", () => {
+    const patterned: QrStyle = { ...DEFAULT_QR_STYLE, pattern: "dots", cornerFrame: "circle" };
+    expect(pageBrand(patterned)).toBeNull();
+  });
+
   it("fills buttons with the code colour", () => {
-    expect(pageBrand({ dark: "#0B3D5C", light: "#FFFFFF" })?.fill).toBe("#0B3D5C");
+    expect(pageBrand(pair("#0B3D5C", "#FFFFFF"))?.fill).toBe("#0B3D5C");
   });
 
   it("puts white text on a dark brand colour", () => {
-    expect(pageBrand({ dark: "#0B3D5C", light: "#FFFFFF" })?.ink).toBe("#FFFFFF");
+    expect(pageBrand(pair("#0B3D5C", "#FFFFFF"))?.ink).toBe("#FFFFFF");
   });
 
   it("puts black text on a mid-tone brand colour where black reads better", () => {
     // #767676 is about the lightest grey a code may use on white. White on it
     // is 4.54:1 and black about 4.6:1, so black narrowly wins.
-    expect(pageBrand({ dark: "#767676", light: "#FFFFFF" })?.ink).toBe("#000000");
+    expect(pageBrand(pair("#767676", "#FFFFFF"))?.ink).toBe("#000000");
   });
 
   it.each(["#0B3D5C", "#7A1F1F", "#1F5E2E", "#5A2D82", "#767676", "#000000"])(
     "always leaves button text readable on %s",
     (dark) => {
-      const brand = pageBrand({ dark, light: "#FFFFFF" })!;
+      const brand = pageBrand(pair(dark, "#FFFFFF"))!;
       expect(contrastRatio(brand.fill, brand.ink)).toBeGreaterThanOrEqual(4.5);
     }
   );

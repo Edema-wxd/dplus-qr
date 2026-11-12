@@ -32,10 +32,15 @@ import { ReadOnlyNote } from "../TeamNotices";
 import { TypeSection, UPLOAD_ONLY } from "./TypeSection";
 import { CreateCodeForm } from "./CreateCodeForm";
 import { StaticCodeForm } from "./StaticCodeForm";
+import { cachedMatrix } from "@/app/_landing/QrSymbol";
+import { codeUrl } from "@/lib/brand";
 import { LockIcon, LockedButton } from "../UpgradePrompt";
 import type { UpgradeOffer } from "@/lib/upgrade-offers";
 
 export const metadata: Metadata = { title: "New code" };
+
+/** What the design preview encodes before the real short code exists: a typical generated one. */
+const SAMPLE = codeUrl("Ab3kQ9x");
 
 // The signed-in user's own plan and library decide what this page offers, so
 // there is no static shell worth streaming around.
@@ -62,7 +67,7 @@ export default async function NewCodePage({
   const user = session?.user;
   if (!user) redirect("/auth/sign-in");
 
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  await ensureProfile({ id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified });
   // Which account this page shows, and as whom. Its own unless the person
   // is working in a team they belong to; every read below proves access.
   const scope = await resolveScope();
@@ -120,6 +125,7 @@ export default async function NewCodePage({
           videoUploads={canUploadVideo(entitlement)}
           videoOffer={offers.video}
           customLinks={canUseCustomCodes(entitlement)}
+          sample={{ Q: cachedMatrix(SAMPLE, "Q"), H: cachedMatrix(SAMPLE, "H") }}
           customOffer={offers.custom}
         />
       </DashShell>

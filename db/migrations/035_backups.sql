@@ -1,4 +1,4 @@
--- 029: a log of the nightly backups.
+-- 035: a log of the nightly backups.
 --
 -- Written by the backup job (.github/workflows/backup.yml, via
 -- scripts/backup/record.sh), one row per run, ok or failed. The app only

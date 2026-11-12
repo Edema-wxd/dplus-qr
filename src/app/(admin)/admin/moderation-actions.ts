@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { UTApi } from "uploadthing/server";
 import { z } from "zod";
 import { auth } from "@/lib/auth/server";
-import { isAdmin } from "@/lib/admin";
+import { isAdmin, STAFF_TARGET } from "@/lib/admin";
 import { uploadsEnabled } from "@/lib/uploads";
 import {
   archiveAccount,
@@ -147,6 +147,9 @@ function reportsClosedNote(closed: number): string {
 
 const ACCOUNT_OPS = ["suspend", "unsuspend", "block_all", "archive", "unarchive"] as const;
 
+/** The account actions that only undo something, allowed on a staff account. */
+const STAFF_SAFE_OPS: ReadonlySet<string> = new Set(["unsuspend", "unarchive"]);
+
 const accountSchema = z.object({
   userId: z.string().regex(UUID),
   op: z.enum(ACCOUNT_OPS),
@@ -162,6 +165,12 @@ export async function accountAction(_prev: AdminFormState, form: FormData): Prom
 
   if (userId === staff.id && op !== "unsuspend" && op !== "unarchive") {
     return { error: "You cannot do that to your own account." };
+  }
+  // Staff do not take action against each other from here (audit L9): one
+  // compromised or careless staff account must not be able to suspend the
+  // rest. Lifting a suspension or an archive stays open, as a repair.
+  if (STAFF_SAFE_OPS.has(op) === false && (await isAdmin(userId))) {
+    return { error: STAFF_TARGET };
   }
 
   let result: AdminFormState;

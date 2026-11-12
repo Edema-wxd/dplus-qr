@@ -13,8 +13,9 @@ import { AdminShell, SectionHeading, StaffHistory, Stat, Tag, day, tableClass, t
 import { CodeActions } from "../CodeActions";
 import { Destination } from "../Destination";
 import { ResolveReport } from "../../reports/ResolveReport";
+import { WarnForm } from "../../customers/WarnForm";
 
-export const metadata: Metadata = { title: "Code · Admin" };
+export const metadata: Metadata = { title: "Code" };
 export const instant = false;
 
 const idSchema = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -155,6 +156,20 @@ export default async function AdminCode({ params }: { params: Promise<{ id: stri
             />
           </div>
         </section>
+
+        {code.owner.erased || code.owner.id === staff.id ? null : (
+          <section aria-labelledby="warn-heading">
+            <SectionHeading id="warn-heading">Warn the owner</SectionHeading>
+            <p className="mt-3 mb-4 max-w-[70ch] text-xs leading-relaxed text-[var(--paper-soft)]">
+              About this code. Their earlier warnings, and the ones still open, are on{" "}
+              <Link href={`/admin/customers/${code.owner.id}#warnings-heading`}>their account page</Link>.
+            </p>
+            <WarnForm
+              userId={code.owner.id}
+              fixedCode={{ id: code.id, label: `${CODE_HOST}/${code.shortCode}` }}
+            />
+          </section>
+        )}
 
         {/* Staff see every panel, whatever the customer's plan. */}
         <AnalyticsPanel windows={windows} insights historyDays={Infinity} />

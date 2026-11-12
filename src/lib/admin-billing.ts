@@ -155,7 +155,7 @@ export async function pastDueAccounts(limit = 20): Promise<PastDueAccount[]> {
 export type WebhookHealth = {
   unprocessed: number;
   failed: number;
-  recent: { id: number; type: string; receivedAt: Date; error: string | null }[];
+  recent: { id: number; type: string; receivedAt: Date; error: string | null; attempts: number }[];
 };
 
 /**
@@ -170,8 +170,8 @@ export async function webhookHealth(): Promise<WebhookHealth> {
               count(*) filter (where processed_at is null and error is not null) as failed
        from qr_payment_events`
     ),
-    query<{ id: string; type: string; received_at: Date; error: string | null }>(
-      `select id, type, received_at, error from qr_payment_events
+    query<{ id: string; type: string; received_at: Date; error: string | null; attempts: number }>(
+      `select id, type, received_at, error, attempts from qr_payment_events
        where processed_at is null
        order by received_at desc
        limit 10`
@@ -185,6 +185,7 @@ export async function webhookHealth(): Promise<WebhookHealth> {
       type: row.type,
       receivedAt: row.received_at,
       error: row.error,
+      attempts: Number(row.attempts),
     })),
   };
 }
@@ -349,6 +350,8 @@ export type CustomerDetail = {
   suspendedAt: Date | null;
   archivedAt: Date | null;
   erasedAt: Date | null;
+  /** Codes held until the owner confirms their email (migration 033). */
+  codesHeldSince: Date | null;
   hasPaystackCustomer: boolean;
   subscriptions: {
     id: number;
@@ -382,9 +385,11 @@ export async function getCustomer(userId: string): Promise<CustomerDetail | null
     suspended_at: Date | null;
     archived_at: Date | null;
     erased_at: Date | null;
+    codes_held_since: Date | null;
     paystack_customer_code: string | null;
   }>(
-    `select id, email, name, created_at, suspended_at, archived_at, erased_at, paystack_customer_code
+    `select id, email, name, created_at, suspended_at, archived_at, erased_at, codes_held_since,
+            paystack_customer_code
      from qr_users where id = $1`,
     [userId]
   );
@@ -436,6 +441,7 @@ export async function getCustomer(userId: string): Promise<CustomerDetail | null
     suspendedAt: profile.suspended_at,
     archivedAt: profile.archived_at,
     erasedAt: profile.erased_at,
+    codesHeldSince: profile.codes_held_since,
     hasPaystackCustomer: profile.paystack_customer_code !== null,
     subscriptions: subscriptions.map((row) => ({
       id: Number(row.id),

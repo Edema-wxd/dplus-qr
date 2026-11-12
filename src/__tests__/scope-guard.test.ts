@@ -21,16 +21,21 @@ const MODULES = [
   "src/lib/files.ts",
   "src/lib/stat-shares.ts",
   "src/lib/bulk-create.ts",
+  "src/lib/dashboard-warnings.ts",
+  "src/lib/onboarding.ts",
 ];
 
 const CUSTOMER_TABLES =
-  /\b(qr_codes|qr_logos|qr_files|qr_stat_shares|qr_feedback|qr_scans|qr_scan_daily|qr_scan_daily_visitors|qr_destination_history|qr_bulk_imports|qr_bulk_import_codes)\b/;
+  /\b(qr_codes|qr_logos|qr_files|qr_stat_shares|qr_feedback|qr_scans|qr_scan_daily|qr_scan_daily_visitors|qr_destination_history|qr_bulk_imports|qr_bulk_import_codes|qr_account_warnings|qr_onboarding|qr_onboarding_steps)\b/;
 const SQL = /\b(select|insert|update|delete)\b/i;
 
-/** Functions that read without a scope, each authorised another way. */
+/** Functions without a scope, each authorised another way. */
 const EXEMPT: Record<string, string> = {
   analyticsForCode: "staff (requireStaff) and public share links (loadSharedCode) authorise first",
   loadSharedCode: "the public share page: the token is the credential, checked with moderation in-query",
+  onboardingFunnel: "the staff funnel at /admin/onboarding, behind requireStaff: counts across accounts",
+  startOnboardingAtSignUp:
+    "sign-up: the account Neon Auth created in the same request, before a session can be read",
 };
 
 const root = path.join(__dirname, "..", "..");
@@ -99,7 +104,10 @@ describe("scopes come only from a session", () => {
   it("takes a scope, never a bare user id, in every dashboard function that queries", () => {
     for (const file of MODULES) {
       const source = readFileSync(path.join(root, file), "utf8");
-      expect(source).not.toMatch(/^export async function \w+\(\s*userId: string/m);
+      const bare = [...source.matchAll(/^export async function (\w+)\(\s*userId: string/gm)]
+        .map((match) => match[1])
+        .filter((name) => !EXEMPT[name]);
+      expect(bare).toEqual([]);
     }
   });
 });

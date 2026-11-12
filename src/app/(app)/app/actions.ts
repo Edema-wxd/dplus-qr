@@ -19,11 +19,13 @@ import {
 import { isDynamicKind, isLinkKind } from "@/lib/qr-types";
 import { checkQrStyle, qrStyleSchema } from "@/lib/qr-style";
 import { archiveLogo, parseLogoId, setCodeLogo } from "@/lib/logos";
+import { parseLogoChoice } from "@/lib/preset-logos";
 import { canShareStats, canUseCustomCodes, getEntitlement } from "@/lib/entitlement";
 import { createShare, revokeShare } from "@/lib/stat-shares";
 import { featureRefusal } from "@/lib/refusals";
 import { checkCustomCode } from "@/lib/short-code";
 import { flash } from "@/lib/flash";
+import { acknowledgeWarning } from "@/lib/dashboard-warnings";
 
 /**
  * Dashboard mutations.
@@ -59,13 +61,37 @@ const idSchema = z
   .refine((value) => parseCodeId(value) !== null, "That code could not be found.");
 
 // Empty means "no logo": that is what the picker's "None" option posts.
-const logoIdSchema = z
+/**
+ * The logo picker's one field: "" for none, an uploaded logo's id, or
+ * `preset:<name>` for a ready-made mark.
+ */
+const logoChoiceSchema = z
   .string()
-  .refine(
-    (value) => value === "" || parseLogoId(value) !== null,
-    "That logo could not be found."
-  )
-  .transform((value) => (value === "" ? null : value));
+  .refine((value) => parseLogoChoice(value) !== null, "That logo could not be found.")
+  .transform((value) => {
+    const choice = parseLogoChoice(value)!;
+    return {
+      logoId: choice.kind === "upload" ? choice.id : null,
+      presetLogo: choice.kind === "preset" ? choice.id : null,
+    };
+  });
+
+/**
+ * A code's design, posted as one JSON field by the design panel, then held
+ * to the same schema as anything read back from the database.
+ */
+const styleFieldSchema = z
+  .string({ error: "Choose a design first." })
+  .max(2_000, "That design could not be read.")
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      ctx.addIssue({ code: "custom", message: "That design could not be read. Please try again." });
+      return z.NEVER;
+    }
+  })
+  .pipe(qrStyleSchema);
 
 /**
  * A page type's content, posted as one JSON field by the editor. Parsed here
@@ -100,37 +126,48 @@ export async function createCodeAction(
     .object({
       name: nameSchema,
       kind: z.string().refine(isDynamicKind, "Choose a kind of code."),
-      logoId: logoIdSchema,
+      logo: logoChoiceSchema,
       // Optional; the format and the plan are checked in `createCode`, where
       // the save happens, so a tampered form meets the same rules.
       customCode: z.string().trim().max(64).default(""),
+      // Optional, so a form without the design panel still creates a plain code.
+      style: styleFieldSchema.optional(),
     })
     .safeParse({
       name: formData.get("name"),
       kind: formData.get("kind") ?? "url",
-      logoId: formData.get("logoId") ?? "",
+      logo: formData.get("logoId") ?? "",
       customCode: formData.get("customCode") ?? "",
+      style: formData.get("style") ?? undefined,
     });
 
   if (!common.success) {
     return { error: common.error.issues[0]?.message ?? "Check the form." };
   }
 
-  const { name, kind, logoId } = common.data;
+  const { name, kind, style } = common.data;
+  const { logoId, presetLogo } = common.data.logo;
   const customCode = common.data.customCode || null;
+
+  // The panel runs this same check as the owner designs, but a Server Action
+  // is an endpoint anyone can post to, so the server decides.
+  if (style) {
+    const scannable = checkQrStyle(style);
+    if (!scannable.ok) return { error: scannable.reason };
+  }
   let input: CreateInput;
   if (isLinkKind(kind)) {
     const destination = destinationSchema.safeParse(formData.get("destinationUrl"));
     if (!destination.success) {
       return { error: destination.error.issues[0]?.message ?? "Check the form." };
     }
-    input = { kind, name, logoId, customCode, destinationUrl: destination.data };
+    input = { kind, name, logoId, presetLogo, customCode, style, destinationUrl: destination.data };
   } else {
     const content = contentSchema.safeParse(formData.get("content"));
     if (!content.success) {
       return { error: content.error.issues[0]?.message ?? "Check the form." };
     }
-    input = { kind, name, logoId, customCode, content: content.data };
+    input = { kind, name, logoId, presetLogo, customCode, style, content: content.data };
   }
 
   let created;
@@ -294,11 +331,8 @@ export async function setStyleAction(
   if (!may.ok) return { error: may.reason };
 
   const parsed = z
-    .object({ id: idSchema, style: qrStyleSchema })
-    .safeParse({
-      id: formData.get("id"),
-      style: { dark: formData.get("dark"), light: formData.get("light") },
-    });
+    .object({ id: idSchema, style: styleFieldSchema })
+    .safeParse({ id: formData.get("id"), style: formData.get("style") });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Check the form." };
@@ -331,15 +365,15 @@ export async function setLogoAction(
   if (!may.ok) return { error: may.reason };
 
   const parsed = z
-    .object({ id: idSchema, logoId: logoIdSchema })
-    .safeParse({ id: formData.get("id"), logoId: formData.get("logoId") ?? "" });
+    .object({ id: idSchema, logo: logoChoiceSchema })
+    .safeParse({ id: formData.get("id"), logo: formData.get("logoId") ?? "" });
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Check the form." };
   }
 
   try {
-    const ok = await setCodeLogo(scope, parsed.data.id, parsed.data.logoId);
+    const ok = await setCodeLogo(scope, parsed.data.id, parsed.data.logo.logoId, parsed.data.logo.presetLogo);
     if (!ok) {
       return {
         error: "That logo is no longer in your library. Pick another, or upload it again.",
@@ -449,4 +483,24 @@ export async function shareStatsAction(
     console.error("[dashboard] share change failed", error);
     return { error: "We could not change sharing. Please try again." };
   }
+}
+
+/**
+ * The owner marks a staff warning as read. The id comes from the form; the
+ * account and the person come from the session, and the statement admits the
+ * owner alone, so a team member, or a form naming another account's warning,
+ * changes nothing. A final warning stays on the dashboard after this, as it
+ * carries a date; the rest leave it.
+ */
+export async function acknowledgeWarningAction(formData: FormData): Promise<void> {
+  const scope = await requireScope();
+  const id = z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(Number.MAX_SAFE_INTEGER)
+    .safeParse(formData.get("warningId"));
+  if (!id.success) return;
+  await acknowledgeWarning(scope, id.data);
+  revalidatePath("/app");
 }

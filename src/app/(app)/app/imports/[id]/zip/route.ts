@@ -50,7 +50,8 @@ export async function GET(
 
   const logos: LogoCache = new Map();
   try {
-    for (const url of new Set(batch.codes.flatMap((c) => (c.logo ? [c.logo.url] : [])))) {
+    // A preset mark is drawn from bundled outlines; only uploads are fetched.
+    for (const url of new Set(batch.codes.flatMap((c) => (c.logo && !c.presetLogo ? [c.logo.url] : [])))) {
       const loaded = loadLogo(url);
       logos.set(url, loaded);
       await loaded;

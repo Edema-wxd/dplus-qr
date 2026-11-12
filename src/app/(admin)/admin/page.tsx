@@ -14,9 +14,13 @@ import { backupHealth, describeBackups } from "@/lib/backups";
 import { BACKUP_RUNS_URL } from "@/lib/backup-policy";
 import { pageReferrals } from "@/lib/signup-source";
 import { audit, requireStaff } from "./guard";
+import { RetryEvent } from "./RetryEvent";
 import { AdminShell, SectionHeading, Stat, day, tableClass, tdClass, thClass } from "./AdminShell";
 
-export const metadata: Metadata = { title: "Admin" };
+// No admin page names the admin in its title. A title is in the prerendered
+// shell, and when `proxy.ts` cannot tell who is staff it lets the shell go out
+// to whoever asked, before `requireStaff()` refuses them.
+export const metadata: Metadata = { title: "Overview" };
 
 // Live figures for one staff member, with nothing useful to stream around.
 export const instant = false;
@@ -37,7 +41,7 @@ export default async function AdminOverview() {
       console.error("[admin] page referrals unavailable", error);
       return null;
     }),
-    // Same reasoning: a preview ahead of migration 029 hides the item.
+    // Same reasoning: a preview ahead of migration 035 hides the item.
     backupHealth().catch((error) => {
       console.error("[admin] backup state unavailable", error);
       return null;
@@ -56,6 +60,14 @@ export default async function AdminOverview() {
       detail: "Someone says a code leads somewhere harmful. Review it, then block it or dismiss the report.",
       href: "/admin/reports",
       cta: "Review reports",
+    },
+    {
+      count: attention.finalWarningsDue,
+      title: attention.finalWarningsDue === 1 ? "final warning past due" : "final warnings past due",
+      detail:
+        "Nothing happens on its own when the date passes. Suspend the account, or close the warning if they put it right.",
+      href: "/admin/monitor#due-heading",
+      cta: "Decide",
     },
     {
       count: attention.overdueAccounts,
@@ -107,7 +119,7 @@ export default async function AdminOverview() {
           {todo.length === 0 ? (
             <p className="mt-4 flex items-center gap-2 text-sm text-[var(--paper-soft)]">
               <span aria-hidden className="inline-block h-2 w-2 rounded-full bg-[var(--live-ink)]" />
-              Nothing is waiting on you. No open reports, nobody overdue, every payment applied.
+              Nothing is waiting on you. No open reports, no final warning due, nobody overdue, every payment applied.
             </p>
           ) : (
             <ul className="mt-4 divide-y divide-[var(--paper-rule)] overflow-hidden rounded-lg border border-[var(--paper-rule)] bg-white">
@@ -211,7 +223,8 @@ export default async function AdminOverview() {
               {webhooks.unprocessed === 1 ? " has" : "s have"} not been applied
               {webhooks.failed > 0 ? `, ${webhooks.failed.toLocaleString("en-NG")} with an error` : ""}. Each is a
               payment, renewal or cancellation the database has not caught up with. An unknown plan code usually
-              means a plan was created in Paystack directly rather than connected from the Plans page.
+              means a plan was created in Paystack directly rather than connected from the Plans page. Fix the
+              cause, then retry the event. Events that only failed are retried by themselves each night.
             </p>
             <div className="mt-4 overflow-x-auto rounded-lg border border-[var(--paper-rule)] bg-white">
               <table className={tableClass}>
@@ -220,6 +233,7 @@ export default async function AdminOverview() {
                     <th scope="col" className={thClass}>Received</th>
                     <th scope="col" className={thClass}>Type</th>
                     <th scope="col" className={thClass}>State</th>
+                    <th scope="col" className={thClass}><span className="sr-only">Retry</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -231,8 +245,14 @@ export default async function AdminOverview() {
                         {event.error ? (
                           <span className="text-[var(--struck-ink)]">Failed: {event.error}</span>
                         ) : (
-                          <span className="text-[var(--pending-ink)]">Waiting to be applied</span>
+                          <span className="text-[var(--pending-ink)]">
+                            Waiting to be applied
+                            {event.attempts > 1 ? ` (${event.attempts} attempts)` : ""}
+                          </span>
                         )}
+                      </td>
+                      <td className={tdClass}>
+                        <RetryEvent eventId={event.id} />
                       </td>
                     </tr>
                   ))}

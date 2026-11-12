@@ -1,9 +1,9 @@
-import QRCode from "qrcode";
 import sharp from "sharp";
 import { codeUrl } from "@/lib/brand";
 import { loadLogo } from "@/lib/logos";
 import { renderQrSvg } from "@/lib/qr-render";
 import type { QrStyle } from "@/lib/qr-style";
+import type { PresetLogoId } from "@/lib/preset-logos";
 
 /**
  * The downloadable artwork for one dynamic code, as SVG text or PNG bytes.
@@ -17,10 +17,15 @@ import type { QrStyle } from "@/lib/qr-style";
  * code and could never be re-pointed. It comes from `codeUrl()`, the same
  * function the dashboard draws its on-screen symbol from.
  *
- * Error correction is Q, the level a printed code without a centred logo
- * wants. A code with a logo is drawn at H by `renderQrSvg`, the same renderer
- * whose geometry the on-screen specimen uses. Colours are the saved style,
- * already read through `readQrStyle` by whoever loaded the code.
+ * Every download is drawn by `renderQrSvg`, logo or not, which draws with
+ * `qr-draw.ts`, the module the on-screen specimen and the live design preview
+ * use too: what the owner previews is what they print. Error correction is Q
+ * without a logo and H with one (`levelFor`). The style is the saved one,
+ * already read through `readQrStyle` by whoever loaded the code, so a row
+ * saved before patterns existed draws as the plain squares it always did.
+ *
+ * A PNG is that SVG rasterised by sharp. A transparent style keeps its
+ * transparency: the SVG has no ground to paint, and sharp keeps the alpha.
  */
 
 export type ArtworkFormat = "svg" | "png";
@@ -29,6 +34,8 @@ export type ArtworkCode = {
   shortCode: string;
   style: QrStyle;
   logo: { url: string } | null;
+  /** A ready-made mark, drawn from bundled outlines with nothing to fetch. */
+  presetLogo?: PresetLogoId | null;
 };
 
 /** The logo could not be fetched; the caller refuses rather than drawing without it. */
@@ -47,6 +54,13 @@ export async function renderArtwork(
   logos: LogoCache = new Map()
 ): Promise<string | Buffer> {
   const content = codeUrl(code.shortCode);
+
+  if (code.presetLogo) {
+    // Never fetched: a preset is drawn from outlines shipped with the app, so
+    // it cannot fail to load.
+    const svg = renderQrSvg({ content, style: code.style, px: size, presetLogo: code.presetLogo });
+    return format === "png" ? sharp(Buffer.from(svg)).png().toBuffer() : svg;
+  }
 
   if (code.logo) {
     // Fetched and embedded, never linked: an SVG that points at a URL loses
@@ -76,14 +90,7 @@ export async function renderArtwork(
     return format === "png" ? sharp(Buffer.from(svg)).png().toBuffer() : svg;
   }
 
-  const common = {
-    errorCorrectionLevel: "Q" as const,
-    margin: 4,
-    // `qrcode` takes RGBA hex; the style is opaque RGB, so append full alpha.
-    color: { dark: `${code.style.dark}FF`, light: `${code.style.light}FF` },
-  };
-
-  return format === "png"
-    ? QRCode.toBuffer(content, { ...common, type: "png", width: size })
-    : QRCode.toString(content, { ...common, type: "svg", width: size });
+  const svg = renderQrSvg({ content, style: code.style, px: size });
+  return format === "png" ? sharp(Buffer.from(svg)).png().toBuffer() : svg;
 }
+

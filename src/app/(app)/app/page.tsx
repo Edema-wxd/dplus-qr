@@ -3,13 +3,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { auth } from "@/lib/auth/server";
-import { resolveScope } from "@/lib/resolve-scope";
+import { resolveAccess } from "@/lib/resolve-scope";
 import { ensureProfile } from "@/lib/profile";
 import { canBulkCreate, getEntitlement } from "@/lib/entitlement";
 import { roleAllows } from "@/lib/account-scope";
 import { listCodes } from "@/lib/user-codes";
+import { dashboardWarnings } from "@/lib/dashboard-warnings";
+import { belongsToATeamSafely, isOwnAccount, readOnboardingSafely } from "@/lib/onboarding";
+import { shouldOnboard } from "@/lib/onboarding-steps";
 import { CODE_HOST, codeUrl } from "@/lib/brand";
-import { qrStyleVars } from "@/lib/qr-style";
 import { dynamicType, isPageKind } from "@/lib/qr-types";
 import {
   applyListQuery,
@@ -25,6 +27,7 @@ import { inputClass, primaryButtonClass, secondaryButtonClass } from "@/componen
 import { StatusPill } from "./StatusPill";
 import { VerifyBanner } from "./VerifyBanner";
 import { UpgradeBanner } from "./UpgradeBanner";
+import { SuspendedNotice, WarningBanner } from "./WarningBanner";
 
 export const metadata: Metadata = { title: "Your codes" };
 
@@ -48,17 +51,54 @@ export default async function CodesPage({
 
   // Also grants the free plan on first load, so a code created here can
   // actually serve traffic. See ensureFreeSubscription.
-  await ensureProfile({ id: user.id, email: user.email, name: user.name });
+  const profile = await ensureProfile({ id: user.id, email: user.email, name: user.name, emailVerified: user.emailVerified });
   // Which account this page shows, and as whom. Its own unless the person
   // is working in a team they belong to; every read below proves access.
-  const scope = await resolveScope();
-  if (!scope) redirect("/auth/sign-in");
+  // `resolveAccess` is cached per request, so the shell's notices reuse it.
+  const access = await resolveAccess();
+  if (!access) redirect("/auth/sign-in");
+  const { scope } = access;
 
-  const [codes, entitlement, params] = await Promise.all([
+  // Onboarding is the person's own account's, never a team's: in a team
+  // there is nothing to read and nobody is sent anywhere.
+  const ownAccount = isOwnAccount(scope);
+  const [codes, entitlement, params, warnings, onboarding] = await Promise.all([
     listCodes(scope),
     getEntitlement(scope.accountId),
     searchParams,
+    // Staff warnings never stop the codes list: a failed read (a preview
+    // ahead of migration 030, say) shows the page without them.
+    dashboardWarnings(scope).catch((error) => {
+      console.error("[dashboard] warnings unavailable", error);
+      return [];
+    }),
+    ownAccount ? readOnboardingSafely(scope) : null,
   ]);
+
+  // An account with no codes is walked to its first one, unless it already
+  // finished or chose to skip. An onboarding that cannot be read sends nobody
+  // anywhere: the dashboard always opens. Someone who never started it and
+  // belongs to a team is not sent either: they came to work in the team, and
+  // the empty dashboard below still offers the setup.
+  if (
+    ownAccount &&
+    onboarding !== "unavailable" &&
+    shouldOnboard(codes.length, onboarding) &&
+    (onboarding !== null || !(await belongsToATeamSafely(scope)))
+  ) {
+    redirect("/app/start");
+  }
+
+  // Made the first code in the onboarding but left before scanning it: one
+  // line pointing back, until they scan, finish or skip.
+  const untested =
+    ownAccount &&
+    onboarding !== "unavailable" &&
+    onboarding !== null &&
+    onboarding.codeId !== null &&
+    onboarding.completedAt === null &&
+    onboarding.skippedAt === null &&
+    !onboarding.reached.has("test_scanned");
 
   const listQuery = parseListQuery(params);
   const shown = applyListQuery(codes, listQuery);
@@ -109,9 +149,31 @@ export default async function CodesPage({
         ) : null
       }
     >
-      {user.emailVerified ? null : <VerifyBanner email={user.email} />}
+      {/* Only the person's own account can be suspended and still open here. */}
+      {isOwner && profile.suspendedAt ? <SuspendedNotice /> : null}
+      <WarningBanner
+        warnings={warnings}
+        ownerName={isOwner ? null : (access.team?.ownerName ?? "the account owner")}
+      />
+      {/*
+        The hold is on the person's own account. In a team they are looking
+        at someone else's codes, which their own address does not affect.
+      */}
+      {user.emailVerified ? null : (
+        <VerifyBanner email={user.email} held={ownAccount && profile.codesHeldSince !== null} />
+      )}
 
       {lapsed && hasCodes ? <LapsedNotice /> : null}
+
+      {untested && hasCodes ? (
+        <p className="mb-6 rounded-lg border border-[var(--paper-rule)] bg-white px-4 py-3 text-sm leading-relaxed">
+          Your first code has not been scanned yet.{" "}
+          <Link href="/app/start?step=scan" className="underline underline-offset-4">
+            Test it with your phone
+          </Link>{" "}
+          before it goes to print.
+        </p>
+      ) : null}
 
       {/*
         A free account is prompted only when there is a reason it would care:
@@ -132,7 +194,7 @@ export default async function CodesPage({
       ) : null}
 
       {codes.length === 0 ? (
-        <EmptyState canWrite={canWrite} />
+        <EmptyState canWrite={canWrite} offerSetup={ownAccount} />
       ) : shown.length === 0 ? (
         <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-10 text-center text-sm text-[var(--paper-soft)]">
           No codes match.{" "}
@@ -187,15 +249,14 @@ export default async function CodesPage({
                         code's own short code, at every scale the product shows.
                         Not an icon standing in for a code.
                       */}
-                      <span
-                        className="block shrink-0"
-                        style={qrStyleVars(code.style) as React.CSSProperties}
-                      >
+                      <span className="block shrink-0">
                         <QrSymbol
                           value={codeUrl(code.shortCode)}
                           px={44}
                           title={`QR code for ${code.name}`}
                           logoUrl={code.logo?.url}
+                          presetLogo={code.presetLogo}
+                          style={code.style}
                           className="block h-auto w-11"
                         />
                       </span>
@@ -425,7 +486,7 @@ function NewCodeButton() {
   );
 }
 
-function EmptyState({ canWrite }: { canWrite: boolean }) {
+function EmptyState({ canWrite, offerSetup }: { canWrite: boolean; offerSetup: boolean }) {
   return (
     <div className="rounded-lg border border-dashed border-[var(--paper-rule)] bg-white px-6 py-14 text-center">
       <p className="mx-auto max-w-[42ch] text-[15px] leading-relaxed text-[var(--paper-soft)]">
@@ -433,8 +494,14 @@ function EmptyState({ canWrite }: { canWrite: boolean }) {
         as long as the printed thing exists.
       </p>
       {canWrite ? (
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
           <NewCodeButton />
+          {/* The setup makes a code in the person's own account only. */}
+          {offerSetup ? (
+            <Link href="/app/start" className="text-sm underline underline-offset-4">
+              Set up your first code step by step
+            </Link>
+          ) : null}
         </div>
       ) : null}
     </div>

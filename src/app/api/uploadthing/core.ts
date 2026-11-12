@@ -8,10 +8,15 @@ import {
   MAX_LOGOS,
   recordLogo,
 } from "@/lib/logos";
-import { recordFile } from "@/lib/files";
-import { canUploadVideo, getEntitlement } from "@/lib/entitlement";
+import { hasPageCodes, recordFile, StorageFullError, storageUsed } from "@/lib/files";
+import { canMakeHostedPages, canUploadVideo, getEntitlement } from "@/lib/entitlement";
+import { featureRefusal } from "@/lib/refusals";
+import { storageQuotaBytes, storageRefusal } from "@/lib/storage-quota";
 import { UPLOAD_LIMITS, uploadRefusal, type UploadEndpoint } from "@/lib/upload-limits";
 import { videoRefusal } from "@/lib/user-codes";
+import { auth } from "@/lib/auth/server";
+import { isAdmin } from "@/lib/admin";
+import { recordBlogImage } from "@/lib/blog";
 
 /**
  * Every customer upload goes through here: logos, and the files hosted pages
@@ -60,30 +65,55 @@ async function uploader(signedOut: string) {
   return scope;
 }
 
-/** The session check every page-file endpoint shares. */
-async function pageFileOwner() {
-  const scope = await uploader("Sign in to upload a file.");
-  return { accountId: scope.accountId };
-}
+type Picked = { readonly files: readonly { size: number }[] };
 
 /**
- * Video files are the one real storage cost, so uploading them is a plan
- * feature (`video_uploads`). Checked here, before UploadThing hands out an
- * upload URL, so no file is stored for a plan that cannot use it.
+ * The checks every page-file endpoint shares, all before UploadThing hands out
+ * an upload URL, so nothing is stored for an account that may not keep it
+ * (security audit M4, DECISIONS.md 11 November 2026):
+ *
+ * - **The session**, and that the person may change this account.
+ * - **Hosted pages.** Page files exist only to be shown on a page. A plan
+ *   without `hosted_pages` cannot make one, so it has nothing to upload for,
+ *   unless the account already has a page: those stay editable whatever the
+ *   plan, and editing one can mean replacing its photo.
+ * - **Storage.** What is stored plus what is being sent must fit the plan's
+ *   `storage_mb`. The sizes here are the ones the browser declared, which
+ *   UploadThing then holds the real file to; `recordFile` checks again
+ *   against what actually landed.
  */
-async function videoFileOwner() {
-  const owner = await pageFileOwner();
-  const entitlement = await getEntitlement(owner.accountId);
-  if (!canUploadVideo(entitlement)) throw new UploadThingError(await videoRefusal(entitlement));
-  return owner;
+async function pageFileOwner({ files }: Picked, options: { video?: boolean } = {}) {
+  const scope = await uploader("Sign in to upload a file.");
+  const entitlement = await getEntitlement(scope.accountId);
+
+  if (!canMakeHostedPages(entitlement) && !(await hasPageCodes(scope))) {
+    throw new UploadThingError(
+      await featureRefusal("hosted_pages", entitlement, "Link codes need no uploads.")
+    );
+  }
+  // Video files are the largest, so uploading them is a plan feature of its
+  // own (`video_uploads`).
+  if (options.video && !canUploadVideo(entitlement)) {
+    throw new UploadThingError(await videoRefusal(entitlement));
+  }
+
+  const quotaBytes = storageQuotaBytes(entitlement?.features);
+  const incoming = files.reduce((total, file) => total + file.size, 0);
+  const refusal = storageRefusal(await storageUsed(scope), incoming, quotaBytes);
+  if (refusal) throw new UploadThingError(refusal);
+
+  return { accountId: scope.accountId, quotaBytes };
 }
+
+const videoFileOwner = (picked: Picked) => pageFileOwner(picked, { video: true });
 
 /**
  * Recorded against the account so a page can only ever show a file its owner
  * uploaded; see `resolveFiles`. Sent back to the browser, which places the
  * file in the page being edited.
  *
- * A file that cannot be recorded is deleted again. Without a `qr_files` row
+ * A file that cannot be recorded, or that would take the account past its
+ * storage allowance, is deleted again. Without a `qr_files` row
  * nothing refers to it, and the cleanup sweep, which finds orphans from those
  * rows, would never find it either.
  */
@@ -91,20 +121,27 @@ async function recordPageFile({
   metadata,
   file,
 }: {
-  metadata: { accountId: string };
+  metadata: { accountId: string; quotaBytes: number };
   file: { key: string; ufsUrl: string; name: string; type: string; size: number };
 }) {
   let stored;
   try {
-    stored = await recordFile(metadata.accountId, {
-      key: file.key,
-      url: file.ufsUrl,
-      name: file.name,
-      type: file.type,
-      size: file.size,
-    });
+    stored = await recordFile(
+      metadata.accountId,
+      {
+        key: file.key,
+        url: file.ufsUrl,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      },
+      metadata.quotaBytes
+    );
   } catch (error) {
-    console.error("[uploads] page file not recorded", error);
+    // Over the allowance means several uploads passed the middleware at once;
+    // this one landed last. Deleted like any file that could not be recorded.
+    if (error instanceof StorageFullError) console.warn("[uploads] page file over the storage allowance, deleted");
+    else console.error("[uploads] page file not recorded", error);
     await new UTApi().deleteFiles(file.key).catch(() => {});
     throw error;
   }
@@ -112,6 +149,19 @@ async function recordPageFile({
 }
 
 const photo = limits("pageImage");
+const blogImage = limits("blogImage");
+
+/**
+ * Blog images are the site's, not an account's: only staff may upload one,
+ * checked the way the admin checks, by the role read from the database on
+ * this request. Everyone else is refused before a URL is handed out.
+ */
+async function staffUploader() {
+  const { data: session } = await auth.getSession();
+  const user = session?.user;
+  if (!user || !(await isAdmin(user.id))) throw new UploadThingError("Only staff can upload blog images.");
+  return { staffId: user.id };
+}
 
 export const uploadRouter = {
   logo: f({ "image/png": image, "image/jpeg": image, "image/webp": image })
@@ -176,6 +226,28 @@ export const uploadRouter = {
   pageAudio: f({ audio: limits("pageAudio") })
     .middleware(pageFileOwner)
     .onUploadComplete(recordPageFile),
+
+  // Staff only. Recorded in `blog_images`, which the upload cleanup never
+  // sweeps, so a cover cannot be deleted for not belonging to a code.
+  blogImage: f({ "image/png": blogImage, "image/jpeg": blogImage, "image/webp": blogImage })
+    .middleware(staffUploader)
+    .onUploadComplete(async ({ metadata, file }) => {
+      try {
+        await recordBlogImage({
+          key: file.key,
+          url: file.ufsUrl,
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          staffId: metadata.staffId,
+        });
+      } catch (error) {
+        console.error("[uploads] blog image not recorded", error);
+        await new UTApi().deleteFiles(file.key).catch(() => {});
+        throw error;
+      }
+      return { url: file.ufsUrl, name: file.name };
+    }),
 } satisfies FileRouter;
 
 export type UploadRouter = typeof uploadRouter;
