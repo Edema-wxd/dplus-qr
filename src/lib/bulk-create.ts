@@ -5,7 +5,7 @@ import { canBulkCreate, canCreateCode, getEntitlement } from "@/lib/entitlement"
 import { ownsLiveLogo } from "@/lib/logos";
 import { featureRefusal } from "@/lib/refusals";
 import { fitToSlots, type CheckedRow, type GoodRow } from "@/lib/bulk-import";
-import { flaggedReason, reputationOfMany } from "@/lib/reputation";
+import { flaggedReason, LOOKUPS_SPENT, verdictsFor } from "@/lib/reputation";
 import { AccessLost, withCodeSlots, type TxRun } from "@/lib/user-codes";
 import { access, accessArgs, writable, type AccountScope } from "@/lib/account-scope";
 import { readQrStyle, type QrStyle } from "@/lib/qr-style";
@@ -301,12 +301,18 @@ function toSummary(r: BatchRow): BatchSummary {
  * Look every good row's destination up on Google's lists of unsafe sites and
  * turn a flagged one into a row with a problem, as a single code would be
  * refused. Run by both the check and the create step, which never trusts the
- * check's answer. An unavailable lookup leaves the row good (decided 8 Nov
- * 2026). Each distinct destination is looked up once.
+ * check's answer; the create step's lookups come from the verdict cache the
+ * check step filled, so a batch spends the account's allowance once. An
+ * unavailable lookup leaves the row good (decided 8 Nov 2026). Refuses the
+ * whole batch when the allowance cannot cover its new links (audit L4).
  */
-export async function markUnsafeRows(rows: CheckedRow[]): Promise<CheckedRow[]> {
-  const results = await reputationOfMany(rows.flatMap((r) => (r.ok ? [r.destination] : [])));
-  return rows.map((row) => {
+export async function markUnsafeRows(
+  rows: CheckedRow[],
+  accountId: string
+): Promise<{ ok: true; rows: CheckedRow[] } | { ok: false; reason: string }> {
+  const results = await verdictsFor(rows.flatMap((r) => (r.ok ? [r.destination] : [])), accountId);
+  if (!results) return { ok: false, reason: LOOKUPS_SPENT };
+  const marked = rows.map((row): CheckedRow => {
     if (!row.ok) return row;
     const result = results.get(row.destination);
     if (result?.verdict !== "flagged") return row;
@@ -318,4 +324,5 @@ export async function markUnsafeRows(rows: CheckedRow[]): Promise<CheckedRow[]> 
       reason: flaggedReason(row.destination, result.threats),
     };
   });
+  return { ok: true, rows: marked };
 }

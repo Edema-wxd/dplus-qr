@@ -1,13 +1,44 @@
 let key: string | undefined;
 jest.mock("@/lib/env", () => ({ env: () => ({ WEB_RISK_API_KEY: key }) }));
 
+/** A Redis stand-in: a plain map, or null for "no Redis". */
+let store: Map<string, unknown> | null;
+let redisFails = false;
+const setCalls: { key: string; value: unknown; ex: number }[] = [];
+jest.mock("@/lib/redis", () => ({
+  redis: () =>
+    store && {
+      mget: async (...keys: string[]) => {
+        if (redisFails) throw new Error("down");
+        return keys.map((k) => store!.get(k) ?? null);
+      },
+      set: async (k: string, value: unknown, opts: { ex: number }) => {
+        setCalls.push({ key: k, value, ex: opts.ex });
+        store!.set(k, value);
+        return "OK";
+      },
+    },
+}));
+
+const alertOnce = jest.fn();
+jest.mock("@/lib/error-alerts", () => ({ alertOnce: (...args: unknown[]) => alertOnce(...args) }));
+
+const allowScreeningLookups = jest.fn();
+jest.mock("@/lib/ratelimit", () => ({
+  allowScreeningLookups: (...args: unknown[]) => allowScreeningLookups(...args),
+}));
+
 import {
+  checkLinks,
   describeThreats,
-  firstFlagged,
   flaggedReason,
+  LOOKUPS_SPENT,
   pageLinks,
   reputationOf,
   reputationOfMany,
+  resetRefusalAlerts,
+  VERDICT_TTL_SECONDS,
+  verdictsFor,
 } from "@/lib/reputation";
 import { ownerNotice } from "@/lib/reputation-sweep";
 
@@ -16,6 +47,12 @@ const realFetch = global.fetch;
 
 beforeEach(() => {
   key = "test-key";
+  store = new Map();
+  redisFails = false;
+  setCalls.length = 0;
+  alertOnce.mockReset().mockResolvedValue(undefined);
+  allowScreeningLookups.mockReset().mockResolvedValue(true);
+  resetRefusalAlerts();
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
   jest.spyOn(console, "error").mockImplementation(() => {});
@@ -71,22 +108,141 @@ describe("reputationOf", () => {
   });
 });
 
-describe("checking several links", () => {
-  it("looks each distinct link up once and finds the flagged one", async () => {
-    fetchMock.mockImplementation((input: string) =>
-      answer(new URL(input).searchParams.get("uri") === "https://bad.example/" ? { threat: { threatTypes: ["MALWARE"] } } : {})
-    );
-    const hit = await firstFlagged(["https://good.example/", "https://bad.example/", "https://good.example/"]);
-    expect(hit).toEqual({ url: "https://bad.example/", threats: ["MALWARE"] });
+/** Google's answer for a link: `bad.example` is listed, everything else clean. */
+const google = (input: string) =>
+  answer(new URL(input).searchParams.get("uri")?.includes("bad.example") ? { threat: { threatTypes: ["MALWARE"] } } : {});
+
+describe("checking the links a save stores", () => {
+  it("looks each distinct link up once and refuses the flagged one, saying why", async () => {
+    fetchMock.mockImplementation(google);
+    const result = await checkLinks(["https://good.example/", "https://bad.example/", "https://good.example/"], "acct");
+    expect(result).toEqual({ ok: false, reason: flaggedReason("https://bad.example/", ["MALWARE"]) });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("finds nothing, and calls nothing, when there is no key", async () => {
+  it("lets clean and unavailable links through", async () => {
+    fetchMock.mockReturnValueOnce(answer({})).mockReturnValueOnce(answer({}, 500));
+    await expect(checkLinks(["https://a.example/", "https://b.example/"], "acct")).resolves.toEqual({ ok: true });
+  });
+
+  it("passes everything, calls nothing and spends nothing when there is no key", async () => {
     key = undefined;
-    expect(await firstFlagged(["https://bad.example/"])).toBeNull();
+    await expect(checkLinks(["https://bad.example/"], "acct")).resolves.toEqual({ ok: true });
     const many = await reputationOfMany(["https://a.example/", "https://b.example/"]);
     expect([...many.values()].every((r) => r.verdict === "unavailable")).toBe(true);
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(allowScreeningLookups).not.toHaveBeenCalled();
+  });
+});
+
+describe("the verdict cache (audit L4)", () => {
+  it("answers a second check of the same links from the cache, asking Google nothing and spending nothing", async () => {
+    fetchMock.mockImplementation(google);
+    const urls = ["https://good.example/", "https://bad.example/"];
+    await verdictsFor(urls, "acct");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(allowScreeningLookups).toHaveBeenCalledWith("acct", 2);
+
+    fetchMock.mockClear();
+    allowScreeningLookups.mockClear();
+    const again = await verdictsFor(urls, "acct");
+    expect(again?.get("https://bad.example/")).toEqual({ verdict: "flagged", threats: ["MALWARE"] });
+    expect(again?.get("https://good.example/")).toEqual({ verdict: "clean", threats: [] });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(allowScreeningLookups).not.toHaveBeenCalled();
+  });
+
+  it("keeps verdicts for a day, under a hashed key that does not contain the link", async () => {
+    fetchMock.mockImplementation(google);
+    await verdictsFor(["https://good.example/secret-path"], "acct");
+    expect(setCalls).toHaveLength(1);
+    expect(setCalls[0].ex).toBe(VERDICT_TTL_SECONDS);
+    expect(VERDICT_TTL_SECONDS).toBe(86_400);
+    expect(setCalls[0].key).toMatch(/^wr:v1:[0-9a-f]{32}$/);
+    expect(setCalls[0].key).not.toContain("good.example");
+  });
+
+  it("never keeps an unavailable answer, so the next save asks again", async () => {
+    fetchMock.mockReturnValue(answer({}, 500));
+    await verdictsFor(["https://a.example/"], "acct");
+    expect(setCalls).toHaveLength(0);
+  });
+
+  it("ignores a stored value that is not a verdict", async () => {
+    fetchMock.mockImplementation(google);
+    await verdictsFor(["https://a.example/"], "acct");
+    for (const k of store!.keys()) store!.set(k, { v: "flagged", t: ["NOT_A_THREAT"] });
+    fetchMock.mockClear();
+    await verdictsFor(["https://a.example/"], "acct");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks Google when Redis is down or absent, rather than failing the save", async () => {
+    fetchMock.mockImplementation(google);
+    redisFails = true;
+    await expect(checkLinks(["https://bad.example/"], "acct")).resolves.toMatchObject({ ok: false });
+    store = null;
+    await expect(checkLinks(["https://bad.example/"], "acct")).resolves.toMatchObject({ ok: false });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("the weekly re-check always asks Google afresh, and refreshes the cache", async () => {
+    fetchMock.mockImplementation(google);
+    await verdictsFor(["https://good.example/"], "acct");
+    fetchMock.mockClear();
+    setCalls.length = 0;
+    await reputationOfMany(["https://good.example/"]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(setCalls).toHaveLength(1);
+  });
+});
+
+describe("the account's lookup allowance (audit L4)", () => {
+  it("spends only for links not in the cache", async () => {
+    fetchMock.mockImplementation(google);
+    await verdictsFor(["https://a.example/"], "acct");
+    allowScreeningLookups.mockClear();
+    await verdictsFor(["https://a.example/", "https://b.example/", "https://c.example/"], "acct");
+    expect(allowScreeningLookups).toHaveBeenCalledWith("acct", 2);
+  });
+
+  it("refuses the save when the allowance is spent, without asking Google or letting it through", async () => {
+    allowScreeningLookups.mockResolvedValue(false);
+    await expect(verdictsFor(["https://bad.example/"], "acct")).resolves.toBeNull();
+    await expect(checkLinks(["https://bad.example/"], "acct")).resolves.toEqual({ ok: false, reason: LOOKUPS_SPENT });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not spend the allowance on the weekly re-check", async () => {
+    fetchMock.mockImplementation(google);
+    await reputationOfMany(["https://a.example/"]);
+    expect(allowScreeningLookups).not.toHaveBeenCalled();
+  });
+});
+
+describe("when Google refuses lookups (audit L4)", () => {
+  it.each([429, 401, 403])("a %s emails staff once, and stops asking for the rest of the run", async (status) => {
+    fetchMock.mockReturnValue(answer({ error: "no" }, status));
+    const urls = ["https://a.example/", "https://b.example/", "https://c.example/"];
+    const results = await reputationOfMany(urls, 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect([...results.values()].every((r) => r.verdict === "unavailable")).toBe(true);
+    await reputationOfMany(urls, 1);
+    expect(alertOnce).toHaveBeenCalledTimes(1);
+    expect(alertOnce.mock.calls[0][0]).toBe(`web-risk:${status}`);
+    expect(alertOnce.mock.calls[0][1]).toContain(String(status));
+    expect(JSON.stringify(alertOnce.mock.calls)).not.toContain("test-key");
+  });
+
+  it("does not alert on an ordinary server error", async () => {
+    fetchMock.mockReturnValue(answer({}, 500));
+    await reputationOfMany(["https://a.example/"]);
+    expect(alertOnce).not.toHaveBeenCalled();
+  });
+
+  it("still lets the save through, as decided on 8 Nov", async () => {
+    fetchMock.mockReturnValue(answer({}, 429));
+    await expect(checkLinks(["https://bad.example/"], "acct")).resolves.toEqual({ ok: true });
   });
 });
 

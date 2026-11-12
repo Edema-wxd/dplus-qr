@@ -2840,6 +2840,46 @@ the subscription-scope change of 10 November.
   through forged metadata or its email cannot re-point it at someone else's
   Paystack customer. Staff correct a genuinely changed one by hand.
 
+## Web Risk lookups are budgeted and cached, 12 November 2026
+
+From the security audit of 10 November: L4. Dormant like the rest of the
+reputation check until `WEB_RISK_API_KEY` is set.
+
+The problem: Google's free allowance is 100,000 lookups a month for the
+whole service. A bulk check sent up to 500 to Google per call with no
+limit, and a single destination could be changed in a loop. Once Google
+refuses (429), every lookup is `unavailable`, and `unavailable` lets a save
+through (8 November). So spending the allowance on purpose turned screening
+off for everyone, silently.
+
+- **Each verdict is reused for a day.** Clean and flagged answers are kept
+  in Redis for 24 hours under a hash of the link (`wr:v1:…`), so no
+  customer's link is stored there. `unavailable` is never kept. A bulk
+  create re-reads the verdicts its check step fetched, so a batch costs
+  once. A link listed since its cached clean verdict is still caught by the
+  weekly re-check. A link delisted since its flagged verdict waits a day to
+  be accepted, which is the cheaper mistake.
+- **The weekly re-check and the staff re-screen always ask Google.** They
+  must not trust a day-old clean verdict. The re-check refreshes the cache
+  as it goes.
+- **Each account may send 2,500 links to Google a day.** Only links not in
+  the cache count (`allowScreeningLookups`, weighted by the number of
+  links). That is five full batches of links never seen before.
+- **A spent allowance refuses the save.** The account is told to try again
+  tomorrow. Letting the save through instead would make spending the
+  allowance a way to save an unscreened link. Without Redis the allowance
+  is counted per instance, like the other costly reads.
+- **Google refusing lookups emails staff.** A 429 (quota), 401 or 403 (key
+  rejected, revoked or billing off) sends one alert an hour through
+  `alertOnce`, because until it is fixed every save goes through unscreened.
+  The run also stops asking Google after the first refusal, rather than
+  sending the other 499.
+- The 8 November rule is unchanged: an outage at Google still lets a save
+  through.
+- Setting a hard quota cap on the Web Risk API in Google Cloud turns a
+  drained allowance into refusals, and so into this alert, rather than
+  into a bill.
+
 ## Signing out ends every session, at once, 11 November 2026
 
 The sign-out button used to end only the session on the device that pressed
@@ -3014,7 +3054,8 @@ Built but switched off:
 
 - The destination reputation check: needs a Google Cloud project with billing
   on, the Web Risk API enabled and a key restricted to it, set as
-  `WEB_RISK_API_KEY` in Vercel (8 November entry).
+  `WEB_RISK_API_KEY` in Vercel (8 November entry). Set a quota cap on the
+  API there too (12 November entry).
 - The retention and upload sweeps run only with `DELETION_SWEEPS_ENABLED=true`.
   When to turn them on in production is open; read a dry run against
   production first (see the 30 October entry).
