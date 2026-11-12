@@ -6,6 +6,9 @@ import { buildIcs, eventInstant } from "@/lib/page-helpers";
 import { buildVCard } from "@/lib/vcard";
 import { isUploadThingUrl } from "@/lib/logos";
 import { contentDisposition } from "@/lib/content-disposition";
+import { allowDocumentFetch } from "@/lib/ratelimit";
+import { documentQuery } from "@/lib/document-address";
+import { clientIp, ipRateKey } from "@/lib/ip";
 
 /**
  * Files a hosted page offers: `event.ics` for an event, `contact.vcf` for a
@@ -76,7 +79,25 @@ export async function GET(
 
   if (file === "document" && page.kind === "pdf") {
     const c = page.content as PageContent<"pdf">;
-    const download = new URL(request.url).searchParams.has("download");
+    const url = new URL(request.url);
+    const download = url.searchParams.has("download");
+    // Every reader is sent to one address per file version, so Vercel's CDN
+    // can answer repeat reads (audit L10). Anything else, a stale version or
+    // an extra query parameter added to dodge the cache, gets a redirect,
+    // which costs no fetch from UploadThing.
+    const canonical = documentQuery(c.file.url, download);
+    if (raw !== code || url.search !== canonical) {
+      return new Response(null, {
+        status: 302,
+        headers: { ...headers, Location: `/p/${encodeURIComponent(code)}/document${canonical}` },
+      });
+    }
+    if (!(await allowDocumentFetch(ipRateKey(clientIp(request.headers))))) {
+      return new Response("Too many requests. Please try again in a few minutes.", {
+        status: 429,
+        headers: { ...headers, "Retry-After": "600" },
+      });
+    }
     return documentResponse(c.file.url, c.file.name || `${code}.pdf`, download);
   }
 
@@ -117,8 +138,15 @@ async function documentResponse(url: string, name: string, download: boolean): P
   const headers = new Headers({
     "Content-Type": "application/pdf",
     "Content-Disposition": contentDisposition(name, download),
-    // A replaced file must reach the next reader at once.
+    // Browsers keep nothing: a paused or blocked code's document must be gone
+    // on the next open. Replacing the file needs no expiry at all, since it
+    // changes the address (`documentQuery`).
     "Cache-Control": "no-store",
+    // Vercel's CDN keeps this version for a minute, the same window the
+    // redirect's destination cache allows, so a pause or block reaches every
+    // reader within about a minute while a busy menu costs one fetch a
+    // minute per region instead of one per scan (audit L10).
+    "Vercel-CDN-Cache-Control": "public, max-age=60",
     "X-Content-Type-Options": "nosniff",
   });
   // `fetch` hands back a compressed response already decompressed, but its

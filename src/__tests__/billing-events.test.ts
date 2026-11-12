@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import {
   addDays,
   decideChange,
+  chargeShortfall,
   eventKey,
   eventSchema,
   isHandled,
@@ -215,7 +216,7 @@ describe("decideChange", () => {
     const change = decideChange(
       parse({
         event: "charge.success",
-        data: { id: 2, status: "success", paid_at: "2026-06-15T10:00:00Z", plan: "PLN_pro" },
+        data: { id: 2, status: "success", paid_at: "2026-06-15T10:00:00Z", plan: "PLN_pro", amount: 400_000, currency: "NGN" },
       }),
       { plan: PLAN, now: NOW }
     );
@@ -231,7 +232,7 @@ describe("decideChange", () => {
     const change = decideChange(
       parse({
         event: "charge.success",
-        data: { id: 2, status: "success", plan: "PLN_pro", subscription: { subscription_code: "SUB_b" } },
+        data: { id: 2, status: "success", plan: "PLN_pro", amount: 400_000, subscription: { subscription_code: "SUB_b" } },
       }),
       { plan: PLAN, now: NOW }
     );
@@ -352,5 +353,27 @@ describe("payload schema", () => {
 
   it("refuses a body with no event name", () => {
     expect(eventSchema.safeParse({ data: { id: 1 } }).success).toBe(false);
+  });
+});
+
+describe("chargeShortfall (audit M1)", () => {
+  it("accepts the price, or more", () => {
+    expect(chargeShortfall({ amount: 400_000, currency: "NGN" }, PLAN)).toBeNull();
+    expect(chargeShortfall({ amount: 406_000, currency: "ngn" }, PLAN)).toBeNull();
+    expect(chargeShortfall({ amount: 400_000 }, PLAN)).toBeNull();
+  });
+
+  it("refuses less than the price, another currency, or no amount", () => {
+    expect(chargeShortfall({ amount: 399_999, currency: "NGN" }, PLAN)).toMatch(/less than/);
+    expect(chargeShortfall({ amount: 400_000, currency: "USD" }, PLAN)).toMatch(/USD/);
+    expect(chargeShortfall({ currency: "NGN" }, PLAN)).toMatch(/without an amount/);
+  });
+
+  it("makes decideChange defer a short renewal", () => {
+    const change = decideChange(
+      parse({ event: "charge.success", data: { id: 5, status: "success", plan: "PLN_pro", amount: 100 } }),
+      { plan: PLAN, now: NOW }
+    );
+    expect(change.kind).toBe("defer");
   });
 });

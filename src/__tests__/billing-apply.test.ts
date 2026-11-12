@@ -247,7 +247,7 @@ describe("events about a subscription", () => {
     await applyPaystackEvent(
       JSON.stringify({
         event: "charge.success",
-        data: { id: 13, status: "success", plan: "PLN_pro", customer: { email: "v@e" } },
+        data: { id: 13, status: "success", plan: "PLN_pro", amount: 1_000_000, currency: "NGN", customer: { email: "v@e" } },
       })
     );
     const [write] = ran("current_period_end = coalesce($2, current_period_end)");
@@ -334,5 +334,62 @@ describe("attempting an event again (DECISIONS.md, 11 November 2026)", () => {
     const [select] = ran("select id from qr_payment_events");
     expect(select.text).toContain("error is null");
     expect(select.text).toContain("processed_at is null");
+  });
+});
+
+describe("what a payment event can claim (audit M1)", () => {
+  function charge(data: Record<string, unknown>): string {
+    return JSON.stringify({
+      event: "charge.success",
+      data: { id: 21, status: "success", plan: "PLN_pro", customer: { email: "v@e", customer_code: "CUS_x" }, ...data },
+    });
+  }
+
+  it.each([
+    ["for less than the plan's price", { amount: 100, currency: "NGN" }],
+    ["in another currency", { amount: 1_000_000, currency: "USD" }],
+    ["with no amount", { currency: "NGN" }],
+  ])("holds a charge %s for a person, renewing nothing", async (_label, data) => {
+    const outcome = await applyPaystackEvent(charge(data));
+    expect(outcome.kind).toBe("deferred");
+    expect(ran("update qr_subscriptions")).toHaveLength(0);
+    expect(ran("paystack_customer_code = $2")).toHaveLength(0);
+  });
+
+  it("renews on a charge that paid the price, and a little over when the customer bore the fee", async () => {
+    for (const amount of [1_000_000, 1_015_000]) {
+      calls.length = 0;
+      handlers = [
+        ...baseHandlers(),
+        { match: "current_period_end = coalesce($2, current_period_end)", rows: () => [{ id: "s1" }] },
+      ];
+      const outcome = await applyPaystackEvent(charge({ amount, currency: "NGN" }));
+      expect(outcome).toMatchObject({ kind: "applied", change: "extend" });
+    }
+  });
+
+  it("never queries by a metadata user id that is not an account id", async () => {
+    await applyPaystackEvent(charge({ amount: 1_000_000, metadata: { user_id: "x' or 1=1 --" } }));
+    expect(ran("select id from qr_users where id = $1")).toHaveLength(0);
+    // Falls through to the email, as an event with no metadata does.
+    expect(ran("lower(email) = lower($1)")).toHaveLength(1);
+  });
+
+  it("does not re-point an account's customer code from an ordinary event", async () => {
+    handlers.unshift({ match: "current_period_end = coalesce($2, current_period_end)", rows: () => [{ id: "s1" }] });
+    await applyPaystackEvent(charge({ amount: 1_000_000 }));
+    const [write] = ran("paystack_customer_code = $2");
+    expect(write.text).toContain("paystack_customer_code is null or $3");
+    expect(write.params).toEqual([VICTIM, "CUS_x", false]);
+  });
+
+  it("does set it from a checkout the account started", async () => {
+    handlers.unshift(
+      { match: "from qr_checkout_intents", rows: () => [{ id: "77" }] },
+      { match: "update qr_checkout_intents", rows: () => [{ id: "77" }] }
+    );
+    await applyPaystackEvent(create());
+    const [write] = ran("paystack_customer_code = $2");
+    expect(write.params).toEqual([VICTIM, "CUS_1", true]);
   });
 });
