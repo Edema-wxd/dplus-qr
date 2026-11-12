@@ -1,13 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/lib/auth/server";
 import { isAdmin } from "@/lib/admin";
+import { sessionIsLive } from "@/lib/auth/sessions";
 import { resolvePublicSlug } from "@/lib/blog";
 import { SLUG_PATTERN } from "@/lib/blog-schema";
 import { reportError } from "@/lib/error-alerts";
 import {
   SESSION_DATA_COOKIE,
   SESSION_TOKEN_COOKIE,
-  verifiedSessionUserId,
+  verifiedSession,
 } from "@/lib/session-cookie";
 
 /**
@@ -155,12 +156,16 @@ async function staffVerdict(request: NextRequest, response: Response): Promise<V
   // The middleware writes a fresh cache cookie when the old one had expired,
   // so the response's copy, if any, is the current one.
   const token = setCookieValue(response, SESSION_DATA_COOKIE) ?? request.cookies.get(SESSION_DATA_COOKIE)?.value;
-  const userId = token ? verifiedSessionUserId(token, secret) : null;
-  if (!userId) return "unknown";
+  const session = token ? verifiedSession(token, secret) : null;
+  if (!session) return "unknown";
 
   try {
+    // A session signed out everywhere has no row, however fresh its cached
+    // copy: not staff, so a staff member's other devices lose the admin at
+    // once (src/lib/auth/sessions.ts).
+    if (session.sessionId && !(await sessionIsLive(session.sessionId))) return "not-staff";
     // From the database, never the session, so revoking takes effect at once.
-    return (await isAdmin(userId)) ? "staff" : "not-staff";
+    return (await isAdmin(session.userId)) ? "staff" : "not-staff";
   } catch (error) {
     console.error("[proxy] staff check failed; leaving it to the page", error);
     return "unknown";

@@ -30,7 +30,11 @@ export const FLASH_MESSAGES = {
     title: "Your first code is set up",
     description: "Every scan of it appears on this page.",
   },
-  "signed-out": { title: "Signed out" },
+  "signed-out": { title: "Signed out", description: "You are signed out on every device." },
+  "signed-out-here-only": {
+    title: "Signed out on this device",
+    description: "Your other devices could not be signed out just now. Sign in and sign out again to retry.",
+  },
   "plan-created": { title: "Plan created" },
   "post-created": { title: "Post created", description: "It is a draft until you publish it." },
   "post-deleted": { title: "Draft deleted" },

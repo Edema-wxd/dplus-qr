@@ -118,6 +118,13 @@ reliability for a feature, reliability wins. Everything below follows from that.
   says verified. It never sets it on an existing row, so pass the session's
   `emailVerified` at every call; the type requires it. The redirect reads the
   column from `qr_users`, never Neon Auth's table (DECISIONS.md, 11 November).
+- **Signing out ends every session on every device, at once.** The action
+  revokes them through Neon Auth and deletes their rows in `neon_auth.session`,
+  and `auth.getSession()` (`src/lib/auth/server.ts`) refuses any session whose
+  row is gone, because the SDK otherwise trusts a device's cached
+  `session_data` copy for five minutes. Read sessions only through
+  `auth.getSession()`, never by decoding the cookie yourself, or a signed-out
+  device gets back in (`src/lib/auth/sessions.ts`).
 - `proxy.ts` guards pages. A proxy matcher protects pages, not data — check the
   session again inside any Route Handler or Server Action that reads or writes.
 - Never give the matcher a catch-all: it would redirect CSS and JS for
