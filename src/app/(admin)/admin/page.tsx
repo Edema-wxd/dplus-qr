@@ -10,6 +10,8 @@ import {
 } from "@/lib/admin-billing";
 import { naira } from "@/lib/plan-tiers";
 import { attentionCounts } from "@/lib/reports";
+import { backupHealth, describeBackups } from "@/lib/backups";
+import { BACKUP_RUNS_URL } from "@/lib/backup-policy";
 import { pageReferrals } from "@/lib/signup-source";
 import { audit, requireStaff } from "./guard";
 import { RetryEvent } from "./RetryEvent";
@@ -27,7 +29,7 @@ export default async function AdminOverview() {
   const staff = await requireStaff();
   audit(staff, { action: "view", targetType: "page", targetId: "/admin" });
 
-  const [plans, accounts, pastDue, webhooks, attention, referrals] = await Promise.all([
+  const [plans, accounts, pastDue, webhooks, attention, referrals, backups] = await Promise.all([
     planSubscribers(),
     accountTotals(),
     pastDueAccounts(),
@@ -37,6 +39,11 @@ export default async function AdminOverview() {
     // of migration 024, say) hides the section instead of breaking the page.
     pageReferrals().catch((error) => {
       console.error("[admin] page referrals unavailable", error);
+      return null;
+    }),
+    // Same reasoning: a preview ahead of migration 035 hides the item.
+    backupHealth().catch((error) => {
+      console.error("[admin] backup state unavailable", error);
       return null;
     }),
   ]);
@@ -93,6 +100,14 @@ export default async function AdminOverview() {
       // Erasing also archives, so erased accounts are listed under Archived.
       href: "/admin/customers?state=archived",
       cta: "Open archived customers",
+    },
+    {
+      // Not a count of things but one condition, shown as 1 when it holds.
+      count: backups && backups.state !== "ok" ? 1 : 0,
+      title: backups?.state === "never" ? "backup job not set up" : "backup overdue",
+      detail: backups ? describeBackups(backups) : "",
+      href: BACKUP_RUNS_URL,
+      cta: backups?.state === "never" ? "Open the backup job" : "See the runs",
     },
   ].filter((item) => item.count > 0);
 

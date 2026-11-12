@@ -10,6 +10,7 @@ import {
 import { CODE_LENGTH } from "@/lib/short-code";
 // Team-seat figures, quoted so the clauses below cannot drift from the code.
 import { INVITE_DAYS, INVITE_KEEP_DAYS } from "@/lib/team-invite";
+import { BACKUP_KEEP_DAYS } from "@/lib/backup-policy";
 
 /**
  * The legal pages, as content rather than markup.
@@ -552,6 +553,10 @@ export const PRIVACY: LegalDocument = {
             { term: "Paystack", detail: `Payments and subscriptions.` },
             { term: "Resend", detail: `Sending the transactional email above.` },
             {
+              term: "GitHub",
+              detail: `Keeps the nightly backup of our database for ${BACKUP_KEEP_DAYS} days, so the service can be rebuilt after a failure. Each copy is encrypted before it leaves us, with a key GitHub does not hold, so GitHub cannot read it.`,
+            },
+            {
               term: "Google (Web Risk)",
               detail: `Checks each link a customer saves, and each live code's links once a week, against Google's lists of malware and phishing sites. It receives the link only, which is a customer's own link and not a scanner's data.`,
             },
@@ -597,6 +602,10 @@ export const PRIVACY: LegalDocument = {
             {
               term: "Team invitations",
               detail: `${INVITE_KEEP_DAYS} days after the invitation is accepted, cancelled or expires, then deleted with the address it was sent to.`,
+            },
+            {
+              term: "Backups",
+              detail: `The database is copied every night and each copy is kept for ${BACKUP_KEEP_DAYS} days, encrypted. Something deleted from the service is therefore gone from our backups ${BACKUP_KEEP_DAYS} days later.`,
             },
             {
               term: "Abuse reports",

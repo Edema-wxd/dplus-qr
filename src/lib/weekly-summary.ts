@@ -7,6 +7,7 @@ import { attentionCounts, type AttentionCounts } from "@/lib/reports";
 import { errorsLastDays } from "@/lib/error-alerts";
 import { reputationConfigured } from "@/lib/reputation";
 import { naira } from "@/lib/plan-tiers";
+import { backupHealth, describeBackups } from "@/lib/backups";
 
 /**
  * The weekly summary email to staff (built 8 Nov 2026): how the last seven
@@ -40,6 +41,8 @@ export type WeeklyFigures = {
   attention: AttentionCounts;
   /** Null when there is no Redis to count in. */
   errors: number | null;
+  /** One line on the nightly backups (`describeBackups`). */
+  backups: string;
 };
 
 /** The seven complete UTC days before `now`'s day, and the seven before them. */
@@ -51,7 +54,7 @@ export function summaryWindow(now: Date): { from: Date; to: Date; before: Date }
 export async function weeklyFigures(now = new Date()): Promise<WeeklyFigures> {
   const { from, to, before } = summaryWindow(now);
 
-  const [row, plans, attention, errors] = await Promise.all([
+  const [row, plans, attention, errors, backups] = await Promise.all([
     queryOne<Record<string, string>>(
       `-- scope: staff summary, totals across every account and nothing per customer
        select
@@ -83,6 +86,12 @@ export async function weeklyFigures(now = new Date()): Promise<WeeklyFigures> {
     // The seven days the summary covers end yesterday; today's errors wait
     // for next week's.
     errorsLastDays(7, new Date(to.getTime() - DAY)),
+    backupHealth(now)
+      .then(describeBackups)
+      .catch((error) => {
+        console.error("[summary] backup state unavailable", error);
+        return "The backup log could not be read.";
+      }),
   ]);
 
   const n = (key: string) => Number(row?.[key] ?? 0);
@@ -107,6 +116,7 @@ export async function weeklyFigures(now = new Date()): Promise<WeeklyFigures> {
     },
     attention,
     errors,
+    backups,
   };
 }
 
@@ -178,6 +188,7 @@ export function summaryEmail(f: WeeklyFigures, adminUrl: string): { subject: str
       f.errors === null
         ? "Server errors were not counted: Redis is not configured."
         : line("Server errors", count(f.errors), f.errors > 0 ? "each kind was emailed when it first happened" : ""),
+      f.backups,
       "",
       "WAITING ON YOU",
       ...(waiting.length > 0 ? waiting.map((item) => `- ${item}`) : ["Nothing. No open reports, nobody overdue, every payment applied."]),
