@@ -2392,6 +2392,237 @@ Facebook, Netflix, and a plain email envelope.
 - Every mark on every pattern decodes in the test suite.
 - A preset mark on a phishing code is handled like any other abuse: blocked.
 
+## A new account's codes wait for its email, 11 November 2026
+
+Security audit M3. An account nobody had verified could make live codes at
+once, and sign-up was unthrottled, so a script with disposable addresses could
+mint `qriateplus.com/<code>` links to a fresh phishing page. A short link on
+this domain gets through mail and SMS filters that the phishing domain itself
+would not, and the domain's reputation (and Resend's, and Safe Browsing's view
+of it) pays for it. The `VerifyBanner` had said "your codes work either way"
+as a deliberate choice; this replaces that choice for new accounts only.
+
+**What happens now.** An account created unverified is held: every one of its
+codes answers with the paused page until the address is confirmed. A held
+code can be made, designed, downloaded and printed. It just does not open.
+
+- **Held at creation, never later.** `ensureProfile()` sets
+  `qr_users.codes_held_since` (migration 033) only when it *inserts* the
+  profile row. Every account from before this change keeps serving, verified
+  or not, and a verified account that switches to an address it has not
+  confirmed keeps serving. A printed code must not go dark because of an email
+  setting.
+- **Released once, for good.** The first page load whose session says the
+  email is verified clears the column and purges the account's codes from the
+  redirect cache, so they serve at once rather than after the cache's minute.
+- **The redirect reads our column, not Neon Auth's.** `qr_users` is already
+  joined for the owner's name and suspension, so this is one more column on
+  the same row. `neon_auth."user"."emailVerified"` is never read on the scan
+  path: that table belongs to a managed service that may reshape it.
+  `redirect-lookup.test.ts` fails if the lookup names it.
+- **The paused page, not a new one**, as for a suspension: a scanner is owed
+  "not active", never the reason. Blocked still wins over held, and a cached
+  entry without the field reads as not held, so the deploy takes nothing down.
+- **The owner is told where it matters.** The dashboard banner says plainly
+  that scans show a "not active" page until the link is clicked, and is not
+  dismissable while held. The onboarding's scan screen shows the same notice
+  above the watcher. Onboarding stays at six screens: confirming is not a
+  step, the scan step just cannot finish without it.
+- **"Send the link again"** on that banner, because the hold makes an expired
+  or spam-foldered link a dead end. It mails only the session's own address,
+  never one from the form, and is limited to five a day per account
+  (`allowVerificationEmail`), since each one comes from `onboarding@`.
+- Staff see "Email not confirmed, so codes show the paused page" on the
+  customer page.
+
+**Why not hold until verified at the redirect, from Neon Auth directly?** It
+would cover every account, including existing ones, and take live printed
+codes down on deploy. It would also make the one scan query depend on a
+managed table.
+
+**Why not refuse to create codes until verified?** It costs the onboarding its
+first code before the person has seen the product, and it protects nothing a
+hold does not: a code that cannot open cannot phish.
+
+The rest of M3 is not in this change: `WEB_RISK_API_KEY` is still unset in
+production (below), and the auth rate limits are H2.
+
+## Billing events name their subscription, 10 November 2026
+
+From the security audit of 10 November. An upgrade is a new Paystack
+subscription (Paystack has no plan swap), but nothing ever stopped the old
+one, and every webhook write matched *any* live row of the account. So an
+upgrader was billed for both plans, and the old subscription's events landed
+on the new plan:
+
+- cancelling the leftover Starter subscription, or its card failing, lapsed
+  the paid Business row, and the account's codes paused;
+- a Starter renewal cleared a failed Business payment's grace, so an account
+  could keep Business while paying the Starter price.
+
+What changed (`src/lib/billing.ts`, `src/lib/billing-events.ts`):
+
+- **Every write names its row.** `invoice.payment_failed`,
+  `subscription.not_renew` and `subscription.disable` match on
+  `paystack_subscription_code`, read from the top of `data` or from
+  `data.subscription`, where invoice events nest it. One that names no
+  subscription is deferred to staff instead of guessed at. `charge.success`
+  renews only the live row on the charge's plan (and on its subscription when
+  the charge names one). An event that matches no live row changes nothing
+  and sends no email: that is the replaced subscription's own events arriving.
+- **An upgrade stops the subscription it replaces.** `activate` returns the
+  rows it superseded and, after the commit, calls `disableSubscription` for
+  each one still renewing. A failure there leaves the new plan live and
+  emails staff, since the customer is then billed twice until someone
+  disables it in the Paystack dashboard.
+- **Activation must have been asked for.** `subscription.create` carries no
+  metadata, so the account comes from the customer email, and anyone can pay
+  with someone else's address through Paystack Inline. Since activating now
+  also stops the account's current subscription, a forged one would cancel a
+  real customer's plan. So `startCheckout` records each checkout in
+  `qr_checkout_intents` (migration 031), with a reference of our own passed
+  to `transaction/initialize`, *before* calling Paystack. An activation is
+  applied only when it matches an unused checkout for that account and plan
+  from the last seven days, or when the subscription is already this
+  account's (Paystack re-sending it). Anything else is deferred, alerted and
+  left unprocessed. The checkout is marked used in the same transaction.
+
+Consequences:
+
+- A subscription created by hand in the Paystack dashboard no longer
+  activates on its own. It is deferred, and staff assign the plan from
+  `/admin/customers`.
+- Narrow residual: within seven days of someone starting, and not finishing,
+  a checkout for plan X, a payment for plan X made with their email still
+  activates. It needs the victim's own recent, abandoned checkout for that
+  exact plan.
+- Still open from the same audit: matching by email and `metadata.user_id` at
+  all (charges should be accepted only for a reference we issued, with the
+  plan's amount). Retrying an unprocessed event and a period-end backstop
+  followed on 11 November.
+
+Checked against a local Postgres with every migration applied: a forged
+`subscription.create` deferred with the Starter row untouched; the real
+upgrade cancelled Starter, activated Business, used up the checkout and tried
+to stop `SUB_old`; the old subscription's disable and renewal then changed
+nothing; the new subscription's failure and renewal applied to it alone.
+`src/__tests__/billing-apply.test.ts` covers the same decisions without a
+database.
+
+## Paystack events are retried, and period ends are checked, 11 November 2026
+
+From the security audit of 10 November (M2). Two ways a payment state went
+wrong and stayed wrong:
+
+- **A failed event was never tried again.** The webhook answered 200 first and
+  applied the event in `after()`, so Paystack never re-sent anything, and the
+  log row was written before processing, so if Paystack had re-sent, the
+  re-delivery would have been dropped as a duplicate. A database cold start
+  while a `charge.success` was being applied left a paying customer
+  unactivated, with nothing to bring it back. Deferred events waited on a
+  "replay" that did not exist.
+- **Nothing backed up a lost webhook.** No code that serves a code looks at
+  `current_period_end`. A lost `subscription.disable` left a cancelled account
+  on its paid plan for good.
+
+What changed:
+
+- **The webhook applies the event, then answers** (`route.ts`). 200 for
+  applied, ignored, duplicate and deferred; 500 when applying throws, so
+  Paystack re-delivers it; 503 while another attempt holds it. Only the
+  database work is waited on. Stopping a replaced subscription, purging
+  cached destinations, customer email and staff alerts come back from
+  `applyPaystackEvent` as `followUp` and run in `after()`. This reverses the
+  route's old rule "never 500 on our own bug": Paystack retrying an event that
+  fails the same way each time costs a throttled error email, while a lost
+  event costs a customer their plan.
+- **Only a processed event stops a delivery** (migration 032). The log
+  insert is now a claim: a new event is inserted claimed; one seen before is
+  claimed again if it is unprocessed and its claim (`claimed_at`) is older
+  than two minutes. So a re-delivery that overlaps a slow first attempt gets
+  503 instead of applying the charge twice, and one that follows a failed
+  attempt applies it. `attempts` counts claims. Applied and deferred events
+  release their claim; a thrown attempt leaves it to lapse.
+- **Staff can retry an event** from Unapplied Paystack events on the admin
+  overview (`retryPaystackEvent`, `payment-actions.ts`). It goes through the
+  same claim and checks as a delivery, under the event's stored key, so it
+  cannot apply an event twice or activate a plan the webhook would refuse.
+  Each retry is recorded in `qr_admin_audit`.
+- **A daily job, `/api/cron/billing` at 03:20, before the grace job:**
+  - `retryStuckEvents` retries up to 20 unprocessed events from the last
+    fortnight that have no recorded reason (they threw, not deferred) and
+    have been untouched for an hour. Deferred ones wait for staff.
+  - `reconcileOverdueSubscriptions` (`src/lib/billing-reconcile.ts`) reads
+    back from Paystack every subscription still `active` here two days after
+    its period ended:
+    - `cancelled` or `completed` there ends it here;
+    - `active` or `non-renewing` with a later next payment date moves the
+      period on;
+    - `attention` starts the plan's grace period and emails the customer, as
+      a failed invoice would.
+    
+    Anything else, a plan that differs, or a failed read changes nothing and
+    goes to staff in one email a day. Each write requires the row to be
+    exactly as read, so a webhook that lands meanwhile wins.
+
+The reconciliation is a **new writer of `qr_subscriptions`**. The reason: the
+evidence it acts on is Paystack's own record, read with our secret key. That
+is the authority a webhook carries, so this is the webhook's answer fetched
+rather than pushed. It acts only where the answer is plain, and never on our
+own clock alone: a period end passing without a renewal is not, by itself,
+reason to take a printed code down.
+
+Not changed: past-due rows are not read back, because the grace job already
+ends them; and free and staff-assigned plans have no Paystack subscription
+to check.
+
+`src/__tests__/billing-apply.test.ts`, `paystack-webhook-route.test.ts` and
+`billing-reconcile.test.ts` cover the claim, the status codes and each
+reconciliation rule.
+
+## Sign-in, sign-up and resets are limited here, 10 November 2026
+
+From the security audit of 10 November. These were left to Managed Auth's
+own rate limit, but the Neon Auth SDK calls Managed Auth from this server and
+forwards only the cookie and the origin, never the visitor's IP
+(`@neondatabase/auth` server, `fetchWithAuth` and `PROXY_HEADERS`). Managed
+Auth therefore saw every attempt as coming from Vercel's addresses: either no
+limit on one machine running a password list, or one limit shared by everyone
+on that address. And `/api/auth/[...path]` proxied the whole auth API, so
+`sign-in/email`, `sign-up/email` and `request-password-reset` could be called
+directly, around any limit the Server Actions had.
+
+- **Limits that see the visitor** (`allowAuth` in `src/lib/ratelimit.ts`,
+  Upstash, sliding windows):
+  - sign-in: 30 attempts per visitor per 15 minutes, and 10 *failures* per
+    account per 15 minutes;
+  - sign-up: 5 per visitor per hour;
+  - password reset: 5 per visitor and 3 per address per hour.
+
+  Visitors are keyed by `ipRateKey`, addresses by `emailRateKey`, a salted
+  hash, so no address is stored in Redis. They fail open like every other
+  limiter here, so a Redis outage never locks anyone out.
+- **The answers reveal nothing new.** The account limit says "too many failed
+  attempts for that email", which is true whether or not the account exists.
+  A reset over its limit sends nothing and answers exactly as a sent one, so
+  it cannot be used to tell which addresses are being asked about.
+- **The cost of the account limit.** Someone can keep an account's sign-in
+  shut for 15 minutes at a time by failing on purpose. A password reset still
+  works. That is the usual trade for stopping a password being guessed from
+  many machines.
+- **`/api/auth` takes GETs only.** Nothing in the app writes through it:
+  every auth call is a Server Action, and `authClient` is not used by any
+  page. Writes answer 404. GETs pass through, which covers the verification
+  and reset links and an OAuth callback. The scaffold's comment that the
+  route "must not be narrowed" predates any of that and is replaced. The OAuth
+  verifier exchange runs in `proxy.ts` through the SDK middleware, which calls
+  Managed Auth directly, so it is unaffected. A browser-side auth call added
+  later needs its path opened there, with the same limits in front of it.
+
+Still open from the same audit: whether Managed Auth can be told the
+visitor's IP (a question for Neon), and holding a new account's codes until
+its email is verified.
+
 ## The blog, 10 November 2026
 
 A blog at `/blog`, written and published by staff from `/admin/blog`, built
@@ -2468,6 +2699,47 @@ and falls back to its fixed pages if it cannot.
 (`select short_code from qr_codes where lower(short_code) = 'blog'`). The
 static route would shadow it. `blog` is now reserved, so no new one can be
 claimed.
+
+## Page-file uploads need hosted pages, and storage has a limit, 11 November 2026
+
+Security audit M4. The photo, PDF and audio endpoints checked only the
+session, although Free has no hosted pages (22 October entry), and no plan had
+a storage limit. A free account could script 16MB uploads, ten audio files a
+request, and each was public at once on `fmctfyekk3.ufs.sh`: free file hosting
+on the company's UploadThing bill, and a reason for UploadThing to suspend the
+app, which would break every hosted page's photos and PDFs.
+
+**Who may upload a page file.** A plan with `hosted_pages`, or an account
+that already has a hosted page (not archived). Page files exist only to be
+shown on a page; the exception keeps the rule that a page that exists stays
+editable whatever the plan, since replacing a menu photo is an edit. Video
+still needs `video_uploads` as well. Refused in the upload middleware, before
+UploadThing hands out a URL, with the usual upgrade sentence.
+
+**How much an account may store.** `features.storage_mb`, a new numeric
+feature edited from `/admin/plans`. Migration 034 sets starting values where a
+plan has none: Free 25 MB (only reachable by an account that kept its pages),
+Starter 250 MB, Pro 2 GB, Business 10 GB. **These are a first guess, set by
+the audit fix, for the business to adjust.** A plan without a value gets
+100 MB (`DEFAULT_STORAGE_MB`), never unlimited. Not advertised on the price
+table: that is a copy decision, and `storage_mb` has no `advertise` until
+someone makes it.
+
+- **Everything held counts**, used or not, because that is what is paid
+  for. Owners cannot delete files themselves; a file replaced on a page drops
+  out only when the upload sweep clears it, a week unused, and the sweep is
+  still switched off (below). Until it is on, an owner who replaces files often
+  will eventually reach the limit and need staff to raise it. The Files page
+  shows "x of y used" so it is never a surprise.
+- **Checked twice.** The middleware refuses a request whose declared sizes
+  would not fit (UploadThing then refuses a file that is bigger than declared).
+  Several requests can pass it before any file lands, so `recordFile` checks
+  again against what is stored, under a per-account advisory lock, and a file
+  that does not fit is deleted from UploadThing. Ten 4 MB files landing at once
+  against 10 MB kept two (verified against Postgres).
+- **Lowering a limit deletes nothing.** An account over it keeps every file
+  and every page; only new uploads are refused.
+- Logos are not counted: 1MB each and a fixed number per library.
 
 ## Signing out ends every session, at once, 11 November 2026
 
@@ -2546,6 +2818,12 @@ Business decisions:
   of 7 November covers the dashboard and the nightly jobs but not a scanner:
   the first scan of a quiet code while the database is asleep can still reach
   the unavailable page (see that entry). Keeping it awake costs compute hours.
+- Each plan's page-file storage (`storage_mb`, 11 November entry). The
+  starting values were set by the audit fix, not by the business.
+
+- Whether holding a new account's codes until its email is confirmed (11
+  November entry) costs too many first scans. Watch "Scanned it" in the
+  onboarding funnel at `/admin/onboarding` after it ships.
 
 To set up outside the app:
 
@@ -2562,6 +2840,9 @@ Built but switched off:
 - The retention and upload sweeps run only with `DELETION_SWEEPS_ENABLED=true`.
   When to turn them on in production is open; read a dry run against
   production first (see the 30 October entry).
+  Since 11 November the upload sweep is also what frees page-file storage:
+  until it runs, a replaced file counts against the account's `storage_mb`
+  for good.
 
 Closed since this list was first written:
 

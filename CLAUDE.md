@@ -41,7 +41,9 @@ reliability for a feature, reliability wins. Everything below follows from that.
 - **Adding a route means adding its name to `RESERVED_CODES`** in
   `src/lib/short-code.ts`. Codes share a URL namespace with pages on this host,
   so an unreserved route name can be issued as a code and dead-end a printed
-  code.
+  code. The same goes for a new `proxy.ts` matcher entry or a `next.config.ts`
+  rewrite or redirect: each answers its path ahead of the code. The test in
+  `src/__tests__/custom-codes.test.ts` checks all three.
 - Collisions are resolved by the unique index and a retry, never by checking
   first — checking races.
 
@@ -110,6 +112,12 @@ reliability for a feature, reliability wins. Everything below follows from that.
   on every authenticated page load so it also repairs a missed row.
 - Deliberately no cross-schema foreign key to `neon_auth."user"`: that table
   belongs to a managed service that may reshape it.
+- **A new account's codes are held until its email is confirmed.**
+  `ensureProfile()` sets `qr_users.codes_held_since` only when it creates the
+  row unverified, and clears it (purging the cache) the first time the session
+  says verified. It never sets it on an existing row, so pass the session's
+  `emailVerified` at every call; the type requires it. The redirect reads the
+  column from `qr_users`, never Neon Auth's table (DECISIONS.md, 11 November).
 - **Signing out ends every session on every device, at once.** The action
   revokes them through Neon Auth and deletes their rows in `neon_auth.session`,
   and `auth.getSession()` (`src/lib/auth/server.ts`) refuses any session whose
@@ -136,6 +144,11 @@ reliability for a feature, reliability wins. Everything below follows from that.
   Business", "₦4,000"). Read it from the rows: `src/lib/upgrade-offers.ts` for
   "which plan unlocks this", `src/lib/plan-tiers.ts` for price tables. Staff
   move flags between plans without a deploy, and hard-coded copy goes stale.
+- **Every upload endpoint checks the plan in its middleware**, before
+  UploadThing hands out a URL: page files need `hosted_pages` (or an
+  existing page) and must fit `features.storage_mb`
+  (`src/lib/storage-quota.ts`), which `recordFile` checks again under a lock.
+  A new endpoint that stores files for an account does the same.
 - **A locked control stays clickable** and opens the upgrade prompt
   (`LockedButton` / `UpgradeDialog` in `src/app/(app)/app/UpgradePrompt.tsx`).
   The server refuses the action as well; the prompt only explains.
@@ -144,8 +157,14 @@ reliability for a feature, reliability wins. Everything below follows from that.
   where it lives: the free-plan grant (`profile.ts`), staff assignment
   (`plan-admin.ts`, refused for an account paying through Paystack), the
   grace-period lapse (`grace.ts`), the optimistic not-renewing flag on cancel
-  (`checkout.ts`) and account erasure (`moderation.ts`). Any new writer needs
-  a reason recorded in DECISIONS.md.
+  (`checkout.ts`), account erasure (`moderation.ts`) and the period-end
+  check that reads overdue subscriptions back from Paystack
+  (`billing-reconcile.ts`). Any new writer needs a reason recorded in
+  DECISIONS.md.
+- **A webhook that fails answers 500, so Paystack re-delivers it.** Only a
+  processed `qr_payment_events` row stops a delivery; an unprocessed one is
+  claimed (`claimed_at`, a two-minute lease) and tried again. Side effects
+  run after the answer, as the outcome's `followUp`.
 - A plan's price and interval are fixed once it has a `paystack_plan_code`,
   because Paystack charges its own copy. A new price is a new plan.
 

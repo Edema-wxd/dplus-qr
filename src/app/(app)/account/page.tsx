@@ -37,6 +37,7 @@ export default async function AccountPage() {
     id: user.id,
     email: user.email,
     name: user.name,
+    emailVerified: user.emailVerified,
   });
   const entitlement = await getEntitlement(user.id);
 

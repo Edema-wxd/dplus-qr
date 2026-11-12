@@ -108,6 +108,15 @@ export const PLAN_FEATURES: readonly FeatureDef[] = [
     help: "Customers can upload video files to a video page. Without it they can still show a YouTube or Vimeo link; videos already uploaded keep playing.",
   },
   {
+    key: "storage_mb",
+    label: "Storage for page files (MB)",
+    kind: "number",
+    built: true,
+    min: 1,
+    max: 102400,
+    help: "How much an account may hold in PDFs, photos, video and audio for its pages, in MB. Files replaced on a page count until the upload sweep clears them. Empty means 100 MB. Lowering it below what an account holds deletes nothing; it only stops new uploads.",
+  },
+  {
     key: "team_seats",
     label: "Team seats",
     kind: "number",

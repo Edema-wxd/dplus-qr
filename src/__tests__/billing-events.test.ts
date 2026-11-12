@@ -7,6 +7,7 @@ import {
   isHandled,
   nextPeriodEnd,
   planCodeOf,
+  subscriptionCodeOf,
 } from "@/lib/billing-events";
 import { verifySignature } from "@/lib/paystack";
 import { resetEnvCache } from "@/lib/env";
@@ -69,6 +70,12 @@ describe("signature verification", () => {
     // timingSafeEqual throws on mismatched lengths, so this must be caught
     // before it gets there -- a truncated header is a rejection, not a crash.
     expect(verifySignature("{}", "abc")).toBe(false);
+  });
+
+  it("rejects a non-hex signature of the right length without throwing", () => {
+    // 128 characters, but "é" is two bytes in UTF-8: the byte lengths differ,
+    // which made timingSafeEqual throw and the webhook answer 500.
+    expect(verifySignature("{}", "é".repeat(128))).toBe(false);
   });
 
   /**
@@ -151,6 +158,21 @@ describe("period arithmetic", () => {
   });
 });
 
+describe("subscriptionCodeOf", () => {
+  it("reads the code at the top of data, or nested under data.subscription", () => {
+    expect(subscriptionCodeOf(parse({ event: "subscription.disable", data: { subscription_code: "SUB_a" } }))).toBe("SUB_a");
+    expect(
+      subscriptionCodeOf(parse({ event: "invoice.payment_failed", data: { subscription: { subscription_code: "SUB_b" } } }))
+    ).toBe("SUB_b");
+  });
+
+  it("is null when the event names no subscription, whatever shape data.subscription takes", () => {
+    expect(subscriptionCodeOf(parse({ event: "charge.success", data: {} }))).toBeNull();
+    expect(subscriptionCodeOf(parse({ event: "charge.success", data: { subscription: 42 } }))).toBeNull();
+    expect(subscriptionCodeOf(parse({ event: "charge.success", data: { subscription_code: "" } }))).toBeNull();
+  });
+});
+
 describe("decideChange", () => {
   it("activates on subscription.create, using the given next payment date", () => {
     const change = decideChange(
@@ -200,8 +222,28 @@ describe("decideChange", () => {
 
     expect(change).toEqual({
       kind: "extend",
+      subscriptionCode: null,
       currentPeriodEnd: new Date("2026-07-15T10:00:00.000Z"),
     });
+  });
+
+  it("carries the subscription a renewal charge names, so it renews only that one", () => {
+    const change = decideChange(
+      parse({
+        event: "charge.success",
+        data: { id: 2, status: "success", plan: "PLN_pro", subscription: { subscription_code: "SUB_b" } },
+      }),
+      { plan: PLAN, now: NOW }
+    );
+    expect(change.kind === "extend" && change.subscriptionCode).toBe("SUB_b");
+  });
+
+  it("defers a subscription.create with no subscription code instead of activating", () => {
+    const change = decideChange(
+      parse({ event: "subscription.create", data: { id: 1, plan: { plan_code: "PLN_pro" } } }),
+      { plan: PLAN, now: NOW }
+    );
+    expect(change.kind).toBe("defer");
   });
 
   /**
@@ -226,45 +268,61 @@ describe("decideChange", () => {
 
   it("sets grace from the plan on a failed invoice", () => {
     const change = decideChange(
-      parse({ event: "invoice.payment_failed", data: { id: 5, plan: "PLN_pro" } }),
+      parse({
+        event: "invoice.payment_failed",
+        data: { id: 5, plan: "PLN_pro", subscription: { subscription_code: "SUB_x" } },
+      }),
       { plan: PLAN, now: NOW }
     );
 
-    expect(change).toEqual({ kind: "past_due", graceUntil: addDays(NOW, 7) });
+    expect(change).toEqual({ kind: "past_due", subscriptionCode: "SUB_x", graceUntil: addDays(NOW, 7) });
   });
 
   it("still grants grace when the plan could not be matched", () => {
     // No grace at all would cut a paying customer's codes off instantly over a
     // plan-code mismatch, which is the opposite of the one rule.
     const change = decideChange(
-      parse({ event: "invoice.payment_failed", data: { id: 6 } }),
+      parse({ event: "invoice.payment_failed", data: { id: 6, subscription: { subscription_code: "SUB_x" } } }),
       { plan: null, now: NOW }
     );
-    expect(change).toEqual({ kind: "past_due", graceUntil: addDays(NOW, 7) });
+    expect(change).toEqual({ kind: "past_due", subscriptionCode: "SUB_x", graceUntil: addDays(NOW, 7) });
   });
 
   it("honours a plan's own grace length", () => {
     const change = decideChange(
-      parse({ event: "invoice.payment_failed", data: { id: 7, plan: "PLN_pro" } }),
+      parse({ event: "invoice.payment_failed", data: { id: 7, plan: "PLN_pro", subscription_code: "SUB_x" } }),
       { plan: { ...PLAN, graceDays: 14 }, now: NOW }
     );
-    expect(change).toEqual({ kind: "past_due", graceUntil: addDays(NOW, 14) });
+    expect(change).toEqual({ kind: "past_due", subscriptionCode: "SUB_x", graceUntil: addDays(NOW, 14) });
+  });
+
+  /**
+   * Since an upgrade leaves the old subscription's events still arriving, an
+   * event that cannot say which subscription it is about must never be
+   * applied to whichever row happens to be live.
+   */
+  it("defers failure, not_renew and disable events that name no subscription", () => {
+    for (const name of ["invoice.payment_failed", "subscription.not_renew", "subscription.disable"]) {
+      expect(decideChange(parse({ event: name, data: { id: 11 } }), { plan: PLAN, now: NOW }).kind).toBe(
+        "defer"
+      );
+    }
   });
 
   it("marks cancelling on not_renew and cancelled on disable", () => {
     expect(
-      decideChange(parse({ event: "subscription.not_renew", data: { id: 8 } }), {
+      decideChange(parse({ event: "subscription.not_renew", data: { id: 8, subscription_code: "SUB_x" } }), {
         plan: PLAN,
         now: NOW,
       })
-    ).toEqual({ kind: "cancel_at_period_end" });
+    ).toEqual({ kind: "cancel_at_period_end", subscriptionCode: "SUB_x" });
 
     expect(
-      decideChange(parse({ event: "subscription.disable", data: { id: 9 } }), {
+      decideChange(parse({ event: "subscription.disable", data: { id: 9, subscription_code: "SUB_x" } }), {
         plan: PLAN,
         now: NOW,
       })
-    ).toEqual({ kind: "cancelled" });
+    ).toEqual({ kind: "cancelled", subscriptionCode: "SUB_x" });
   });
 
   it("ignores events it does not handle", () => {

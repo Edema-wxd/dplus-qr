@@ -100,6 +100,28 @@ describe("decide", () => {
     expect(decide(stale)).toEqual({ kind: "redirect", url: "https://example.com" });
   });
 
+  /**
+   * Security audit M3: a throwaway sign-up could put a live link on this
+   * domain before anyone confirmed its address. A held owner's codes answer
+   * with the paused page, as a suspension does.
+   */
+  it("shows the paused page while the owner's email is unconfirmed", () => {
+    expect(decide(destination({ ownerHeld: true }))).toEqual({
+      kind: "paused",
+      ownerName: "Test Business",
+    });
+  });
+
+  it("prefers blocked over held, so a kill switch is never masked", () => {
+    expect(decide(destination({ ownerHeld: true, status: "blocked" }))).toEqual({ kind: "blocked" });
+  });
+
+  it("treats an absent hold flag as not held, so a deploy takes no live code down", () => {
+    const stale = destination();
+    delete (stale as { ownerHeld?: boolean }).ownerHeld;
+    expect(decide(stale)).toEqual({ kind: "redirect", url: "https://example.com" });
+  });
+
   it("never returns a redirect without a url", () => {
     const result = decide(destination());
     if (result.kind === "redirect") {

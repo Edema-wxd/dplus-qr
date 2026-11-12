@@ -1,5 +1,6 @@
-import { query, queryOne } from "@/lib/db";
+import { query, queryOne, withTransaction } from "@/lib/db";
 import { access, accessArgs, type AccountScope } from "@/lib/account-scope";
+import { DYNAMIC_KINDS, isLinkKind } from "@/lib/qr-types";
 import { isUploadThingUrl } from "@/lib/logos";
 import { collectFileIds } from "@/lib/page-content";
 
@@ -22,27 +23,95 @@ function toFile(row: FileRow): StoredFile {
   return { id: String(row.id), url: row.url, name: row.name, mime: row.mime_type };
 }
 
+/** Thrown by `recordFile` when a file that landed would take the account past its allowance. */
+export class StorageFullError extends Error {
+  constructor(accountId: string) {
+    super(`storage allowance reached for account ${accountId}`);
+    this.name = "StorageFullError";
+  }
+}
+
 /**
  * Idempotent on UploadThing's file key, like `recordLogo`, and like it takes
  * the account id the upload middleware attached, since the completion
  * callback has no session.
+ *
+ * `quotaBytes` is the account's page-file allowance, worked out by the upload
+ * middleware and carried here in its signed metadata. The middleware already
+ * refused an upload that would not fit, but several requests can pass it at
+ * once before any file lands, so the allowance is checked again here, under a
+ * per-account lock, against what is actually stored. A file that does not fit
+ * is refused with `StorageFullError`, and the caller deletes it from
+ * UploadThing. A file already recorded (a repeated callback) is returned as it
+ * is, never refused: it is already counted.
  */
 export async function recordFile(
   accountId: string,
-  file: { key: string; url: string; name: string; type: string; size: number }
+  file: { key: string; url: string; name: string; type: string; size: number },
+  quotaBytes: number
 ): Promise<StoredFile> {
   if (!isUploadThingUrl(file.url)) {
     throw new Error("Upload completed with a URL that is not UploadThing's");
   }
-  const row = await queryOne<FileRow>(
-    `-- scope: proved by the upload middleware (see recordLogo)
-     insert into qr_files (user_id, file_key, url, name, mime_type, size_bytes)
-     values ($1, $2, $3, $4, $5, $6)
-     on conflict (file_key) do update set file_key = excluded.file_key
-     returning id, url, name, mime_type`,
-    [accountId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
+  return withTransaction(async (run) => {
+    // Transaction-scoped, so it is released at commit and safe through the
+    // pooler. Serialises one account's recordings; other accounts never wait.
+    await run("select pg_advisory_xact_lock(hashtextextended('qr_files:' || $1, 0))", [accountId]);
+
+    const [existing] = await run<FileRow>(
+      `-- scope: proved by the upload middleware (see recordLogo)
+       select id, url, name, mime_type from qr_files where file_key = $1 and user_id = $2`,
+      [file.key, accountId]
+    );
+    if (existing) return toFile(existing);
+
+    const [usage] = await run<{ used: string }>(
+      `-- scope: proved by the upload middleware (see recordLogo)
+       select coalesce(sum(size_bytes), 0) as used from qr_files where user_id = $1`,
+      [accountId]
+    );
+    if (Number(usage.used) + file.size > quotaBytes) throw new StorageFullError(accountId);
+
+    const [row] = await run<FileRow>(
+      `-- scope: proved by the upload middleware (see recordLogo)
+       insert into qr_files (user_id, file_key, url, name, mime_type, size_bytes)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict (file_key) do update set file_key = excluded.file_key
+       returning id, url, name, mime_type`,
+      [accountId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
+    );
+    return toFile(row);
+  });
+}
+
+/** Bytes of page files the account holds, every one of them, used or not. */
+export async function storageUsed(scope: AccountScope): Promise<number> {
+  const row = await queryOne<{ used: string }>(
+    `select coalesce(sum(size_bytes), 0) as used from qr_files
+     where user_id = $1 and ${access(2)}`,
+    [scope.accountId, ...accessArgs(scope, "read")]
   );
-  return toFile(row!);
+  return Number(row?.used ?? 0);
+}
+
+/** The code kinds that are hosted pages: every dynamic kind that is not a plain link. */
+export const PAGE_KINDS: readonly string[] = DYNAMIC_KINDS.filter((kind) => !isLinkKind(kind));
+
+/**
+ * Whether the account already has a hosted page (not archived). A plan
+ * without `hosted_pages` cannot make new pages, but a page that exists stays
+ * editable whatever the plan (`canMakeHostedPages`), and editing a page can
+ * mean replacing its photo.
+ */
+export async function hasPageCodes(scope: AccountScope): Promise<boolean> {
+  const row = await queryOne<{ has: boolean }>(
+    `select exists (
+       select 1 from qr_codes
+       where user_id = $1 and archived_at is null and kind = any($2::text[]) and ${access(3)}
+     ) as has`,
+    [scope.accountId, PAGE_KINDS, ...accessArgs(scope, "read")]
+  );
+  return row?.has === true;
 }
 
 export type ResolveResult = { ok: true; content: unknown } | { ok: false; reason: string };

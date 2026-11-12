@@ -27,6 +27,24 @@ const nextConfig: NextConfig = {
     // Uploads are capped at 4MB; refuse anything far beyond that.
     maximumResponseBody: 5_000_000,
   },
+  // Baseline headers on every response. No page here is meant to be framed by
+  // another site (the hosted pages embed YouTube/Vimeo, never the reverse), so
+  // framing is limited to this origin; that stops clickjacking of dashboard
+  // and admin buttons. nosniff stops a served file being read as another type.
+  // A full CSP is a separate change: it needs nonces for the inline scripts.
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+    ];
+  },
   partialPrefetching: true,
   // A blog post's Markdown copy lives at its address plus `.md`, the llms.txt
   // convention. A dynamic segment cannot end in a fixed suffix, so the route
