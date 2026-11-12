@@ -96,12 +96,18 @@ export async function saveFeedback(
   comment: string | null,
   origin: FeedbackOrigin
 ): Promise<boolean> {
+  // Only while the page itself would be shown: the same decision a scan gets,
+  // so a suspended, lapsed, held or archived owner's code takes no answers
+  // either (audit L8). The statement checks the code's own state again.
+  const { destination } = await lookupDestination(shortCode);
+  if (decide(destination).kind !== "redirect" || !destination) return false;
+
   const rows = await query<{ id: string }>(
     `insert into qr_feedback (qr_id, rating, comment, country, city, device_type, os)
      select id, $2, $3, $4, $5, $6, $7 from qr_codes
-     where short_code = $1 and kind = 'feedback' and status = 'active'
+     where id = $1 and kind = 'feedback' and status = 'active' and archived_at is null
      returning id`,
-    [shortCode, rating, comment, origin.country, origin.city, origin.device, origin.os]
+    [destination.qrId, rating, comment, origin.country, origin.city, origin.device, origin.os]
   );
   return rows.length > 0;
 }

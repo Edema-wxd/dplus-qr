@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { isAdmin, STAFF_TARGET } from "@/lib/admin";
 import { sendEmail } from "@/lib/email";
 import {
   formatRespondBy,
@@ -39,6 +40,7 @@ export async function issueWarningAction(_prev: AdminFormState, form: FormData):
   const userId = z.string().regex(UUID).safeParse(form.get("userId"));
   if (!userId.success) return { error: "That account does not exist." };
   if (userId.data === staff.id) return { error: "You cannot warn your own account." };
+  if (await isAdmin(userId.data)) return { error: STAFF_TARGET };
 
   const parsed = issueSchema.safeParse({
     level: form.get("level"),

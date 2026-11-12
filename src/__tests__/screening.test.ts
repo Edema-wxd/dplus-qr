@@ -105,3 +105,31 @@ describe("screenUrl", () => {
     expect(screenUrl("JAVASCRIPT:alert(1)").ok).toBe(false);
   });
 });
+
+describe("hosts that serve this platform's codes (audit L11)", () => {
+  it.each([
+    "https://qriateplus.com/Ab3dEf9",
+    "https://qriateplus.com./Ab3dEf9",
+    "https://QRIATEPLUS.COM../Ab3dEf9",
+    "https://www.qriateplus.com./Ab3dEf9",
+    "https://qr.de-signplus.com./Ab3dEf9",
+    "https://dplus-qr.vercel.app/Ab3dEf9",
+    "https://dplus-a1b2c3d4e-francis-woods-projects.vercel.app/Ab3dEf9",
+    "https://dplus-qr-git-main-francis-woods-projects.vercel.app/Ab3dEf9",
+  ])("refuses %s", (input) => {
+    expect(screenUrl(input)).toEqual({ ok: false, reason: "A code cannot point at another code." });
+  });
+
+  it.each([
+    "https://dplus-qr-lookalike.vercel.app/x",
+    "https://someone-else.vercel.app/x",
+    "https://notqriateplus.com/x",
+  ])("still accepts %s", (input) => {
+    expect(screenUrl(input).ok).toBe(true);
+  });
+
+  it("drops a trailing dot before the shortener and IP checks too", () => {
+    expect(screenUrl("https://bit.ly./abc").ok).toBe(false);
+    expect(screenUrl("http://1.2.3.4./").ok).toBe(false);
+  });
+});

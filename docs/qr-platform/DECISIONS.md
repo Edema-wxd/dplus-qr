@@ -2741,6 +2741,55 @@ someone makes it.
   and every page; only new uploads are refused.
 - Logos are not counted: 1MB each and a fixed number per library.
 
+## Smaller hardening from the security audit, 11 November 2026
+
+The confirmed Low findings of the 10 November audit, fixed together. Each
+was a check in the wrong place or missing, not a design change.
+
+- **Quota before role (L1).** `inviteAction` spent the owner's daily invites,
+  and `createBulkAction` the account's hourly batches, before learning the
+  caller could not invite or write. A viewer could use both up. The role is
+  now checked first; the library functions still check it too.
+- **The raw-scan CSV reached past the plan (L2).** Only the per-table export
+  held the window to `history_days`. `scanRows` now takes the plan's history
+  and never goes further back. It clamps rather than refusing, because the
+  page links `?days=30` whatever the plan.
+- **Blocked and archived codes could be edited by a forged form (L3).** Only
+  `setStatus` excluded them. A customer could re-point a blocked code
+  somewhere harmless to win an unblock, then point it back. Destination and
+  content changes now refuse a blocked or archived code, and say so for a
+  blocked one. Renames, styles, logos and share links skip archived codes.
+  Each update statement repeats the condition, so a block that lands between
+  the read and the write still wins.
+- **Feedback and reports (L8).**
+  - Their limiters no longer allow everything when Redis is unreachable.
+    They fall back to a count kept by the server instance, per limiter and
+    key. That ceiling is per instance, not global, which is still a ceiling.
+  - Every per-visitor key now treats an IPv6 address as its /64. One
+    connection usually holds a whole /64, so keying on the full address
+    could be dodged by changing addresses. This covers the sign-in limits too.
+  - A feedback answer is saved only while the page itself would be shown, by
+    the same `decide()` a scan gets. A suspended, lapsed, held or archived
+    owner's code takes none.
+- **Staff against staff (L9).** Suspend, block-all, archive, warn and
+  suspend-for-warning refuse a staff account (`STAFF_TARGET` in `admin.ts`).
+  One compromised or careless staff login must not be able to act against
+  the rest. Lifting a suspension or archive stays allowed, since that only
+  undoes. `assignPlan` refuses an erased account, holding its row locked
+  against an erasure in between.
+- **Codes pointing back at this host (L11).** `qriateplus.com.` (trailing
+  dot) slipped past the own-host list, and past the shortener and IP checks
+  too. Trailing dots are now dropped before any host comparison, and the
+  project's own `*.vercel.app` deployment and branch hosts count as own
+  hosts.
+- **Cron secret comparison (L13).** One `cronAuthorized()` in
+  `src/lib/cron-auth.ts` compares SHA-256 digests with `timingSafeEqual`,
+  so the timing reveals neither the secret's content nor its length. Every
+  cron route uses it.
+
+Not in this change: L4 (Web Risk quota, dormant until the key is set), L10
+(logo-cap race, document and zip limits) and L12 (dependencies).
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.
