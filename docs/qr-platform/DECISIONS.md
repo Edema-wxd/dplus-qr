@@ -2840,6 +2840,137 @@ the subscription-scope change of 10 November.
   through forged metadata or its email cannot re-point it at someone else's
   Paystack customer. Staff correct a genuinely changed one by hand.
 
+## Signing out ends every session, at once, 11 November 2026
+
+The sign-out button used to end only the session on the device that pressed
+it. Every other device stayed signed in, and even a revoked session kept
+working for up to five minutes, because Neon Auth gives each device a signed
+copy of its session (`session_data`) that the SDK trusts without asking
+anyone until it expires.
+
+Now signing out ends every session the person has, on every device, and
+each device notices on its next request:
+
+- **The action** (`signOutAction`, `src/app/(app)/auth/sign-in/actions.ts`):
+  - asks Neon Auth to revoke all the person's sessions (`revokeSessions`);
+  - deletes their rows from `neon_auth.session` directly (`endAllSessions`,
+    `src/lib/auth/sessions.ts`), so it holds even when that call fails;
+  - clears every `__Secure-neon-auth.*` cookie on this device, whatever
+    happened before.
+
+  If both the revoke and the delete fail, this device is still signed out,
+  the toast says the other devices could not be, and staff get the error.
+- **Every session read:** `auth.getSession()` in `src/lib/auth/server.ts`
+  checks the session's row still exists. It does this once per request per
+  session, and refuses a session whose row is gone, however fresh its cached
+  copy. Every page, Server Action, Route Handler and `resolveScope` goes
+  through it, so nothing needed changing at the call sites.
+- **The admin:** the proxy's staff check does the same, so a staff member's
+  other devices get the ordinary 404.
+
+**Choices**
+- **Deleting rows in `neon_auth` directly.** That schema belongs to the
+  managed service, which is why nothing has a foreign key into it. The two
+  statements name only `id`, `userId` and `expiresAt`, the columns Better
+  Auth's session model is built on. We delete as well as calling the API
+  because the delete is one statement in our own database: certain and
+  immediate, with no dependence on another service answering.
+- **A failed check trusts the cookie.** If the database cannot be asked,
+  `getSession` goes by the SDK's answer. Saying no instead would bounce
+  everyone to sign-in on a blip, and with the database down the page fails on
+  its own reads anyway. The cost is that a revoked session then lasts until
+  its cached copy expires, which is how sign-out behaved before.
+- **"On its next request", not pushed.** A page already open on another
+  device stays on screen until it is used. Its next load, form submission or
+  download is refused.
+- **Sign-out means everywhere, always.** There is no "this device only"
+  option. If one is wanted later, it is `auth.signOut()` behind a second
+  button.
+
+**Verified**
+- `sign-out-everywhere.test.ts` covers:
+  - the action, including each failure path;
+  - `getSession` refusing a dead session, trusting on a database error, and
+    skipping the check when there is no session;
+  - the proxy sending a dead staff session to the 404.
+- Both statements were run against production's `neon_auth.session` over the
+  pooled connection the app uses. The read was for a random id; the delete ran
+  inside a transaction that was rolled back.
+
+## Backups: nightly, restore-tested, encrypted on GitHub, 8 November 2026
+
+The plan's "nightly backup to S3 and a tested restore", built differently
+in two ways. How to set it up and how to restore are in `RESTORE.md`.
+
+**Two layers** (Francis, 8 Nov 2026). Production is on Neon's Free plan, whose
+instant restore reaches back 6 hours. That is the first resort for a recent
+mistake: it is to the second and includes sign-ins. Anything older needs
+nightly copies kept outside Neon.
+
+**Where the copies live** (decided 8 Nov 2026): GitHub Actions artifacts,
+encrypted, kept 30 days, rather than an S3 bucket. No new account is needed,
+and the copies sit with a different company from the database, so losing
+the Neon account does not take the backups with it. Neon's own bucket was
+ruled out for that reason. Thirty days (decided 8 Nov 2026) is long enough
+to notice slow damage without keeping customer data much longer than the
+service does.
+
+**The job** (`.github/workflows/backup.yml`, 01:17 UTC nightly, and by
+hand), with the work in `scripts/backup/`:
+
+- `pg_dump` over the direct URL, with a client matching the server's major
+  version. The job reads it from the server and installs that client.
+- **Every copy is restore-tested before it is kept**: restored into a
+  scratch Postgres of the same version, refused if `pg_restore` reports any
+  error other than a missing extension, and refused if any table in `public`
+  or `neon_auth` is missing or short. The comparison allows for writes made
+  after the dump: the larger of 100 rows or 1% per table
+  (`compare-counts.sh`). So "a tested restore" happens every night, not once.
+- **Encrypted with age to a public key** in the repository variable
+  `BACKUP_AGE_RECIPIENT`. The private key is kept offline by De Sign Plus
+  and never reaches GitHub, so neither GitHub nor anyone with access to the
+  repository can read a copy. The plain dump never leaves the job's
+  temporary directory.
+- Each run, ok or failed, is logged in `qr_backups` (migration 035): sizes,
+  counts and a link to the run, no personal data. That is how the app knows.
+
+The script refuses a pooled source URL, and refuses to restore into the
+source or into anything on Neon, because the restore test empties its target.
+
+**Noticing when it stops** (`src/lib/backups.ts`):
+
+- `/api/cron/backups`, 05:10 UTC daily, emails staff (`alertOnce`, so
+  production only and throttled) when no good backup has landed in 30 hours
+  (`BACKUP_STALE_HOURS`), or when last night's run failed while the copy
+  before it is still recent.
+- It stays silent until the first backup is ever logged, so an unfinished
+  setup is not nagged about daily. Instead, the admin overview lists "backup
+  job not set up" under Needs attention, and the Monday summary says so.
+- Once running, the overview shows "backup overdue" when stale, and the
+  summary carries a line on the last good backup.
+
+**Legal copy:** the privacy page names GitHub as a processor that keeps the
+encrypted nightly backup for 30 days and cannot read it, and its retention
+table says a deletion leaves the backups 30 days later. `BACKUP_KEEP_DAYS`
+(`src/lib/backup-policy.ts`) feeds both, and a test fails if the workflow's
+`retention-days` differs. Both lines are part of the lawyer's review.
+
+**Not yet tried against Neon:** the job has not run against production,
+because it needs the key and the secret above. Neon's managed auth may own
+objects a plain Postgres cannot restore; the job's restore test will say so
+on its first run, and its allowance for extension errors may need to widen.
+Restoring `neon_auth` into a fresh Neon project, in RESTORE.md, is untested
+against a live Neon Auth for the same reason.
+
+Tested on a local Postgres 16: a dump was restored, checked (27 tables) and
+encrypted. It decrypted with the private key, and a wrong key was refused.
+The runbook's full rebuild (`--schema=public`, then `neon_auth` data-only
+into tables the auth service made) brought back every account, code and
+sign-in row. A restore made to fail (an event trigger in the scratch
+database rejecting `qr_scans`) was refused, and no copy was written. The
+four guards refused as intended. Runs were logged ok and failed, and the
+admin, summary and alert read them back as expected.
+
 ## Still open
 
 Reviewed 8 November 2026 against `main`.
@@ -2869,6 +3000,11 @@ Business decisions:
 
 To set up outside the app:
 
+- Backups: an age key pair, with the private key kept offline in two
+  places, and two GitHub settings, `BACKUP_AGE_RECIPIENT` and
+  `BACKUP_DATABASE_URL`, then one run by hand. The steps are in
+  `RESTORE.md`. Until then there are no copies older than Neon's 6 hours,
+  and the admin overview says so.
 - The outside uptime monitor: an account with Better Stack (or similar) and
   the two monitors in the 8 November monitoring entry. Until it exists,
   nothing alerts when the site is down, since the site cannot report its own
@@ -2900,6 +3036,8 @@ Closed since this list was first written:
 - Bulk creation: built 7 November (see that entry).
 - Destination reputation check: built 8 November on Google Web Risk, dormant
   until its key is set (see that entry).
+- Nightly backups with a restore test on every copy: built 8 November (see
+  that entry). The key and secrets are above, to set up.
 - Error alerts and the weekly admin summary email: built 8 November (see
   that entry). The outside uptime monitor is above, to set up.
 - Team seats: built and launched 7 November (see those entries). Its terms

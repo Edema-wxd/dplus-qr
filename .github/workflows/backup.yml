@@ -1,0 +1,95 @@
+# The nightly database backup (decided 8 Nov 2026, see DECISIONS.md).
+#
+# Dumps production, restores the dump into a scratch Postgres to prove it is
+# whole, encrypts it to an age public key, and keeps it as an artifact for
+# 30 days. Each run is logged in qr_backups, and the app emails staff when
+# good backups stop (/api/cron/backups).
+#
+# Needs, under Settings > Secrets and variables > Actions:
+#   secret   BACKUP_DATABASE_URL   the direct (unpooled) production URL
+#   variable BACKUP_AGE_RECIPIENT  the age public key, age1...
+# The private key never comes here. It is kept offline and is the only way
+# to read a copy: see docs/qr-platform/RESTORE.md.
+
+name: Nightly database backup
+
+on:
+  schedule:
+    # 01:17 UTC: quiet hours in Lagos, before the nightly rollup at 02:20, and
+    # off the hour, when GitHub's scheduler is busiest.
+    - cron: "17 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+      AGE_RECIPIENT: ${{ vars.BACKUP_AGE_RECIPIENT }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the configuration
+        run: |
+          if [ -z "$SOURCE_URL" ]; then echo "::error::The BACKUP_DATABASE_URL secret is not set."; exit 1; fi
+          if [ -z "$AGE_RECIPIENT" ]; then echo "::error::The BACKUP_AGE_RECIPIENT variable is not set."; exit 1; fi
+
+      - name: Install a pg_dump matching the server, and age
+        id: tools
+        run: |
+          major=$(psql "$SOURCE_URL" -X -At -c "select current_setting('server_version_num')::int / 10000")
+          echo "Server is Postgres $major."
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common age
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq "postgresql-client-$major"
+          echo "major=$major" >> "$GITHUB_OUTPUT"
+          echo "pg_bin=/usr/lib/postgresql/$major/bin" >> "$GITHUB_OUTPUT"
+
+      - name: Start a scratch database for the restore test
+        run: |
+          docker run -d --name scratch -p 5432:5432 -e POSTGRES_HOST_AUTH_METHOD=trust "postgres:${{ steps.tools.outputs.major }}"
+          for i in $(seq 1 30); do pg_isready -h 127.0.0.1 -p 5432 -q && exit 0; sleep 1; done
+          echo "::error::The scratch database did not start."; exit 1
+
+      - name: Dump, restore-test and encrypt
+        id: backup
+        env:
+          RESTORE_URL: postgres://postgres@127.0.0.1:5432/postgres
+          OUT_DIR: ${{ runner.temp }}/backup
+          PG_BIN: ${{ steps.tools.outputs.pg_bin }}
+        run: scripts/backup/backup.sh
+
+      - name: Keep the encrypted copy
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.backup.outputs.name }}
+          path: ${{ steps.backup.outputs.file }}
+          # Must equal BACKUP_KEEP_DAYS in src/lib/backup-policy.ts.
+          retention-days: 30
+          # Already compressed, and encrypted data does not compress.
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Log the backup
+        env:
+          BYTES: ${{ steps.backup.outputs.bytes }}
+          TABLES: ${{ steps.backup.outputs.tables }}
+          ROWS: ${{ steps.backup.outputs.rows }}
+          SCHEMA: ${{ steps.backup.outputs.schema }}
+        run: scripts/backup/record.sh ok
+
+      - name: Log the failure
+        if: failure()
+        env:
+          DETAIL: A step failed. The run's log says which.
+        run: scripts/backup/record.sh failed || echo "Could not log the failure either; the app will notice the missing backup."
