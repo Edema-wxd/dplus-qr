@@ -2921,9 +2921,105 @@ database rejecting `qr_scans`) was refused, and no copy was written. The
 four guards refused as intended. Runs were logged ok and failed, and the
 admin, summary and alert read them back as expected.
 
+## Staging: previews on their own database, 12 November 2026
+
+HANDOVER.md's "staging app with its own database". Until now every preview
+deployment ran on the production database. How to set it up and use it is in
+`STAGING.md`.
+
+**Shape** (Francis, 12 Nov 2026): Vercel's Preview environment becomes
+staging. The Vercel account has no custom environments, which need a paid
+plan, so this works on the current one. Every PR preview, and a standing
+`staging` git branch served at `staging.qriateplus.com`, run on a separate
+Neon branch named `staging`. A second Vercel project was ruled out: every
+setting kept twice.
+
+**Data** (decided 12 Nov 2026): staging starts **empty**, with production's
+schema and no customer data. Test accounts come from signing up on staging
+and running `npm run staging -- seed`. No real name or email sits in staging,
+so the privacy page needs nothing new. A copy of production was ruled out
+for that reason.
+
+**Payments** (decided 12 Nov 2026): **not yet**. Checkout on staging says
+payments are switched off, rather than "could not reach our payment
+provider", and makes no checkout record. The seed puts a test account on the
+top plan instead. Adding Paystack's test key to the preview environment later
+turns checkout on with no code change.
+
+**Migrations on previews, guarded by the database** (`migrationModeFor`):
+
+- A preview build now applies pending migrations, so a PR is tried with its
+  own schema. It does so only if the database it reaches is marked staging:
+  a database-level setting, `qr.environment = 'staging'`, set by
+  `npm run staging -- mark`. A preview pointed at production by mistake
+  finds no mark there and only reports, exactly as before. The mark lives in
+  the database, not in Vercel's settings, so no settings mistake can make
+  production writable from a preview.
+- The mark survives a reset, and is never copied into production, which is
+  the staging branch's parent, not its child.
+- Staging gathers every PR's migrations, merged or not. When it drifts (a
+  preview fails on an edited migration, say), `npm run staging -- reset`
+  rebuilds it from `db/migrations`.
+
+**Tooling** (`scripts/staging.ts`, `npm run staging`):
+
+- `status`, `mark`, `reset --yes`, and `seed --email`.
+- Every command reads `.env.staging` and refuses it if it reaches the same
+  database as `.env.local`. Neon's pooled and direct URLs of one branch count
+  as the same, by compute endpoint (`src/lib/staging.ts`).
+- `reset` and `seed` also refuse a database that is not marked.
+- `reset` drops and rebuilds `public`, and removes people from Neon Auth's
+  tables, keeping its signing keys and configuration.
+- `seed` makes the account staff, releases its codes, puts it on the top
+  monthly plan for a year, and adds an active, a paused and a blocked code.
+
+**`npm run env:sync` changed.** It used to send `.env.local` to production
+*and* preview. Once previews are staging, that would point every preview back
+at production. It now sends `.env.local` to production only, and a staging
+file to preview with `--file .env.staging --target preview`. It refuses
+`.env.local` for preview, any other file for production, and a staging file
+that reaches the production database.
+
+**Telling it apart**: a strip on every page (`StagingBanner`) says staging
+holds test data, takes no payment and that its artwork does not scan.
+`robots.txt` disallows everything, and every response carries
+`X-Robots-Tag: noindex, nofollow`. Vercel adds that header to its own preview
+URLs but not to a custom domain like staging's. Production is unchanged,
+which a test checks. Mail, crons and error alerts were already off on
+previews (no mail key, no cron secret, alerts production only).
+
+**Artwork made on staging encodes `qriateplus.com`**, per the rule that a
+printed symbol never varies by environment, so it does not scan into
+staging. Test a scan by opening `staging.qriateplus.com/<code>`.
+
+**Still shared with production**: the UploadThing app (previews use the same
+token), until staging gets its own; see STAGING.md.
+
+Tested on a local Postgres 16, with one database standing in for production
+and another for staging:
+
+- `.env.staging` pointing at production was refused, and so were `reset`
+  before `mark`, and `.env.local` (or a production-pointing staging file)
+  sent to preview.
+- A preview build applied a new migration on marked staging. Pointed at
+  production, it only reported, and production gained nothing and stayed
+  unmarked.
+- An edited migration failed the staging preview, with the reset hint.
+- `reset` rebuilt all 37 migrations, dropped the abandoned one, kept the auth
+  signing keys and the mark.
+- `seed` refused an account that had not signed up, and one that had never
+  opened the dashboard. It then made the account staff, released its codes,
+  moved it to Business for a year and added the three codes. Seeding twice
+  left one active plan.
+
+**Not done from here**: the Neon branch, its connection strings, the Vercel
+preview values, the `staging` git branch and its domain, and the staging
+branch's Neon Auth origin and email settings. These need the Neon and Vercel
+accounts; the steps are in STAGING.md.
+
 ## Still open
 
-Reviewed 8 November 2026 against `main`.
+Reviewed 12 November 2026 against `main`.
 
 Not built yet: nothing from the plan.
 
@@ -2949,6 +3045,12 @@ Business decisions:
   onboarding funnel at `/admin/onboarding` after it ships.
 
 To set up outside the app:
+
+- Staging: the `staging` Neon branch, `.env.staging`, `npm run staging --
+  mark` and `reset`, the preview values in Vercel, the `staging` git branch
+  and `staging.qriateplus.com`, and Neon Auth's origin there. The steps are
+  in `STAGING.md`. Until then previews still run on the production database,
+  and still only report migrations, since production is not marked.
 
 - Backups: an age key pair, with the private key kept offline in two
   places, and two GitHub settings, `BACKUP_AGE_RECIPIENT` and

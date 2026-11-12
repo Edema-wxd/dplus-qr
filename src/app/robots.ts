@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { CODE_HOST, CODE_ORIGIN } from "@/lib/brand";
+import { isStagingDeploy } from "@/lib/staging";
 
 /**
  * Serves /robots.txt.
@@ -42,6 +43,8 @@ const AI_CRAWLERS = [
 ];
 
 export default function robots(): MetadataRoute.Robots {
+  // Staging is test data on a public address: no crawler, anywhere.
+  if (isStagingDeploy()) return { rules: [{ userAgent: "*", disallow: "/" }] };
   return {
     rules: [
       { userAgent: "*", allow: "/", disallow: DISALLOW },

@@ -99,7 +99,9 @@ sign-ups open to the public only after Phase 3, when abuse controls are in place
       it, so re-run the `update` there.
 - [ ] Sign-up, email verification (Resend), login, password reset, rate limits
 - [ ] Redirect host routing with a `/health` route
-- [ ] Staging app with its own database
+- [x] Staging app with its own database: previews are staging, on their own
+      empty Neon branch (12 Nov 2026, see DECISIONS.md and STAGING.md; needs
+      its Neon branch and Vercel values set up)
 
 **Done when:** a new user can sign up, verify, log in and reset a password on
 staging; `/health` returns `200`; migrations run cleanly on a fresh database.

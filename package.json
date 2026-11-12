@@ -16,7 +16,8 @@
     "codes": "tsx --env-file=.env.local scripts/show-codes.ts",
     "scans:rollup": "tsx --env-file=.env.local scripts/rollup-scans.ts",
     "plans:sync": "tsx --env-file=.env.local scripts/sync-paystack-plans.ts",
-    "design:assets": "tsx scripts/build-design-assets.ts"
+    "design:assets": "tsx scripts/build-design-assets.ts",
+    "staging": "tsx scripts/staging.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1154.0",
