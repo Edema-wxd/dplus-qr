@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { query, queryOne } from "@/lib/db";
+import { query, queryOne, withTransaction } from "@/lib/db";
 import { access, accessArgs, type AccountScope } from "@/lib/account-scope";
 import { isUploadThingUrl } from "@/lib/upload-host";
 
@@ -99,6 +99,12 @@ export async function ownsLiveLogo(scope: AccountScope, logoId: string): Promise
  * callback, which has no session. The upload middleware resolved the scope
  * and refused anyone who may not write, and the account it attached is
  * carried to here by UploadThing, signed.
+ *
+ * The cap is counted again here, under a per-account lock. The middleware's
+ * count is only a fast refusal: uploads started together all pass it before
+ * any of them is recorded, so without this a burst of parallel uploads could
+ * fill a library far past `MAX_LOGOS` (security audit L10). A file that
+ * arrives over the cap throws `LogoLimitError`, and the caller deletes it.
  */
 export async function recordLogo(
   accountId: string,
@@ -108,15 +114,43 @@ export async function recordLogo(
     throw new Error("Upload completed with a URL that is not UploadThing's");
   }
 
-  const row = await queryOne<LogoRow>(
-    `-- scope: proved by the upload middleware (see above)
-     insert into qr_logos (user_id, file_key, url, name, mime_type, size_bytes)
-     values ($1, $2, $3, $4, $5, $6)
-     on conflict (file_key) do update set file_key = excluded.file_key
-     returning id, url, name, created_at`,
-    [accountId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
-  );
-  return toLogo(row!);
+  return withTransaction(async (run) => {
+    // Transaction-scoped, so it is released at commit and safe through the
+    // pooler. Serialises one account's recordings; other accounts never wait.
+    await run("select pg_advisory_xact_lock(hashtextextended('qr_logos:' || $1, 0))", [accountId]);
+
+    const [existing] = await run<LogoRow>(
+      `-- scope: proved by the upload middleware (see above)
+       select id, url, name, created_at from qr_logos where file_key = $1 and user_id = $2`,
+      [file.key, accountId]
+    );
+    if (existing) return toLogo(existing);
+
+    const [live] = await run<{ n: string }>(
+      `-- scope: proved by the upload middleware (see above)
+       select count(*) as n from qr_logos where user_id = $1 and archived_at is null`,
+      [accountId]
+    );
+    if (Number(live.n) >= MAX_LOGOS) throw new LogoLimitError(accountId);
+
+    const [row] = await run<LogoRow>(
+      `-- scope: proved by the upload middleware (see above)
+       insert into qr_logos (user_id, file_key, url, name, mime_type, size_bytes)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict (file_key) do update set file_key = excluded.file_key
+       returning id, url, name, created_at`,
+      [accountId, file.key, file.url, file.name.slice(0, 200), file.type, file.size]
+    );
+    return toLogo(row);
+  });
+}
+
+/** A logo upload that finished after the library was already full. */
+export class LogoLimitError extends Error {
+  constructor(accountId: string) {
+    super(`logo library full for account ${accountId}`);
+    this.name = "LogoLimitError";
+  }
 }
 
 /**

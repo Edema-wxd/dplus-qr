@@ -2790,6 +2790,56 @@ was a check in the wrong place or missing, not a design change.
 Not in this change: L4 (Web Risk quota, dormant until the key is set), L10
 (logo-cap race, document and zip limits) and L12 (dependencies).
 
+## Costly reads get ceilings, and payments must cover the plan, 12 November 2026
+
+From the security audit of 10 November: L10, and what was left of M1 after
+the subscription-scope change of 10 November.
+
+- **The logo cap is counted under a lock.** The upload middleware's count is
+  a fast refusal, but uploads started together all passed it before any was
+  recorded. `recordLogo` now takes a per-account advisory lock, counts again,
+  and throws `LogoLimitError` over `MAX_LOGOS`. The completion callback
+  already deletes a file it could not record. Same pattern as `recordFile`.
+- **A hosted PDF is cached at Vercel's edge, at an address per file
+  version.**
+  - `/p/{code}/document` streamed up to 16MB from UploadThing on every hit.
+  - It now answers with a redirect to `?v=<digest of the file URL>`, plus
+    `&download` when asked, and only that exact query string serves the file.
+  - That response carries `Vercel-CDN-Cache-Control: public, max-age=60`, so
+    a busy menu costs about one fetch a minute per region, not one per scan.
+  - Anything else, a stale version or an extra parameter added to dodge the
+    cache, gets the redirect, which fetches nothing.
+  - Browsers still get `no-store`. A pause or block reaches readers within
+    about a minute, the same window the redirect's destination cache
+    allows. Replacing the file changes the address, so no reader sees the
+    old one after that.
+  - The digest, rather than the UploadThing key, keeps the file's real
+    location out of the address.
+  - Fetches that reach the server are limited to 120 per visitor per 10
+    minutes. It is generous because a restaurant's guests share one address
+    on its Wi-Fi.
+  - Whether the CDN caches a response near the 16MB upload ceiling is not
+    documented; the visitor limit covers that case.
+- **Batch zips: 20 an hour per account.** Each renders up to 500 codes for
+  up to a minute, so it was a CPU sink for a script. An owner downloads a
+  batch a few times.
+- Both new limits count in Redis, and fall back to a per-instance count
+  rather than allowing everything (`costLimiter` in `ratelimit.ts`).
+- **A renewal must pay for its plan (M1).** `charge.success` for less than
+  the plan's `amount_kobo`, in a currency other than NGN, or with no amount
+  is deferred for staff instead of extending the subscription
+  (`chargeShortfall`). More than the price passes, since a customer who
+  bears Paystack's fee pays slightly over.
+- **`metadata.user_id` must be an account id.** Anyone paying through
+  Paystack Inline can set it. A malformed one used to make the query throw,
+  so the event failed on every re-delivery. It is now skipped, and the email
+  is used as for an event with no metadata.
+- **The customer code is set once.** Any processed event used to overwrite
+  `qr_users.paystack_customer_code`. Now it is written only while empty, or
+  from a checkout the account started here. An event that names the account
+  through forged metadata or its email cannot re-point it at someone else's
+  Paystack customer. Staff correct a genuinely changed one by hand.
+
 ## Signing out ends every session, at once, 11 November 2026
 
 The sign-out button used to end only the session on the device that pressed

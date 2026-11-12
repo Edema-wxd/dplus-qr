@@ -6,6 +6,7 @@ import { zipEntryName } from "@/lib/bulk-import";
 import { batchCsv } from "@/lib/csv-export";
 import { loadLogo } from "@/lib/logos";
 import { renderArtwork, type LogoCache } from "@/lib/qr-artwork";
+import { allowZipDownload } from "@/lib/ratelimit";
 
 /**
  * Every code in one batch as a zip: each code's artwork at 1024px, SVG or
@@ -44,6 +45,15 @@ export async function GET(
   if (!batch) return new Response("Not found", { status: 404 });
   if (!canBulkCreate(entitlement)) {
     return new Response("Downloading a batch as a zip is not part of your plan.", { status: 403 });
+  }
+  // Each download renders the whole batch, so the account gets a ceiling
+  // (audit L10). Checked after the batch and plan, so a refused request
+  // spends nothing.
+  if (!(await allowZipDownload(scope.accountId))) {
+    return new Response(
+      "That is a lot of downloads for one hour. Please try again a little later.",
+      { status: 429, headers: { "Cache-Control": "no-store", "Retry-After": "600" } }
+    );
   }
 
   const format = new URL(request.url).searchParams.get("format") === "png" ? "png" : "svg";

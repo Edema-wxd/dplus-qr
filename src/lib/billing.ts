@@ -65,9 +65,14 @@ const CLAIM_LEASE = "2 minutes";
  * The customer code is recorded on the way past, so a later invoice that
  * carries only that can still find its account.
  */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function resolveUserId(event: PaystackEvent): Promise<string | null> {
   const fromMetadata = event.data?.metadata?.user_id;
-  if (fromMetadata) {
+  // Anyone paying through Paystack Inline can put anything here. A value that
+  // is not an account id is skipped rather than queried: Postgres throws on a
+  // malformed uuid, and the event would fail on every re-delivery (audit M1).
+  if (fromMetadata && UUID.test(fromMetadata)) {
     const row = await queryOne<{ id: string }>(
       "select id from qr_users where id = $1",
       [fromMetadata]
@@ -554,14 +559,19 @@ async function processClaimed(eventId: string, key: string, event: PaystackEvent
     }
 
     // Remember the customer code the first time we see it, so a later event
-    // carrying only that can still be matched to this account.
+    // carrying only that can still be matched to this account. Only the first
+    // time, or from a checkout this account started here: any other event can
+    // name the account through a forged `metadata.user_id` or its email, and
+    // must not re-point the account at someone else's Paystack customer
+    // (audit M1).
     const customerCode = event.data?.customer?.customer_code;
     if (customerCode) {
       await run(
         `update qr_users
            set paystack_customer_code = $2, updated_at = now()
-         where id = $1 and paystack_customer_code is distinct from $2`,
-        [userId, customerCode]
+         where id = $1 and paystack_customer_code is distinct from $2
+           and (paystack_customer_code is null or $3)`,
+        [userId, customerCode, intentId !== null]
       );
     }
 
