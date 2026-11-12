@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
 import { env } from "@/lib/env";
+import { redis } from "@/lib/redis";
+import { alertOnce } from "@/lib/error-alerts";
+import { allowScreeningLookups } from "@/lib/ratelimit";
 
 /**
  * Whether a link is on Google's lists of unsafe sites, through the Web Risk
@@ -18,6 +22,13 @@ import { env } from "@/lib/env";
  *   and the weekly re-check catches what slipped past (decided 8 Nov 2026);
  * - the weekly re-check blocks a live code whose destination has since been
  *   flagged (`src/lib/reputation-sweep.ts`).
+ *
+ * Lookups are budgeted (security audit L4, 12 Nov 2026): saves go through
+ * `checkLinks` / `verdictsFor`, which reuse a verdict from the last day and
+ * spend the account's daily allowance (`allowScreeningLookups`) only on links
+ * Google has not been asked about. A spent allowance refuses the save rather
+ * than skipping the check. Google refusing lookups (quota, a bad key) emails
+ * staff, because every save is then going through unscreened.
  *
  * Kept apart from `screening.ts`, which the page editor also runs in the
  * browser: this module holds the API key and must stay on the server. Never
@@ -46,10 +57,43 @@ function isThreat(value: unknown): value is ThreatType {
   return (THREAT_TYPES as readonly unknown[]).includes(value);
 }
 
-export async function reputationOf(url: string): Promise<Reputation> {
-  const key = env().WEB_RISK_API_KEY;
-  if (!key) return UNAVAILABLE;
+/** Statuses that mean Google is refusing every lookup, not just this one. */
+const REFUSING: Record<number, string> = {
+  429: "the lookup quota is used up",
+  401: "the API key was rejected",
+  403: "the API key was refused (revoked, restricted, or billing is off)",
+};
 
+/** Instances alert at most once an hour each; `alertOnce` dedupes across them. */
+const alerted = new Map<number, number>();
+
+async function alertRefusing(status: number): Promise<void> {
+  const now = Date.now();
+  if ((alerted.get(status) ?? 0) > now - 60 * 60 * 1000) return;
+  alerted.set(status, now);
+  await alertOnce(
+    `web-risk:${status}`,
+    `Web Risk is refusing lookups (${status})`,
+    [
+      `Google Web Risk answered ${status}: ${REFUSING[status]}.`,
+      "",
+      "Until it is fixed, links saved by customers are not checked against",
+      "Google's lists of unsafe sites: saves go through, as decided on",
+      "8 Nov 2026, and only the weekly re-check will catch what slipped past.",
+      "",
+      "Check the Web Risk API's quota and key in the Google Cloud console.",
+    ].join("\n")
+  );
+}
+
+/** Exported for tests. */
+export function resetRefusalAlerts(): void {
+  alerted.clear();
+}
+
+type Lookup = Reputation & { refusing?: boolean };
+
+async function lookUp(url: string, key: string): Promise<Lookup> {
   const query = new URLSearchParams({ uri: url, key });
   for (const type of THREAT_TYPES) query.append("threatTypes", type);
 
@@ -61,6 +105,10 @@ export async function reputationOf(url: string): Promise<Reputation> {
     if (!response.ok) {
       // The status only: the request URL carries the key.
       console.error("[reputation] Web Risk answered", response.status);
+      if (response.status in REFUSING) {
+        await alertRefusing(response.status);
+        return { ...UNAVAILABLE, refusing: true };
+      }
       return UNAVAILABLE;
     }
     // A clean link is an empty object; a listed one has `threat.threatTypes`.
@@ -71,6 +119,74 @@ export async function reputationOf(url: string): Promise<Reputation> {
     console.error("[reputation] Web Risk lookup failed", error instanceof Error ? error.name : "unknown");
     return UNAVAILABLE;
   }
+}
+
+/** One link, asked of Google now: no cache and no budget. */
+export async function reputationOf(url: string): Promise<Reputation> {
+  const key = env().WEB_RISK_API_KEY;
+  if (!key) return UNAVAILABLE;
+  const { verdict, threats } = await lookUp(url, key);
+  return { verdict, threats };
+}
+
+// ---------------------------------------------------------------------------
+// The verdict cache.
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a verdict is reused: a day. A link listed since is still caught by
+ * the weekly re-check, which always asks Google afresh; a link delisted since
+ * waits a day to be accepted, which is the cheaper mistake.
+ */
+export const VERDICT_TTL_SECONDS = 24 * 60 * 60;
+
+/** Hashed, so no customer's link is stored in Redis, and the key stays short. */
+function cacheKey(url: string): string {
+  return `wr:v1:${createHash("sha256").update(url).digest("hex").slice(0, 32)}`;
+}
+
+/** A stored verdict, or null for anything that is not one. */
+function readVerdict(value: unknown): Reputation | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as { v?: unknown; t?: unknown };
+  if (record.v === "clean") return { verdict: "clean", threats: [] };
+  if (record.v === "flagged" && Array.isArray(record.t)) {
+    const threats = record.t.filter(isThreat);
+    if (threats.length > 0) return { verdict: "flagged", threats };
+  }
+  return null;
+}
+
+/** Cached verdicts for these links. Any Redis failure is an empty cache. */
+async function cachedVerdicts(urls: string[]): Promise<Map<string, Reputation>> {
+  const found = new Map<string, Reputation>();
+  const client = redis();
+  if (!client || urls.length === 0) return found;
+  try {
+    const values = await client.mget<unknown[]>(...urls.map(cacheKey));
+    urls.forEach((url, i) => {
+      const verdict = readVerdict(values[i]);
+      if (verdict) found.set(url, verdict);
+    });
+  } catch (error) {
+    console.error("[reputation] verdict cache unreadable", error instanceof Error ? error.name : "unknown");
+  }
+  return found;
+}
+
+/** Keep Google's answers. `unavailable` is never kept: it says nothing about the link. */
+async function cacheVerdicts(results: Map<string, Reputation>): Promise<void> {
+  const client = redis();
+  if (!client) return;
+  const writes = [...results]
+    .filter(([, r]) => r.verdict !== "unavailable")
+    .map(([url, r]) =>
+      client.set(cacheKey(url), r.verdict === "flagged" ? { v: "flagged", t: r.threats } : { v: "clean" }, {
+        ex: VERDICT_TTL_SECONDS,
+      })
+    );
+  const settled = await Promise.allSettled(writes);
+  if (settled.some((s) => s.status === "rejected")) console.error("[reputation] verdict cache not written");
 }
 
 /** The verdict alone, for the staff re-screen button. */
@@ -128,38 +244,88 @@ export function pageLinks(content: unknown, into: Set<string> = new Set()): Set<
   return into;
 }
 
-/**
- * Check several links, a few at a time, and return the first one flagged, if
- * any. Duplicates are looked up once. `unavailable` answers are not refusals.
- */
-export async function firstFlagged(
-  urls: Iterable<string>,
-  concurrency = 8
-): Promise<{ url: string; threats: ThreatType[] } | null> {
-  const results = await reputationOfMany(urls, concurrency);
-  for (const [url, result] of results) {
-    if (result.verdict === "flagged") return { url, threats: result.threats };
+/** Ask Google about each link, a few at a time. Stops asking once Google refuses. */
+async function lookUpMany(urls: string[], key: string, concurrency: number): Promise<Map<string, Reputation>> {
+  const results = new Map<string, Reputation>();
+  let next = 0;
+  let refusing = false;
+  async function worker() {
+    while (next < urls.length) {
+      const url = urls[next++];
+      if (refusing) {
+        results.set(url, UNAVAILABLE);
+        continue;
+      }
+      const { verdict, threats, refusing: refused } = await lookUp(url, key);
+      if (refused) refusing = true;
+      results.set(url, { verdict, threats });
+    }
   }
-  return null;
+  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+  return results;
 }
 
+/**
+ * Every link asked of Google afresh, with no budget, keeping the answers for
+ * saves to reuse. For the weekly re-check, which must not trust a day-old
+ * clean verdict and is bounded by the codes that exist.
+ */
 export async function reputationOfMany(
   urls: Iterable<string>,
   concurrency = 8
 ): Promise<Map<string, Reputation>> {
   const queue = [...new Set(urls)];
-  const results = new Map<string, Reputation>();
-  if (!reputationConfigured()) {
-    for (const url of queue) results.set(url, UNAVAILABLE);
-    return results;
-  }
-  let next = 0;
-  async function worker() {
-    while (next < queue.length) {
-      const url = queue[next++];
-      results.set(url, await reputationOf(url));
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
+  const key = env().WEB_RISK_API_KEY;
+  if (!key) return new Map(queue.map((url) => [url, UNAVAILABLE]));
+  const results = await lookUpMany(queue, key, concurrency);
+  await cacheVerdicts(results);
   return results;
+}
+
+/**
+ * Verdicts for links an account is saving: from the cache where Google was
+ * asked in the last day, and otherwise from Google, spending the account's
+ * daily allowance for each link it is asked about. Null when the allowance
+ * cannot cover them, which the caller refuses with `LOOKUPS_SPENT`: skipping
+ * the check instead would let anyone who spends the allowance on purpose
+ * save an unscreened link next (audit L4).
+ */
+export async function verdictsFor(
+  urls: Iterable<string>,
+  accountId: string,
+  concurrency = 8
+): Promise<Map<string, Reputation> | null> {
+  const queue = [...new Set(urls)];
+  const key = env().WEB_RISK_API_KEY;
+  if (!key) return new Map(queue.map((url) => [url, UNAVAILABLE]));
+
+  const results = await cachedVerdicts(queue);
+  const misses = queue.filter((url) => !results.has(url));
+  if (misses.length === 0) return results;
+  if (!(await allowScreeningLookups(accountId, misses.length))) return null;
+
+  const fresh = await lookUpMany(misses, key, concurrency);
+  await cacheVerdicts(fresh);
+  for (const [url, result] of fresh) results.set(url, result);
+  return results;
+}
+
+/** What a save refused for a spent lookup allowance says. */
+export const LOOKUPS_SPENT =
+  "We could not check those links against Google's list of unsafe sites: this account has checked a great many new links today. Please try again tomorrow.";
+
+export type LinkCheck = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Screen the links a save is about to store. Refuses a flagged link, with a
+ * sentence saying why, and a save the account's allowance cannot cover.
+ * `unavailable` answers are not refusals (decided 8 Nov 2026).
+ */
+export async function checkLinks(urls: Iterable<string>, accountId: string): Promise<LinkCheck> {
+  const results = await verdictsFor(urls, accountId);
+  if (!results) return { ok: false, reason: LOOKUPS_SPENT };
+  for (const [url, result] of results) {
+    if (result.verdict === "flagged") return { ok: false, reason: flaggedReason(url, result.threats) };
+  }
+  return { ok: true };
 }

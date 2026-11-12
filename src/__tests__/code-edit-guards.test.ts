@@ -7,8 +7,7 @@ jest.mock("@/lib/db", () => ({
 }));
 jest.mock("@/lib/codes", () => ({ purgeDestination: jest.fn() }));
 jest.mock("@/lib/reputation", () => ({
-  firstFlagged: jest.fn().mockResolvedValue(null),
-  flaggedReason: jest.fn(),
+  checkLinks: jest.fn().mockResolvedValue({ ok: true }),
   pageLinks: jest.fn().mockReturnValue([]),
 }));
 

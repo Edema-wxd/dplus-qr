@@ -79,7 +79,8 @@ export function memoryAllow(
   key: string,
   limit: number,
   windowMs: number,
-  now: number = Date.now()
+  now: number = Date.now(),
+  weight = 1
 ): boolean {
   let counts = memory.get(name);
   if (!counts) {
@@ -87,8 +88,8 @@ export function memoryAllow(
     memory.set(name, counts);
   }
   const recent = (counts.get(key) ?? []).filter((at) => now - at < windowMs);
-  const allowed = recent.length < limit;
-  if (allowed) recent.push(now);
+  const allowed = recent.length + weight <= limit;
+  if (allowed) for (let i = 0; i < weight; i += 1) recent.push(now);
   counts.delete(key);
   counts.set(key, recent);
   if (counts.size > MEMORY_KEYS) counts.delete(counts.keys().next().value!);
@@ -417,7 +418,8 @@ export async function authBudgetLeft(kind: AuthLimit, key: string | null): Promi
  */
 function costLimiter(prefix: string, limit: number, minutes: number) {
   let rl: Ratelimit | null | undefined;
-  return async function allow(key: string | null): Promise<boolean> {
+  /** Spend `rate` units of the budget at once; refused whole, never in part. */
+  return async function allow(key: string | null, rate = 1): Promise<boolean> {
     const subject = key ?? NO_ADDRESS;
     if (rl === undefined) {
       const client = redis();
@@ -430,12 +432,12 @@ function costLimiter(prefix: string, limit: number, minutes: number) {
           })
         : null;
     }
-    if (!rl) return memoryAllow(prefix, subject, limit, minutes * 60_000);
+    if (!rl) return memoryAllow(prefix, subject, limit, minutes * 60_000, Date.now(), rate);
     try {
-      return (await rl.limit(subject)).success;
+      return (await rl.limit(subject, { rate })).success;
     } catch (error) {
       console.error(`[ratelimit] ${prefix} check failed`, error);
-      return memoryAllow(prefix, subject, limit, minutes * 60_000);
+      return memoryAllow(prefix, subject, limit, minutes * 60_000, Date.now(), rate);
     }
   };
 }
@@ -460,3 +462,21 @@ export const allowDocumentFetch = costLimiter("document", 120, 10);
  * sink.
  */
 export const allowZipDownload = costLimiter("zip", 20, 60);
+
+/**
+ * Web Risk lookups per account: 2,500 a day, counted per link actually sent
+ * to Google (a verdict cached in the last day costs nothing).
+ *
+ * Google's free allowance is 100,000 lookups a month for the whole service,
+ * and past it lookups are refused or billed. Without a ceiling one account
+ * could spend it in an afternoon by re-checking 500-row batches of new links,
+ * and a refused lookup lets a save through unscreened (audit L4). So when an
+ * account's budget is spent its saves wait rather than skipping the check.
+ *
+ * 2,500 is five full bulk batches of links never seen before; the create
+ * step re-reads the check step's verdicts from the cache, so a batch costs
+ * once. Counted in this instance's memory when Redis is unreachable, like
+ * the other costly reads.
+ */
+export const SCREENING_LOOKUPS_PER_DAY = 2500;
+export const allowScreeningLookups = costLimiter("screening", SCREENING_LOOKUPS_PER_DAY, 24 * 60);
