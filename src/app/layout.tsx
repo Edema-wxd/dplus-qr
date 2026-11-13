@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { FlashToast } from "@/components/FlashToast";
+import { StagingBanner } from "@/components/StagingBanner";
 import { sarlotte, raleway } from "@/lib/fonts";
 import { PRODUCT_NAME } from "@/lib/brand";
 import "./globals.css";
@@ -20,6 +21,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${sarlotte.variable} ${raleway.variable}`}>
       <body>
+        <StagingBanner />
         {children}
         <Toaster />
         {/* usePathname suspends under a dynamic segment with Cache Components. */}

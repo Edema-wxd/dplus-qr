@@ -70,7 +70,7 @@ describe("the security headers (audit M6)", () => {
 
   it("is what next.config serves on every path", () => {
     const config = readFileSync(path.join(__dirname, "..", "..", "next.config.ts"), "utf8");
-    expect(config).toMatch(/source: "\/:path\*",\s*headers: securityHeaders\(/);
+    expect(config).toMatch(/source: "\/:path\*",\s*headers: \[\s*\.\.\.securityHeaders\(/);
   });
 
   it("serves the report endpoint from a reserved path, so no code can shadow it", () => {

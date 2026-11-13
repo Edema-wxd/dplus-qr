@@ -5,8 +5,11 @@ describe("migrationModeFor", () => {
     expect(migrationModeFor({ VERCEL: "1", VERCEL_ENV: "production" })).toBe("apply");
   });
 
-  it("only checks on a preview build, which shares the production database", () => {
-    expect(migrationModeFor({ VERCEL: "1", VERCEL_ENV: "preview" })).toBe("check");
+  it("applies on a preview build only if the database is marked staging", () => {
+    expect(migrationModeFor({ VERCEL: "1", VERCEL_ENV: "preview" })).toBe("staging");
+  });
+
+  it("only checks on a development build", () => {
     expect(migrationModeFor({ VERCEL: "1", VERCEL_ENV: "development" })).toBe("check");
   });
 

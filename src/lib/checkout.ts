@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { seatRefusal, seatsHeldSql } from "@/lib/seats";
 import { getPlanBySlug, type Plan } from "@/lib/plans";
 import { disableSubscription, initializeTransaction } from "@/lib/paystack";
+import { isStagingDeploy } from "@/lib/staging";
 
 /**
  * Starting a checkout.
@@ -73,6 +74,15 @@ export async function startCheckout(input: {
 }): Promise<CheckoutStart | CheckoutRefusal> {
   const plan = await getPlanBySlug(input.planSlug);
   if (!plan) return { ok: false, reason: "That plan does not exist." };
+
+  // Staging takes no payments yet (decided 12 Nov 2026): say so, rather than
+  // the "could not reach our payment provider" a missing key would produce.
+  if (isStagingDeploy() && !env().PAYSTACK_SECRET_KEY) {
+    return {
+      ok: false,
+      reason: "Payments are switched off on staging. Staff can put a test account on a plan with `npm run staging -- seed`.",
+    };
+  }
 
   // Read the email from our own row rather than the form: a form value would
   // let someone start a checkout against another account's address.

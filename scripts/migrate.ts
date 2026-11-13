@@ -5,8 +5,9 @@
  *   npm run db:migrate:status   report only, change nothing
  *   tsx scripts/migrate.ts --deploy
  *                               what `npm run build` runs first: applies on a
- *                               Vercel production build, reports on a preview,
- *                               does nothing locally (src/lib/migration-mode.ts)
+ *                               Vercel production build, applies on a preview
+ *                               only if its database is marked staging, does
+ *                               nothing locally (src/lib/migration-mode.ts)
  *
  * Applies each file inside a transaction and records it in `schema_migrations`
  * with a checksum. If a file that has already run has since changed, the runner
@@ -17,7 +18,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { Pool } from "pg";
-import { migrationModeFor } from "../src/lib/migration-mode";
+import { migrationModeFor, STAGING_SETTING, STAGING_VALUE } from "../src/lib/migration-mode";
 import { pinSslMode } from "../src/lib/db-url";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "db", "migrations");
@@ -68,6 +69,13 @@ const LOCK_KEY = 72_042_713;
  */
 const LOCK_TIMEOUT = "5s";
 
+/**
+ * True once this run has decided to write. A failure after that fails the
+ * build; a failure before it, on a build that was only ever going to report
+ * or that could not reach its database, is a warning.
+ */
+let writing = false;
+
 async function main(): Promise<void> {
   const deploy = process.argv.includes("--deploy");
   const mode = deploy ? migrationModeFor(process.env) : null;
@@ -77,12 +85,15 @@ async function main(): Promise<void> {
     return;
   }
 
-  const statusOnly = process.argv.includes("--status") || mode === "check";
-  if (mode === "check") {
+  let statusOnly = process.argv.includes("--status") || mode === "check";
+  if (mode === "staging") {
+    console.log(
+      "[migrate] preview build: applying pending migrations only if this database is marked staging."
+    );
+  } else if (mode === "check") {
     console.log(
       `[migrate] ${process.env.VERCEL_ENV ?? "unknown"} build: reporting only. ` +
-        "Migrations are applied by production deploys, never by previews, " +
-        "because previews share the production database."
+        "Migrations are applied by production deploys, and by previews on the staging database."
     );
   } else if (mode === "apply") {
     console.log("[migrate] production build: applying pending migrations before next build.");
@@ -96,7 +107,7 @@ async function main(): Promise<void> {
     process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
 
   if (!connectionString) {
-    if (mode === "check") {
+    if (mode === "check" || mode === "staging") {
       console.warn("[migrate] no database connection configured; nothing to report.");
       return;
     }
@@ -109,7 +120,7 @@ async function main(): Promise<void> {
   }
 
   if (!process.env.DATABASE_URL_UNPOOLED && connectionString.includes("-pooler")) {
-    if (mode === "check") {
+    if (mode === "check" || mode === "staging") {
       console.warn("[migrate] only a pooled connection is configured; nothing to report.");
       return;
     }
@@ -128,6 +139,26 @@ async function main(): Promise<void> {
 
   try {
     await lock.query("select pg_advisory_lock($1)", [LOCK_KEY]);
+
+    // A preview writes only to a database that says it is staging. The mark
+    // lives on the database, not in the deploy's settings, so a preview
+    // pointed at production by mistake finds none and only reports.
+    if (mode === "staging") {
+      const { rows: marked } = await pool.query<{ value: string | null }>(
+        "select current_setting($1, true) as value",
+        [STAGING_SETTING]
+      );
+      if (marked[0]?.value === STAGING_VALUE) {
+        console.log("[migrate] the database is marked staging: applying.");
+      } else {
+        statusOnly = true;
+        console.log(
+          "[migrate] the database is not marked staging: reporting only. " +
+            "See docs/qr-platform/STAGING.md if previews should be on staging."
+        );
+      }
+    }
+    writing = !statusOnly;
 
     // Reporting writes nothing, not even the bookkeeping table: a preview
     // that only checks must leave the database exactly as it found it.
@@ -159,7 +190,11 @@ async function main(): Promise<void> {
       console.error("These applied migrations have been edited since they ran:");
       for (const m of drifted) console.error(`  ${m.file}`);
       console.error(
-        "\nMigrations are append-only. Revert the edit and add a new migration instead."
+        "\nMigrations are append-only. Revert the edit and add a new migration instead." +
+          (mode === "staging"
+            ? "\nOn staging, a migration edited after a preview applied it is expected while a PR" +
+              " is in progress: rebuild staging with `npm run staging -- reset`."
+            : "")
       );
       process.exit(1);
     }
@@ -171,7 +206,7 @@ async function main(): Promise<void> {
       for (const m of migrations) {
         console.log(`  ${applied.has(m.version) ? "✓" : "·"} ${m.file}`);
       }
-      if (mode === "check" && pending.length > 0) {
+      if ((mode === "check" || mode === "staging") && pending.length > 0) {
         console.log(
           `\n[migrate] warning: ${pending.length} migration(s) pending. This preview may fail ` +
             "wherever it reads them; they apply when this change deploys to production."
@@ -220,7 +255,8 @@ main().catch((error) => {
   // A preview only reports, so a database it cannot reach is a warning, not a
   // failed build. (An edited migration still fails it, above: that is a real
   // problem in the change being previewed.)
-  if (process.argv.includes("--deploy") && migrationModeFor(process.env) === "check") {
+  const mode = process.argv.includes("--deploy") ? migrationModeFor(process.env) : null;
+  if ((mode === "check" || mode === "staging") && !writing) {
     console.warn("\n[migrate] could not check pending migrations:", message);
     process.exit(0);
   }

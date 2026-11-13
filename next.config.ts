@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { UPLOADTHING_APP_HOST } from "./src/lib/upload-host";
 import { securityHeaders } from "./src/lib/csp";
+import { isStagingDeploy } from "./src/lib/staging";
 
 const nextConfig: NextConfig = {
   // Dev only. Needed to open the app from a phone on the same network, which
@@ -35,10 +36,15 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/:path*",
-        headers: securityHeaders({
-          dev: process.env.NODE_ENV === "development",
-          preview: process.env.VERCEL_ENV === "preview",
-        }),
+        headers: [
+          ...securityHeaders({
+            dev: process.env.NODE_ENV === "development",
+            preview: isStagingDeploy(),
+          }),
+          // Staging (every preview) is never indexed. Vercel adds this to its
+          // own preview URLs, but not to a custom domain like staging's.
+          ...(isStagingDeploy() ? [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] : []),
+        ],
       },
     ];
   },

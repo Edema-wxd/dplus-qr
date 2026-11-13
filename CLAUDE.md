@@ -271,9 +271,10 @@ to `main` deploys. Env vars are set in the project (production and preview).
   ahead of its schema: on 27 Oct 2026 migration 017 was merged but not run, the
   redirect's one query named its new column, and every scan fell to the
   unavailable page. A failed migration fails the build, and the previous
-  deploy keeps serving. Preview builds **only report**, because previews share
-  the production database and must never apply an unmerged PR's schema.
-  Locally the step does nothing. It needs `DATABASE_URL_UNPOOLED` in the
+  deploy keeps serving. **Preview builds apply only to a database marked
+  staging** (`qr.environment = 'staging'`, set by `npm run staging -- mark`),
+  and otherwise only report, so a preview pointed at production can never
+  push an unmerged PR's schema into it. Locally the step does nothing. It needs `DATABASE_URL_UNPOOLED` in the
   Vercel project's Production environment (`npm run env:sync`). Each
   migration runs with a 5s `lock_timeout`: an `alter table qr_codes` that
   cannot get its lock fails the deploy rather than queueing every scan behind
@@ -284,6 +285,12 @@ to `main` deploys. Env vars are set in the project (production and preview).
   not, so the stored value kept its quotes and `pg` resolved the host as
   `base`, reporting `ENOTFOUND base`. Strip surrounding quotes before handing a
   value to another tool.
+- **Previews are staging** (`docs/qr-platform/STAGING.md`): Vercel's Preview
+  environment holds the staging Neon branch's values, never production's.
+  `npm run env:sync` sends `.env.local` to production only; staging goes with
+  `npm run env:sync -- --file .env.staging --target preview`, and both refuse
+  a file that would cross the two. `npm run staging -- status | mark | reset
+  | seed` looks after the staging database, and refuses production.
 - **Geolocation is free here.** `src/lib/geo.ts` reads `x-vercel-ip-country`,
   which Vercel populates, so scans record a country with no MaxMind licence and
   no 60MB database at startup. On a host that does not supply it the field goes
@@ -388,5 +395,8 @@ Live at `qriateplus.com`. Built, and described date by date in DECISIONS.md:
 - Backups: a nightly GitHub Actions job dumps, restore-tests and encrypts the
   database (`.github/workflows/backup.yml`, `scripts/backup/`), and the app
   alerts when they stop. Setup and restoring: `docs/qr-platform/RESTORE.md`.
+- Staging: every preview, and `staging.qriateplus.com`, on its own empty Neon
+  branch, with migrations applied there and no payments yet. Setup and use:
+  `docs/qr-platform/STAGING.md`.
 
 What is still open is listed at the end of DECISIONS.md.
