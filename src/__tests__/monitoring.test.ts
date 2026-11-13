@@ -216,6 +216,7 @@ describe("the weekly summary", () => {
     attention: { openReports: 1, overdueAccounts: 1, unappliedPayments: 0, unpurchasablePlans: 0, signInsToRemove: 0, finalWarningsDue: 0 },
     errors: 5,
     backups: "Backups are working: last good backup 9 Nov, 01:21 UTC, 2.4 MB, 27 tables restored and checked.",
+    csp: { total: 0, top: [] },
     ...over,
   });
 
@@ -264,6 +265,19 @@ describe("the weekly summary", () => {
     expect(text).toContain("The Google Web Risk safety check is off: WEB_RISK_API_KEY is not set.");
     expect(text).toContain("Server errors were not counted: Redis is not configured.");
     expect(text).toContain("Nothing. No open reports, nobody overdue, every payment applied.");
+  });
+
+  it("reports the browser policy's week, and says when it looks ready to enforce (audit M6)", () => {
+    expect(summaryEmail(figures(), "https://qriateplus.com/admin").text).toContain(
+      "Browser policy (report-only): no violations reported. If this holds, it can be enforced."
+    );
+    const { text } = summaryEmail(
+      figures({ csp: { total: 41, top: [{ kind: "connect-src https://x.example on /app", count: 40 }, { kind: "frame-src https://y.example on /p", count: 1 }] } }),
+      "https://qriateplus.com/admin"
+    );
+    expect(text).toContain("Browser policy (report-only): 41 violations reported. Most common:");
+    expect(text).toContain("      40  connect-src https://x.example on /app");
+    expect(summaryEmail(figures({ csp: null }), "x").text).toContain("Browser policy reports were not counted");
   });
 
   it("is scheduled on Monday after the rollup and the safety check", () => {

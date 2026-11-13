@@ -480,3 +480,12 @@ export const allowZipDownload = costLimiter("zip", 20, 60);
  */
 export const SCREENING_LOOKUPS_PER_DAY = 2500;
 export const allowScreeningLookups = costLimiter("screening", SCREENING_LOOKUPS_PER_DAY, 24 * 60);
+
+/**
+ * Content Security Policy reports per visitor: 30 in 10 minutes.
+ *
+ * The report endpoint takes no session (browsers post to it on their own),
+ * so this is what stops a script filling the counts with invented
+ * violations. A real browser sends a handful per page at most.
+ */
+export const allowCspReport = costLimiter("csp", 30, 10);
