@@ -323,6 +323,10 @@ Android phone and one iPhone, at small size (2 cm) and from a distance.
 | --- | --- | --- | --- |
 | Local | Neon branch or local Postgres | Test keys | Building and unit tests |
 | Staging | Separate Neon database | Test keys, test webhook URL | Checking each release |
+
+*Built 12 November 2026 as recorded in DECISIONS.md: staging is Vercel's
+Preview environment on its own empty Neon branch, at
+`staging.qriateplus.com`, with no payments yet. See STAGING.md.*
 | Production | Production Neon database | Live keys | Clients |
 
 **Release checklist**

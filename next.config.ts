@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { UPLOADTHING_APP_HOST } from "./src/lib/upload-host";
+import { isStagingDeploy } from "./src/lib/staging";
 
 const nextConfig: NextConfig = {
   // Dev only. Needed to open the app from a phone on the same network, which
@@ -41,6 +42,9 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          // Staging (every preview) is never indexed. Vercel adds this to its
+          // own preview URLs, but not to a custom domain like staging's.
+          ...(isStagingDeploy() ? [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] : []),
         ],
       },
     ];
