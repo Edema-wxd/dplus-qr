@@ -2880,6 +2880,63 @@ off for everyone, silently.
   drained allowance into refusals, and so into this alert, rather than
   into a bill.
 
+## A Content Security Policy, report-only first, and HSTS on subdomains, 13 November 2026
+
+From the security audit of 10 November: what was left of M6 after PR #60
+added framing limits, `nosniff` and `Referrer-Policy`. The headers are
+built in `src/lib/csp.ts` and served on every path from `next.config.ts`.
+
+- **An allow-list policy, not a nonce one** (chosen 13 Nov).
+  - Next 16 can put a nonce on its scripts only when a page renders per
+    request, and Partial Prerendering cannot carry one. A nonce policy
+    would have cost the static shells of the status pages, the landing
+    page and the blog, and the edge caching that goes with them.
+  - So `script-src` keeps `'unsafe-inline'`, which Next's own RSC payload
+    needs. Everything else is shut:
+    - scripts come only from this origin;
+    - `object-src 'none'`;
+    - `base-uri` and `form-action` are limited to this origin, plus
+      Paystack's checkout for the redirect after a form post;
+    - `connect-src` allows this origin, UploadThing's ingest servers and
+      our file hosts;
+    - `frame-src` allows only the two video hosts `videoEmbedUrl`
+      produces;
+    - `frame-ancestors 'self'`.
+  - Injected inline script remains React's escaping's job, and that of
+    never rendering raw HTML.
+- **Other directives:**
+  - `'wasm-unsafe-eval'` is for pdf.js's WebAssembly image decoders.
+  - `style-src 'unsafe-inline'` is for `style={…}` attributes.
+  - `img-src` allows any https image, because a hosted page or a blog
+    cover can show one unoptimised.
+  - Vercel's toolbar host is added on previews only, and `'unsafe-eval'`
+    in `next dev` only.
+- **Report-only first** (chosen 13 Nov).
+  - The policy ships as `Content-Security-Policy-Report-Only`, so a host
+    missed above costs a report, not a broken upload, PDF or video.
+  - Browsers report to `/api/csp-report` by both `report-uri` and
+    `report-to`. The endpoint takes no session, so it is limited to 30
+    reports per visitor per 10 minutes, reads at most 32KB, and always
+    answers 204.
+  - Only the shape of a violation is kept: the directive, the blocked
+    origin or keyword, and the page's first path segment. A page address
+    or blocked address can carry a token in its query string.
+  - Counts per day are kept in Redis for 16 days, capped at 200 kinds a
+    day.
+  - The Monday summary shows the week's total and the most common kinds.
+    Anyone can post a report, so the counts can include invented ones.
+- **Enforcing it** is a one-word change to the header's name in
+  `securityHeaders`, once a summary shows a clean week. The enforced
+  `frame-ancestors 'self'` from PR #60 stays as it is until then.
+- **HSTS is `max-age=63072000; includeSubDomains`, without `preload`**
+  (chosen 13 Nov).
+  - Vercel's default had no `includeSubDomains`.
+  - `mail.qriateplus.com` sends mail and serves no pages, so nothing
+    speaking plain HTTP is affected.
+  - `preload` lets anyone submit the domain to the browsers' list, and
+    getting off it takes months, so adding it stays a separate,
+    deliberate decision.
+
 ## Signing out ends every session, at once, 11 November 2026
 
 The sign-out button used to end only the session on the device that pressed
@@ -3153,6 +3210,9 @@ To set up outside the app:
   outage.
 
 Built but switched off:
+
+- The full Content Security Policy is report-only (13 November entry).
+  Enforce it once a Monday summary shows a clean week of reports.
 
 - The destination reputation check: needs a Google Cloud project with billing
   on, the Web Risk API enabled and a key restricted to it, set as

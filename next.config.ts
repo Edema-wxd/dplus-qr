@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { UPLOADTHING_APP_HOST } from "./src/lib/upload-host";
+import { securityHeaders } from "./src/lib/csp";
 import { isStagingDeploy } from "./src/lib/staging";
 
 const nextConfig: NextConfig = {
@@ -28,20 +29,18 @@ const nextConfig: NextConfig = {
     // Uploads are capped at 4MB; refuse anything far beyond that.
     maximumResponseBody: 5_000_000,
   },
-  // Baseline headers on every response. No page here is meant to be framed by
-  // another site (the hosted pages embed YouTube/Vimeo, never the reverse), so
-  // framing is limited to this origin; that stops clickjacking of dashboard
-  // and admin buttons. nosniff stops a served file being read as another type.
-  // A full CSP is a separate change: it needs nonces for the inline scripts.
+  // Security headers on every response: framing limited to this origin,
+  // nosniff, HSTS with subdomains, and the Content Security Policy, which is
+  // report-only until a clean week of reports. See src/lib/csp.ts.
   async headers() {
     return [
       {
         source: "/:path*",
         headers: [
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          ...securityHeaders({
+            dev: process.env.NODE_ENV === "development",
+            preview: isStagingDeploy(),
+          }),
           // Staging (every preview) is never indexed. Vercel adds this to its
           // own preview URLs, but not to a custom domain like staging's.
           ...(isStagingDeploy() ? [{ key: "X-Robots-Tag", value: "noindex, nofollow" }] : []),

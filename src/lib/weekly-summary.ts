@@ -8,6 +8,7 @@ import { errorsLastDays } from "@/lib/error-alerts";
 import { reputationConfigured } from "@/lib/reputation";
 import { naira } from "@/lib/plan-tiers";
 import { backupHealth, describeBackups } from "@/lib/backups";
+import { violationsLastDays, type ViolationSummary } from "@/lib/csp-reports";
 
 /**
  * The weekly summary email to staff (built 8 Nov 2026): how the last seven
@@ -43,6 +44,11 @@ export type WeeklyFigures = {
   errors: number | null;
   /** One line on the nightly backups (`describeBackups`). */
   backups: string;
+  /**
+   * Content Security Policy violations reported over the seven days, while
+   * the policy is report-only (`src/lib/csp.ts`). Null without Redis.
+   */
+  csp: ViolationSummary | null;
 };
 
 /** The seven complete UTC days before `now`'s day, and the seven before them. */
@@ -54,7 +60,7 @@ export function summaryWindow(now: Date): { from: Date; to: Date; before: Date }
 export async function weeklyFigures(now = new Date()): Promise<WeeklyFigures> {
   const { from, to, before } = summaryWindow(now);
 
-  const [row, plans, attention, errors, backups] = await Promise.all([
+  const [row, plans, attention, errors, backups, csp] = await Promise.all([
     queryOne<Record<string, string>>(
       `-- scope: staff summary, totals across every account and nothing per customer
        select
@@ -92,6 +98,7 @@ export async function weeklyFigures(now = new Date()): Promise<WeeklyFigures> {
         console.error("[summary] backup state unavailable", error);
         return "The backup log could not be read.";
       }),
+    violationsLastDays(7, new Date(to.getTime() - DAY)),
   ]);
 
   const n = (key: string) => Number(row?.[key] ?? 0);
@@ -117,7 +124,20 @@ export async function weeklyFigures(now = new Date()): Promise<WeeklyFigures> {
     attention,
     errors,
     backups,
+    csp,
   };
+}
+
+/** The report-only policy's week, and whether it looks ready to enforce. */
+export function describeCsp(csp: ViolationSummary | null): string[] {
+  if (csp === null) return ["Browser policy reports were not counted: Redis is not configured."];
+  if (csp.total === 0) {
+    return ["Browser policy (report-only): no violations reported. If this holds, it can be enforced."];
+  }
+  return [
+    `Browser policy (report-only): ${plural(csp.total, "violation", "violations")} reported. Most common:`,
+    ...csp.top.map((t) => `  ${count(t.count).padStart(6)}  ${t.kind}`),
+  ];
 }
 
 const count = (value: number) => value.toLocaleString("en-NG");
@@ -189,6 +209,7 @@ export function summaryEmail(f: WeeklyFigures, adminUrl: string): { subject: str
         ? "Server errors were not counted: Redis is not configured."
         : line("Server errors", count(f.errors), f.errors > 0 ? "each kind was emailed when it first happened" : ""),
       f.backups,
+      ...describeCsp(f.csp),
       "",
       "WAITING ON YOU",
       ...(waiting.length > 0 ? waiting.map((item) => `- ${item}`) : ["Nothing. No open reports, nobody overdue, every payment applied."]),
