@@ -42,6 +42,7 @@ export const eventSchema = z
         subscription_code: z.string().optional(),
         email_token: z.string().optional(),
         amount: z.number().optional(),
+        currency: z.string().optional(),
         plan: z
           .union([
             z.object({ plan_code: z.string().optional() }).passthrough(),
@@ -174,6 +175,27 @@ export function addDays(from: Date, days: number): Date {
   return new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
 }
 
+/** The currency every plan is priced in. */
+export const PLAN_CURRENCY = "NGN";
+
+/**
+ * Why a charge did not pay for its plan, or null when it did. More than the
+ * price passes: a customer who bears Paystack's fee pays a little over it.
+ */
+export function chargeShortfall(
+  data: { amount?: number; currency?: string },
+  plan: Pick<Plan, "amountKobo" | "slug">
+): string | null {
+  if (data.currency !== undefined && data.currency.toUpperCase() !== PLAN_CURRENCY) {
+    return `charge in ${data.currency}, but plans are priced in ${PLAN_CURRENCY}`;
+  }
+  if (typeof data.amount !== "number") return "charge.success without an amount";
+  if (data.amount < plan.amountKobo) {
+    return `charge of ${data.amount} kobo is less than the ${plan.slug} plan's ${plan.amountKobo}`;
+  }
+  return null;
+}
+
 /**
  * What this event does to the subscription.
  *
@@ -214,6 +236,12 @@ export function decideChange(
       if (data.status && data.status !== "success") {
         return { kind: "ignore", why: `charge.success with status ${data.status}` };
       }
+      // The charge must have paid for the plan it names (audit M1). Paystack
+      // charges a plan at the plan's own price, so less than that, or another
+      // currency, is not a renewal of it. Held for a person, not ignored: it
+      // is money received, and someone should look at why it is short.
+      const paid = chargeShortfall(data, plan);
+      if (paid) return { kind: "defer", why: paid };
       return {
         kind: "extend",
         subscriptionCode,

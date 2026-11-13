@@ -79,7 +79,8 @@ export function memoryAllow(
   key: string,
   limit: number,
   windowMs: number,
-  now: number = Date.now()
+  now: number = Date.now(),
+  weight = 1
 ): boolean {
   let counts = memory.get(name);
   if (!counts) {
@@ -87,8 +88,8 @@ export function memoryAllow(
     memory.set(name, counts);
   }
   const recent = (counts.get(key) ?? []).filter((at) => now - at < windowMs);
-  const allowed = recent.length < limit;
-  if (allowed) recent.push(now);
+  const allowed = recent.length + weight <= limit;
+  if (allowed) for (let i = 0; i < weight; i += 1) recent.push(now);
   counts.delete(key);
   counts.set(key, recent);
   if (counts.size > MEMORY_KEYS) counts.delete(counts.keys().next().value!);
@@ -408,3 +409,74 @@ export async function authBudgetLeft(kind: AuthLimit, key: string | null): Promi
     return true;
   }
 }
+
+/**
+ * A limiter that counts in Redis and, when Redis cannot be reached, in this
+ * instance's memory (`memoryAllow`), never allowing everything. For the costly
+ * reads added after the security audit (L10), where an outage must not
+ * remove the ceiling.
+ */
+function costLimiter(prefix: string, limit: number, minutes: number) {
+  let rl: Ratelimit | null | undefined;
+  /** Spend `rate` units of the budget at once; refused whole, never in part. */
+  return async function allow(key: string | null, rate = 1): Promise<boolean> {
+    const subject = key ?? NO_ADDRESS;
+    if (rl === undefined) {
+      const client = redis();
+      rl = client
+        ? new Ratelimit({
+            redis: client,
+            limiter: Ratelimit.slidingWindow(limit, `${minutes} m`),
+            prefix: `rl:${prefix}`,
+            analytics: false,
+          })
+        : null;
+    }
+    if (!rl) return memoryAllow(prefix, subject, limit, minutes * 60_000, Date.now(), rate);
+    try {
+      return (await rl.limit(subject, { rate })).success;
+    } catch (error) {
+      console.error(`[ratelimit] ${prefix} check failed`, error);
+      return memoryAllow(prefix, subject, limit, minutes * 60_000, Date.now(), rate);
+    }
+  };
+}
+
+/**
+ * Hosted PDF fetches per visitor: 120 in 10 minutes.
+ *
+ * Counts only the requests that reach the server and stream the file from
+ * UploadThing; repeat reads are answered by Vercel's CDN (see the document
+ * route). Generous on purpose: a restaurant's guests scanning its menu on
+ * the same Wi-Fi share one address, and a menu must never be refused to
+ * them. A script fetching a 16MB file in a loop meets it within minutes.
+ */
+export const allowDocumentFetch = costLimiter("document", 120, 10);
+
+/**
+ * Batch zip downloads per account: 20 an hour.
+ *
+ * Each one renders up to 500 codes for as long as a minute. An owner
+ * downloads a batch a few times (SVG, then PNG, then again for the printer);
+ * twenty is far past that and stops a script turning the route into a CPU
+ * sink.
+ */
+export const allowZipDownload = costLimiter("zip", 20, 60);
+
+/**
+ * Web Risk lookups per account: 2,500 a day, counted per link actually sent
+ * to Google (a verdict cached in the last day costs nothing).
+ *
+ * Google's free allowance is 100,000 lookups a month for the whole service,
+ * and past it lookups are refused or billed. Without a ceiling one account
+ * could spend it in an afternoon by re-checking 500-row batches of new links,
+ * and a refused lookup lets a save through unscreened (audit L4). So when an
+ * account's budget is spent its saves wait rather than skipping the check.
+ *
+ * 2,500 is five full bulk batches of links never seen before; the create
+ * step re-reads the check step's verdicts from the cache, so a batch costs
+ * once. Counted in this instance's memory when Redis is unreachable, like
+ * the other costly reads.
+ */
+export const SCREENING_LOOKUPS_PER_DAY = 2500;
+export const allowScreeningLookups = costLimiter("screening", SCREENING_LOOKUPS_PER_DAY, 24 * 60);

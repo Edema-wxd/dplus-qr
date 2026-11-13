@@ -2790,6 +2790,96 @@ was a check in the wrong place or missing, not a design change.
 Not in this change: L4 (Web Risk quota, dormant until the key is set), L10
 (logo-cap race, document and zip limits) and L12 (dependencies).
 
+## Costly reads get ceilings, and payments must cover the plan, 12 November 2026
+
+From the security audit of 10 November: L10, and what was left of M1 after
+the subscription-scope change of 10 November.
+
+- **The logo cap is counted under a lock.** The upload middleware's count is
+  a fast refusal, but uploads started together all passed it before any was
+  recorded. `recordLogo` now takes a per-account advisory lock, counts again,
+  and throws `LogoLimitError` over `MAX_LOGOS`. The completion callback
+  already deletes a file it could not record. Same pattern as `recordFile`.
+- **A hosted PDF is cached at Vercel's edge, at an address per file
+  version.**
+  - `/p/{code}/document` streamed up to 16MB from UploadThing on every hit.
+  - It now answers with a redirect to `?v=<digest of the file URL>`, plus
+    `&download` when asked, and only that exact query string serves the file.
+  - That response carries `Vercel-CDN-Cache-Control: public, max-age=60`, so
+    a busy menu costs about one fetch a minute per region, not one per scan.
+  - Anything else, a stale version or an extra parameter added to dodge the
+    cache, gets the redirect, which fetches nothing.
+  - Browsers still get `no-store`. A pause or block reaches readers within
+    about a minute, the same window the redirect's destination cache
+    allows. Replacing the file changes the address, so no reader sees the
+    old one after that.
+  - The digest, rather than the UploadThing key, keeps the file's real
+    location out of the address.
+  - Fetches that reach the server are limited to 120 per visitor per 10
+    minutes. It is generous because a restaurant's guests share one address
+    on its Wi-Fi.
+  - Whether the CDN caches a response near the 16MB upload ceiling is not
+    documented; the visitor limit covers that case.
+- **Batch zips: 20 an hour per account.** Each renders up to 500 codes for
+  up to a minute, so it was a CPU sink for a script. An owner downloads a
+  batch a few times.
+- Both new limits count in Redis, and fall back to a per-instance count
+  rather than allowing everything (`costLimiter` in `ratelimit.ts`).
+- **A renewal must pay for its plan (M1).** `charge.success` for less than
+  the plan's `amount_kobo`, in a currency other than NGN, or with no amount
+  is deferred for staff instead of extending the subscription
+  (`chargeShortfall`). More than the price passes, since a customer who
+  bears Paystack's fee pays slightly over.
+- **`metadata.user_id` must be an account id.** Anyone paying through
+  Paystack Inline can set it. A malformed one used to make the query throw,
+  so the event failed on every re-delivery. It is now skipped, and the email
+  is used as for an event with no metadata.
+- **The customer code is set once.** Any processed event used to overwrite
+  `qr_users.paystack_customer_code`. Now it is written only while empty, or
+  from a checkout the account started here. An event that names the account
+  through forged metadata or its email cannot re-point it at someone else's
+  Paystack customer. Staff correct a genuinely changed one by hand.
+
+## Web Risk lookups are budgeted and cached, 12 November 2026
+
+From the security audit of 10 November: L4. Dormant like the rest of the
+reputation check until `WEB_RISK_API_KEY` is set.
+
+The problem: Google's free allowance is 100,000 lookups a month for the
+whole service. A bulk check sent up to 500 to Google per call with no
+limit, and a single destination could be changed in a loop. Once Google
+refuses (429), every lookup is `unavailable`, and `unavailable` lets a save
+through (8 November). So spending the allowance on purpose turned screening
+off for everyone, silently.
+
+- **Each verdict is reused for a day.** Clean and flagged answers are kept
+  in Redis for 24 hours under a hash of the link (`wr:v1:…`), so no
+  customer's link is stored there. `unavailable` is never kept. A bulk
+  create re-reads the verdicts its check step fetched, so a batch costs
+  once. A link listed since its cached clean verdict is still caught by the
+  weekly re-check. A link delisted since its flagged verdict waits a day to
+  be accepted, which is the cheaper mistake.
+- **The weekly re-check and the staff re-screen always ask Google.** They
+  must not trust a day-old clean verdict. The re-check refreshes the cache
+  as it goes.
+- **Each account may send 2,500 links to Google a day.** Only links not in
+  the cache count (`allowScreeningLookups`, weighted by the number of
+  links). That is five full batches of links never seen before.
+- **A spent allowance refuses the save.** The account is told to try again
+  tomorrow. Letting the save through instead would make spending the
+  allowance a way to save an unscreened link. Without Redis the allowance
+  is counted per instance, like the other costly reads.
+- **Google refusing lookups emails staff.** A 429 (quota), 401 or 403 (key
+  rejected, revoked or billing off) sends one alert an hour through
+  `alertOnce`, because until it is fixed every save goes through unscreened.
+  The run also stops asking Google after the first refusal, rather than
+  sending the other 499.
+- The 8 November rule is unchanged: an outage at Google still lets a save
+  through.
+- Setting a hard quota cap on the Web Risk API in Google Cloud turns a
+  drained allowance into refusals, and so into this alert, rather than
+  into a bill.
+
 ## Signing out ends every session, at once, 11 November 2026
 
 The sign-out button used to end only the session on the device that pressed
@@ -3066,7 +3156,8 @@ Built but switched off:
 
 - The destination reputation check: needs a Google Cloud project with billing
   on, the Web Risk API enabled and a key restricted to it, set as
-  `WEB_RISK_API_KEY` in Vercel (8 November entry).
+  `WEB_RISK_API_KEY` in Vercel (8 November entry). Set a quota cap on the
+  API there too (12 November entry).
 - The retention and upload sweeps run only with `DELETION_SWEEPS_ENABLED=true`.
   When to turn them on in production is open; read a dry run against
   production first (see the 30 October entry).

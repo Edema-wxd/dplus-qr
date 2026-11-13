@@ -84,11 +84,15 @@ async function checkBatch(scope: AccountScope, text: string) {
   const read = readRows(text);
   if (!read.ok) return { ok: false as const, error: read.reason };
   const customLinks = canUseCustomCodes(entitlement);
-  const rows = await markUnsafeRows(checkRows(read.rows, {
-    customLinks,
-    customRefusal: customLinks ? "" : await featureRefusal("custom_codes", entitlement),
-  }));
-  return { ok: true as const, rows, entitlement: entitlement! };
+  const screened = await markUnsafeRows(
+    checkRows(read.rows, {
+      customLinks,
+      customRefusal: customLinks ? "" : await featureRefusal("custom_codes", entitlement),
+    }),
+    scope.accountId
+  );
+  if (!screened.ok) return { ok: false as const, error: screened.reason };
+  return { ok: true as const, rows: screened.rows, entitlement: entitlement! };
 }
 
 export async function checkBulkAction(

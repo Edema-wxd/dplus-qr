@@ -50,4 +50,13 @@ describe("memoryAllow", () => {
     expect(memoryAllow("t3", "b", 1, 1000, t)).toBe(true);
     expect(memoryAllow("t4", "a", 1, 1000, t)).toBe(true);
   });
+
+  it("spends a weight at once, and refuses one that does not fit whole (audit L4)", () => {
+    const t = 4_000_000;
+    expect(memoryAllow("t5", "a", 10, 1000, t, 7)).toBe(true);
+    expect(memoryAllow("t5", "a", 10, 1000, t, 4)).toBe(false);
+    expect(memoryAllow("t5", "a", 10, 1000, t, 3)).toBe(true);
+    expect(memoryAllow("t5", "a", 10, 1000, t, 1)).toBe(false);
+    expect(memoryAllow("t6", "a", 10, 1000, t, 11)).toBe(false);
+  });
 });
