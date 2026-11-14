@@ -2937,6 +2937,49 @@ built in `src/lib/csp.ts` and served on every path from `next.config.ts`.
     getting off it takes months, so adding it stays a separate,
     deliberate decision.
 
+## Dependency advisories, second pass, 14 November 2026
+
+Audit item L12. `npm audit` went from 40 (9 low, 23 moderate, 7 high, 1
+critical) to 38 (8 low, 23 moderate, 7 high, none critical). Patch and minor
+releases only, no `--force`, no major upgrade.
+
+- **`better-auth` 1.7.6 to 1.7.7, by an npm `overrides` entry** in
+  `package.json`. It clears the critical and high OAuth-state and OAuth
+  Proxy advisories and the drizzle-adapter one. `@neondatabase/auth` pins
+  1.7.6 exactly, even in 0.7.0-beta, so only an override can move it. Here
+  it is only the client of Neon's managed server, and 1.7.7 is the smallest
+  release that fixes them. Remove the override once the SDK pins 1.7.7 or
+  later.
+- **`next` and `eslint-config-next` 16.4.2 to 16.4.6.** 16.4.5 is the
+  November security release: `'use cache'` cross-tenant leaks and poisoning
+  (Cache Components is on here), image-optimiser SVG bypass, and more. `npm
+  audit` did not yet list them. One side effect: route handlers now drop a
+  `Response`'s `Content-Length`, so `/p/[code]/[file]` streams its PDF
+  without a length.
+- **`resend` 6.34.1 to 6.38.1** and **`@vercel/functions` 3.11.1 to
+  3.11.3**, both in range.
+
+What remains, and why:
+
+- **`effect` < 3.20 and `@effect/platform` < 0.97.1** (high, moderate):
+  `uploadthing` 7.7.4 and `@uploadthing/shared` 7.1.10, still the latest,
+  pin `effect` 3.17.7 exactly. The fix is a minor jump of a runtime that
+  UploadThing's server code is built on, so it waits for an UploadThing
+  release.
+- **`zod` < 4.6.6** (high), nested in `@neondatabase/auth` and its UI
+  package, pinned 4.5.4. The fix is a minor bump, so it waits for the SDK.
+  The app's own validation uses the top-level 4.6.7.
+- **`@neondatabase/auth` 0.7.0-beta** was not taken: it pins the same
+  `better-auth` and `zod`, so it clears nothing.
+- **The jest, ts-jest and typescript-eslint chain** (`glob`, `minimatch`,
+  `deepmerge`): development only, never deployed. The fixes are new majors
+  of `glob` and `minimatch` that their latest releases do not yet accept,
+  and `deepmerge` has no fixed release.
+- **`@react-email/*` and `html-to-text`** (low): pulled in by
+  `@daveyplate/better-auth-ui` inside the auth SDK, and so also kept as
+  `resend`'s optional peer. The fix is a major of `html-to-text`. Nothing
+  here renders email with them.
+
 ## Signing out ends every session, at once, 11 November 2026
 
 The sign-out button used to end only the session on the device that pressed
