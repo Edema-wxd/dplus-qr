@@ -28,6 +28,7 @@ import { ownsLiveLogo } from "@/lib/logos";
 import { readPresetLogo, type PresetLogoId } from "@/lib/preset-logos";
 import { featureRefusal } from "@/lib/refusals";
 import { checkLinks, pageLinks } from "@/lib/reputation";
+import { allowNewDestination } from "@/lib/ratelimit";
 import {
   analyticsWindow,
   bucketFor,
@@ -212,6 +213,13 @@ export async function getCode(
   return row ? toOwnedCode(row) : null;
 }
 
+/**
+ * Why a save was refused by the daily ceiling on new destinations
+ * (`allowNewDestination`). No plan is named: every plan has the same ceiling.
+ */
+export const NEW_DESTINATION_REFUSAL =
+  "You have pointed codes at a lot of new links today. Please try again tomorrow.";
+
 export type CreateResult =
   | { ok: true; id: string; shortCode: string }
   | { ok: false; reason: string };
@@ -339,6 +347,14 @@ export async function createCode(
       ok: false,
       reason: "That logo is no longer in your library. Pick another, or upload it again.",
     };
+  }
+
+  // The daily ceiling on new destinations (audit M3). After every other
+  // refusal, so a save that would fail anyway spends nothing, and before Web
+  // Risk and the write. A page kind is not counted: its destination is our
+  // own page.
+  if (destination && !(await allowNewDestination(scope.accountId))) {
+    return { ok: false, reason: NEW_DESTINATION_REFUSAL };
   }
 
   // Google's lists of unsafe sites, for the destination or every outside link
@@ -540,8 +556,13 @@ export async function changeDestination(
   // and must stay on Instagram. A page type has no destination to change --
   // its content is edited instead -- so it is refused rather than re-pointed
   // away from its own page.
-  const current = await queryOne<{ kind: string; status: string; archived: boolean }>(
-    `select kind, status, archived_at is not null as archived
+  const current = await queryOne<{
+    kind: string;
+    status: string;
+    archived: boolean;
+    destination_url: string;
+  }>(
+    `select kind, status, archived_at is not null as archived, destination_url
      from qr_codes where user_id = $1 and id = $2 and ${access(3)}`,
     [scope.accountId, id, ...accessArgs(scope, "write")]
   );
@@ -552,6 +573,15 @@ export async function changeDestination(
   }
   const screened = linkDestination(current!.kind, destinationUrl);
   if (!screened.ok) return { ok: false, reason: screened.reason };
+  // Only a link the code is not already on spends the daily ceiling (audit
+  // M3), so re-saving the same destination costs nothing. Before Web Risk
+  // and the write.
+  if (
+    screened.normalised !== current!.destination_url &&
+    !(await allowNewDestination(scope.accountId))
+  ) {
+    return { ok: false, reason: NEW_DESTINATION_REFUSAL };
+  }
   const links = await checkLinks([screened.normalised], scope.accountId);
   if (!links.ok) return { ok: false, reason: links.reason };
 
