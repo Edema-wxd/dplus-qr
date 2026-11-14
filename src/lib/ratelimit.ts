@@ -482,6 +482,30 @@ export const SCREENING_LOOKUPS_PER_DAY = 2500;
 export const allowScreeningLookups = costLimiter("screening", SCREENING_LOOKUPS_PER_DAY, 24 * 60);
 
 /**
+ * New outside destinations per account: 50 in any 24 hours (audit M3).
+ *
+ * A throwaway account can point `qriateplus.com/<code>` links at fresh
+ * phishing pages and keep repointing them as each one is reported. The
+ * email hold, the sign-up limit and Web Risk screening each narrow that;
+ * this caps how many new places one account can send people in a day.
+ *
+ * Fifty is far above what an owner sets by hand in a day -- a campaign is a
+ * handful of codes, and fixing a typo is one more save -- and far below a
+ * script cycling through domains. It is a ceiling on abuse, not a plan
+ * limit, so it is the same on every plan and lives here, not in `qr_plans`.
+ *
+ * One unit per save that stores a link the code is not already on:
+ * creating a link-kind code, and `changeDestination` when the normalised
+ * link differs from the current one. Re-saving the same link costs
+ * nothing. Not counted: outside links on hosted pages, and bulk creation,
+ * which has its own limiter (`allowBulkImport`) and needs a paid feature.
+ * Counted in this instance's memory when Redis is unreachable, like the
+ * costly reads.
+ */
+export const NEW_DESTINATIONS_PER_DAY = 50;
+export const allowNewDestination = costLimiter("destination", NEW_DESTINATIONS_PER_DAY, 24 * 60);
+
+/**
  * Content Security Policy reports per visitor: 30 in 10 minutes.
  *
  * The report endpoint takes no session (browsers post to it on their own),

@@ -2937,6 +2937,45 @@ built in `src/lib/csp.ts` and served on every path from `next.config.ts`.
     getting off it takes months, so adding it stays a separate,
     deliberate decision.
 
+## A daily ceiling on new destinations, 14 November 2026
+
+From the security audit of 10 November: the last code part of M3, which
+asked us to consider a per-account cap on new destinations per day.
+
+- **Why.** A throwaway account can mint `qriateplus.com/<code>` links at
+  fresh phishing pages and repoint them each time one is reported. The
+  email hold (11 November), the sign-up limit and Web Risk screening
+  (dormant until its key is set) each narrow that. None of them limits how
+  many new places one account can send people in a day.
+- **The number: 50 per account in any 24 hours** (`allowNewDestination` in
+  `src/lib/ratelimit.ts`). That is far above what an owner sets by hand in
+  a day: a campaign is a handful of codes, and fixing a typo is one more
+  save. It is far below a script cycling through domains.
+- **An abuse ceiling, not a plan limit.** It is the same on every plan and
+  is not in `qr_plans`, like the invite and bulk limiters. The refusal names
+  no plan or price, says to try again tomorrow, and shows inline beside the
+  form.
+- **What counts: one unit per save that stores a new outside link,** keyed
+  by the account (`scope.accountId`), so a team shares one budget:
+  - creating a link-kind code;
+  - changing a code's destination, only when the normalised link differs
+    from the one it holds. Re-saving the same link costs nothing.
+- **Where it is checked.** After input validation and every other refusal,
+  so a save that would fail anyway spends nothing. Before the Web Risk
+  check, so a capped account cannot spend lookups either, and before any
+  write.
+- **What does not count:**
+  - Outside links on hosted pages. They are content on our own page, not
+    where the code itself sends people.
+  - Bulk creation. It has its own limiter (10 batches an hour), the plan's
+    code limit, and needs a paid feature.
+  - A create refused after the check, for a custom code already taken or
+    a plan found full under the lock, still spends its unit. Fifty leaves
+    room for that.
+- **It fails safe, not open.** It uses `costLimiter`, which counts in Redis
+  and, when Redis cannot be reached, in each instance's memory. An outage
+  makes the ceiling per instance, but never removes it.
+
 ## Signing out ends every session, at once, 11 November 2026
 
 The sign-out button used to end only the session on the device that pressed

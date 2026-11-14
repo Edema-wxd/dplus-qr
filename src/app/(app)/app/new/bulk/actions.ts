@@ -162,6 +162,9 @@ export async function createBulkAction(
   const may = writable(scope);
   if (!may.ok) return { error: may.reason };
 
+  // Bulk rows do not spend the daily ceiling on new destinations
+  // (`allowNewDestination`, audit M3): bulk needs a paid feature, and this
+  // limiter and the plan's code limit already bound it.
   if (!(await allowBulkImport(scope.accountId))) {
     return { error: "That is a lot of batches in one hour. Please wait a little and try again." };
   }
